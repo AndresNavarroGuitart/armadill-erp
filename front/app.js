@@ -32,6 +32,9 @@
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
     x: 'M6 6l12 12M18 6L6 18',
     coin: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v10M9.5 9.5c0-1 1-1.7 2.5-1.7s2.5.7 2.5 1.7-1 1.5-2.5 1.8-2.5.8-2.5 1.8 1 1.7 2.5 1.7 2.5-.7 2.5-1.7',
+    history: 'M12 7v5l3 2M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5',
+    download: 'M12 4v11M7 11l5 5 5-5M5 20h14',
+    lock: 'M6 11h12v9H6zM8 11V8a4 4 0 018 0v3',
   };
   const ic = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${P[n]}"/></svg>`;
 
@@ -50,6 +53,7 @@
     estudio: { titulo: 'Estudio', icono: 'grid', montar: vEstudio },
     comprobantes: { titulo: 'Comprobantes', icono: 'receipt', montar: vComprobantes },
     nueva: { titulo: 'Nueva factura', icono: 'plus', montar: vNueva },
+    trazabilidad: { titulo: 'Trazabilidad', icono: 'history', montar: vTrazabilidad },
   };
   function pintarNav(actual) {
     $('#nav').innerHTML = Object.entries(VISTAS).map(([k, v]) =>
@@ -74,6 +78,7 @@
   }
   function cambiarEmpresa(id) {
     estado.empresaId = id; estado.fac = null; guardar('proto_empresa', id);
+    registrar('acceso', 'Cambió a la empresa ' + empresa().nombre, 'CUIT ' + empresa().cuit);
     pintarTopbar(); cerrarPop(); render();
     toast('Ahora trabajás en ' + empresa().nombre);
   }
@@ -351,7 +356,10 @@
       $('#barraTipo').textContent = letra ? `Factura ${letra} · ${mon}` : 'Elegí un cliente'; $('#barraTotal').textContent = fmt(c.total);
       $('#emitirBtn').disabled = error;
     }
-    $('#borrador').addEventListener('click', () => toast('Borrador guardado (simulado)'));
+    $('#borrador').addEventListener('click', () => {
+      registrar('comprobantes', 'Guardó borrador de factura', (f.cliente ? f.cliente.n : 'Sin cliente') + ' · ' + f.items.length + ' renglón' + (f.items.length === 1 ? '' : 'es'));
+      toast('Borrador guardado (simulado)');
+    });
     $('#emitirBtn').addEventListener('click', emitirSimulado);
     pintarCli(); pintarRenglones(); sync();
   }
@@ -367,12 +375,127 @@
       if (n < filas.length) { filas[n].className = 'on'; n += 1; setTimeout(siguiente, reducir ? 80 : 700); return; }
       const cae = String(Math.floor(70000000000000 + Math.random() * 9999999999999));
       const e = empresa(), f = estado.fac, letra = letraPara(e, f.cliente) || 'C', c = calcular(f, letra);
-      e.comp.unshift({ letra, cliente: f.cliente ? f.cliente.n : 'Consumidor Final', dias: 0, nro: '0003-' + String(Math.max(...e.comp.map((x) => Number(x.nro.slice(5)))) + 1).padStart(8, '0'), total: c.total / 100, estado: 'Autorizado' });
+      const nro = '0003-' + String(Math.max(...e.comp.map((x) => Number(x.nro.slice(5)))) + 1).padStart(8, '0'), cliente = f.cliente ? f.cliente.n : 'Consumidor Final';
+      e.comp.unshift({ letra, cliente, dias: 0, nro, total: c.total / 100, estado: 'Autorizado' });
+      registrar('comprobantes', `Emitió Factura ${letra} ${nro}`, `${cliente} · ${fmt(c.total)} · CAE ${cae} (simulado)`);
       body.innerHTML = `<h4>Factura ${letra} autorizada</h4><div class="sub" style="color:var(--muted);margin-bottom:14px">Simulado · el CAE de abajo es inventado.</div><div class="cae"><small style="color:var(--ink-2)">CAE</small><b>${cae}</b><small style="color:var(--ink-2)">Vence ${sumarDias(10).toLocaleDateString('es-AR')}</small></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn" id="otra">Hacer otra</button><button class="btn primary" id="verLista">Ver comprobantes</button></div>`;
       $('#otra').onclick = () => { estado.fac = null; dlg.close(); render(); };
       $('#verLista').onclick = () => { estado.fac = null; dlg.close(); ir('comprobantes'); };
     };
     siguiente();
+  }
+
+  /* ---------- trazabilidad ---------- */
+  /* Registro de solo lectura: cada movimiento queda encadenado con el anterior mediante una huella.
+     La huella de acá es demostrativa; en el producto la calcula el servidor (SHA-256) sobre la tabla `auditoria`. */
+  const USUARIO = D.usuarios[0];
+  const bit = D.bitacora; /* el más nuevo primero */
+  const usuarioDe = (id) => D.usuarios.find((u) => u.id === id);
+  const RES = { ok: ['Correcto', ''], rechazo: ['Rechazado', 'bad'], fallo: ['Fallido', 'warn'] };
+  const fnv = (s, semilla) => { let h = semilla >>> 0; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h.toString(16).padStart(8, '0'); };
+  const huella = (previa, ev) => { const s = previa + '|' + [ev.ts, ev.u, ev.emp, ev.cat, ev.accion, ev.detalle, ev.res].join('|'); return fnv(s, 2166136261) + fnv(s, 3266489917); };
+  (function encadenar() { let previa = ''; for (let i = bit.length - 1; i >= 0; i--) { bit[i].hp = previa; bit[i].h = previa = huella(previa, bit[i]); } })();
+  function verificarCadena() {
+    let previa = '';
+    for (let i = bit.length - 1; i >= 0; i--) { if (bit[i].hp !== previa || bit[i].h !== huella(previa, bit[i])) return bit[i].id; previa = bit[i].h; }
+    return -1;
+  }
+  function registrar(cat, accion, detalle, extra = {}) {
+    const prev = bit[0];
+    const ev = { id: (prev ? prev.id : 0) + 1, ts: Date.now(), u: USUARIO.id, emp: estado.empresaId, cat, accion, detalle, res: 'ok', ip: '203.0.113.24', disp: 'Este navegador', ...extra, hp: prev ? prev.h : '' };
+    ev.h = huella(ev.hp, ev); bit.unshift(ev); return ev;
+  }
+  const mismoDia = (a, b) => a.toDateString() === b.toDateString();
+  function cuando(ts) {
+    const d = new Date(ts), ayer = sumarDias(-1);
+    const dia = mismoDia(d, hoy) ? 'Hoy' : mismoDia(d, ayer) ? 'Ayer' : d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
+    return { dia, hora: d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }), largo: d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) };
+  }
+  const nombreEmpresa = (id) => { const e = D.empresas.find((x) => x.id === id); return e ? e.nombre : 'Estudio (sin empresa)'; };
+
+  function vTrazabilidad(root) {
+    const f = { cat: 'todas', per: '7', u: '', emp: '', q: '', max: 40 };
+    const inicioHoy = new Date(hoy); inicioHoy.setHours(0, 0, 0, 0);
+    const desde = () => (f.per === 'hoy' ? inicioHoy.getTime() : inicioHoy.getTime() - (Number(f.per) - 1) * 864e5);
+    root.innerHTML = `
+      <section class="hero rise"><div><h1>Trazabilidad de <em>movimientos</em></h1><p>Quién hizo qué, sobre qué empresa y cuándo. Es un registro de solo lectura: nadie puede editarlo ni borrarlo.</p></div>
+        <div class="acciones"><button class="btn" id="verificar">${ic('lock')} Verificar integridad</button><button class="btn" id="exportar">${ic('download')} Exportar CSV</button></div></section>
+      <div class="filtros rise" style="--d:1" role="group" aria-label="Tipo de actividad">${[['todas', 'Todas'], ...Object.entries(D.categorias)].map(([k, v]) => `<button class="f" data-cat="${k}" aria-pressed="${k === 'todas'}">${v}</button>`).join('')}</div>
+      <div class="filtros rise" style="--d:2">
+        <div class="seg" role="group" aria-label="Período">${[['hoy', 'Hoy'], ['7', '7 días'], ['30', '30 días']].map(([k, v]) => `<button data-per="${k}" aria-pressed="${k === f.per}">${v}</button>`).join('')}</div>
+        <select class="in" id="fUsuario" aria-label="Usuario"><option value="">Todos los usuarios</option>${D.usuarios.map((u) => `<option value="${u.id}">${esc(u.n)}</option>`).join('')}</select>
+        <select class="in" id="fEmpresa" aria-label="Empresa"><option value="">Todas las empresas</option><option value="est">Sin empresa (del estudio)</option>${D.empresas.map((e) => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}</select>
+        <input id="fq" placeholder="Buscar actividad, cliente o número…" aria-label="Buscar en la trazabilidad"></div>
+      <div class="resumen rise" style="--d:3" id="resumenTraza"></div>
+      <div class="card lista traza rise" style="--d:4" id="listaTraza"></div>
+      <p class="pie-proto">${ic('lock')} Cada registro lleva una huella encadenada con el anterior: si alguien alterara uno, la verificación lo detecta.</p>`;
+
+    const filtrados = () => {
+      const t = f.q.toLowerCase(), d0 = desde();
+      return bit.filter((ev) => ev.ts >= d0 && (f.cat === 'todas' || ev.cat === f.cat) && (!f.u || ev.u === Number(f.u))
+        && (!f.emp || (f.emp === 'est' ? ev.emp == null : ev.emp === Number(f.emp)))
+        && (!t || (ev.accion + ' ' + ev.detalle + ' ' + usuarioDe(ev.u).n + ' ' + nombreEmpresa(ev.emp)).toLowerCase().includes(t)));
+    };
+    const detalle = (ev) => {
+      const u = usuarioDe(ev.u), c = cuando(ev.ts);
+      return `<dl>
+        <div><dt>Fecha y hora</dt><dd>${esc(CAPITAL(c.largo))}, ${c.hora}</dd></div>
+        <div><dt>Usuario</dt><dd>${esc(u.n)} · ${esc(u.rol)}</dd></div>
+        <div><dt>Empresa</dt><dd>${esc(nombreEmpresa(ev.emp))}</dd></div>
+        <div><dt>Origen</dt><dd>${esc(ev.ip)} · ${esc(ev.disp)}</dd></div>
+        <div><dt>Registro</dt><dd>N° ${String(ev.id).padStart(6, '0')} · ${esc(D.categorias[ev.cat])}</dd></div>
+        <div><dt>Resultado</dt><dd>${RES[ev.res][0]}</dd></div></dl>
+        ${ev.cambios ? `<table class="cambios"><thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead><tbody>${ev.cambios.map(([k, a, b]) => `<tr><td>${esc(k)}</td><td class="antes">${esc(a)}</td><td class="desp">${esc(b)}</td></tr>`).join('')}</tbody></table>` : ''}
+        <div class="huella"><span>Huella <code>${ev.h}</code></span><span>Anterior <code>${ev.hp || '— inicio del registro —'}</code></span></div>`;
+    };
+    const pintar = () => {
+      const filas = filtrados(), shown = filas.slice(0, f.max), mal = filas.filter((x) => x.res !== 'ok').length;
+      $('#resumenTraza').innerHTML = `<span class="pill blue"><i></i>${filas.length} movimiento${filas.length === 1 ? '' : 's'}</span><span class="pill"><i></i>${new Set(filas.map((x) => x.u)).size} usuario${new Set(filas.map((x) => x.u)).size === 1 ? '' : 's'}</span>${mal ? `<span class="pill bad"><i></i>${mal} con problemas</span>` : ''}`;
+      $('#listaTraza').innerHTML = filas.length ? `<div class="ev cab"><span>Fecha y hora</span><span>Usuario</span><span>Actividad</span><span>Empresa</span><span>Resultado</span></div>` + shown.map((ev) => {
+        const u = usuarioDe(ev.u), c = cuando(ev.ts);
+        return `<article class="ev" data-res="${ev.res}"><button class="ev-f" aria-expanded="false" aria-controls="det${ev.id}">
+          <span class="ev-cuando num"><b>${c.dia}</b><small>${c.hora}</small></span>
+          <span class="ev-u"><span class="avatar t${u.tono}">${esc(u.ini)}</span><span class="t"><b>${esc(u.n)}</b><span>${esc(u.rol)}</span></span></span>
+          <span class="ev-act"><b>${esc(ev.accion)}</b><span>${esc(ev.detalle)}</span></span>
+          <span class="ev-emp">${esc(nombreEmpresa(ev.emp))}</span>
+          <span class="ev-res"><span class="pill ${RES[ev.res][1]}"><i></i>${RES[ev.res][0]}</span></span></button>
+          <div class="ev-det" id="det${ev.id}" hidden>${detalle(ev)}</div></article>`;
+      }).join('') + (filas.length > shown.length ? `<button class="btn mas" id="verMas">Ver ${Math.min(40, filas.length - shown.length)} más · quedan ${filas.length - shown.length}</button>` : '') : `<div class="vacio">No hay movimientos con ese filtro.</div>`;
+    };
+    pintar();
+
+    $$('[data-cat]', root).forEach((b) => b.addEventListener('click', () => { f.cat = b.dataset.cat; f.max = 40; $$('[data-cat]', root).forEach((x) => x.setAttribute('aria-pressed', x === b)); pintar(); }));
+    $$('[data-per]', root).forEach((b) => b.addEventListener('click', () => { f.per = b.dataset.per; f.max = 40; $$('[data-per]', root).forEach((x) => x.setAttribute('aria-pressed', x === b)); pintar(); }));
+    $('#fUsuario', root).addEventListener('change', (ev) => { f.u = ev.target.value; f.max = 40; pintar(); });
+    $('#fEmpresa', root).addEventListener('change', (ev) => { f.emp = ev.target.value; f.max = 40; pintar(); });
+    $('#fq', root).addEventListener('input', (ev) => { f.q = ev.target.value; f.max = 40; pintar(); });
+    $('#listaTraza', root).addEventListener('click', (ev) => {
+      if (ev.target.closest('#verMas')) { f.max += 40; pintar(); return; }
+      const b = ev.target.closest('.ev-f'); if (!b) return;
+      const abierto = b.getAttribute('aria-expanded') === 'true';
+      b.setAttribute('aria-expanded', !abierto); $('#' + b.getAttribute('aria-controls')).hidden = abierto;
+    });
+    $('#verificar', root).addEventListener('click', () => {
+      const mal = verificarCadena(), n = bit.length;
+      toast(mal < 0 ? `Registro íntegro: ${n} movimientos verificados` : `Se detectó una alteración en el registro N° ${mal}`);
+      registrar('seguridad', 'Verificó la integridad de la trazabilidad', mal < 0 ? n + ' registros, sin alteraciones' : 'Alteración detectada en el registro N° ' + mal, { emp: null, res: mal < 0 ? 'ok' : 'fallo' });
+      pintar();
+    });
+    $('#exportar', root).addEventListener('click', () => {
+      const filas = filtrados();
+      /* los valores que empiezan con = + - @ se neutralizan para que Excel no los ejecute como fórmula */
+      const q = (v) => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+      const pad = (n) => String(n).padStart(2, '0');
+      const lineas = [['Registro', 'Fecha', 'Hora', 'Usuario', 'Rol', 'Empresa', 'Categoría', 'Actividad', 'Detalle', 'Resultado', 'IP', 'Huella']].concat(filas.map((ev) => {
+        const d = new Date(ev.ts), u = usuarioDe(ev.u);
+        return [ev.id, `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, cuando(ev.ts).hora, u.n, u.rol, nombreEmpresa(ev.emp), D.categorias[ev.cat], ev.accion, ev.detalle, RES[ev.res][0], ev.ip, ev.h];
+      })).map((l) => l.map(q).join(';')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + lineas], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'trazabilidad-' + iso(hoy) + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      registrar('seguridad', 'Exportó la trazabilidad a CSV', filas.length + ' movimientos', { emp: null });
+      toast(filas.length + ' movimientos exportados'); pintar();
+    });
   }
 
   /* ---------- paleta de comandos ---------- */
@@ -413,7 +536,7 @@
   /* ---------- eventos globales ---------- */
   document.addEventListener('click', (ev) => {
     const ird = ev.target.closest('[data-ir]'); if (ird) { cerrarPop(); ir(ird.dataset.ir); return; }
-    const emp = ev.target.closest('[data-emp]'); if (emp) { const id = Number(emp.dataset.emp); if (emp.dataset.entrar) { estado.empresaId = id; estado.fac = null; guardar('proto_empresa', id); pintarTopbar(); ir('inicio'); } else cambiarEmpresa(id); return; }
+    const emp = ev.target.closest('[data-emp]'); if (emp) { const id = Number(emp.dataset.emp); if (emp.dataset.entrar) { estado.empresaId = id; estado.fac = null; guardar('proto_empresa', id); registrar('acceso', 'Entró a la empresa ' + empresa().nombre, 'Desde la cartera del estudio'); pintarTopbar(); ir('inicio'); } else cambiarEmpresa(id); return; }
     const ts = ev.target.closest('[data-toast]'); if (ts) { toast(ts.dataset.toast); return; }
     const op = ev.target.closest('#paletaRes .op'); if (op) { $('#paleta').close(); paletaItems[Number(op.dataset.n)].f(); return; }
     if (ev.target.closest('#empresaBtn')) { $('#popEmpresa').hidden ? abrirPop() : cerrarPop(); return; }
@@ -432,5 +555,6 @@
   /* ---------- arranque ---------- */
   const guardado = leer('proto_tema');
   document.documentElement.dataset.theme = guardado || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  try { if (!sessionStorage.getItem('proto_sesion')) { sessionStorage.setItem('proto_sesion', '1'); registrar('acceso', 'Inició sesión', 'Ingreso con usuario y segundo factor', { emp: null }); } } catch (e) { /* sin almacenamiento */ }
   pintarTopbar(); render();
 })();

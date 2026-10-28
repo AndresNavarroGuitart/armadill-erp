@@ -82,5 +82,63 @@
     };
   }
 
-  window.DATOS = { empresas: base.map((d, i) => crear(i, d)), clientes, articulos, condicion };
+  /* ---------- trazabilidad: usuarios y movimientos de ejemplo ---------- */
+  const usuarios = [
+    { id: 1, n: 'Andrés Navarro', ini: 'AN', rol: 'Administrador', tono: 0 },
+    { id: 2, n: 'Carolina Ríos', ini: 'CR', rol: 'Contadora', tono: 1 },
+    { id: 3, n: 'Matías Peña', ini: 'MP', rol: 'Auxiliar contable', tono: 2 },
+    { id: 4, n: 'Sofía Lucero', ini: 'SL', rol: 'Administrativa', tono: 0 },
+  ];
+  const empresas = base.map((d, i) => crear(i, d));
+  const categorias = { acceso: 'Acceso', comprobantes: 'Comprobantes', contabilidad: 'Contabilidad', tesoreria: 'Tesorería', maestros: 'Maestros', seguridad: 'Seguridad' };
+  const equipos = ['Chrome en Windows', 'Edge en Windows', 'Safari en iPhone', 'Chrome en Mac'];
+
+  function crearBitacora() {
+    const r = rng(4242), pick = (a) => a[Math.floor(r() * a.length)], n = (a, b) => a + Math.floor(r() * (b - a + 1));
+    const pesos = (x) => '$ ' + x.toLocaleString('es-AR');
+    const nro = () => '0003-' + String(n(1180, 1260)).padStart(8, '0');
+    const art = () => pick(articulos);
+    /* w = peso relativo; quien = usuarios que pueden hacerlo; sinEmp = no pertenece a una empresa */
+    const T = [
+      { w: 5, cat: 'acceso', quien: [1, 2, 3, 4], sinEmp: true, f: () => ({ accion: 'Inició sesión', detalle: 'Ingreso con usuario y segundo factor' }) },
+      { w: 3, cat: 'acceso', quien: [1, 2, 3, 4], sinEmp: true, f: () => ({ accion: 'Cerró sesión', detalle: 'Cierre manual' }) },
+      { w: 1, cat: 'acceso', quien: [3, 4], sinEmp: true, f: () => ({ accion: 'Intento de ingreso fallido', detalle: 'Contraseña incorrecta (intento ' + n(1, 3) + ' de 5)', res: 'fallo' }) },
+      { w: 9, cat: 'comprobantes', quien: [1, 2, 4], f: () => { const c = pick(clientes), t = n(8, 480) * 1000; return { accion: 'Emitió Factura ' + pick(['A', 'A', 'B']) + ' ' + nro(), detalle: c.n + ' · ' + pesos(t) + ' · CAE obtenido' }; } },
+      { w: 2, cat: 'comprobantes', quien: [1, 2], f: () => { const c = pick(clientes); return { accion: 'Anuló Factura A ' + nro(), detalle: c.n + ' · se generó la nota de crédito correspondiente', cambios: [['Estado', 'Autorizado', 'Anulado']] }; } },
+      { w: 2, cat: 'comprobantes', quien: [1, 2, 4], f: () => ({ accion: 'ARCA rechazó Factura B ' + nro(), detalle: 'Observación: condición IVA del receptor no informada (RG 5616)', res: 'rechazo' }) },
+      { w: 3, cat: 'comprobantes', quien: [3, 4], f: () => ({ accion: 'Guardó borrador de factura', detalle: pick(clientes).n + ' · ' + n(1, 4) + ' renglones' }) },
+      { w: 5, cat: 'contabilidad', quien: [1, 2, 3], f: () => ({ accion: 'Registró asiento N° ' + n(4300, 4620), detalle: pick(['Honorarios del mes', 'Pago de alquiler', 'Provisión de aguinaldo', 'Ajuste de inventario', 'Cargas sociales']) + ' · Debe = Haber' }) },
+      { w: 1, cat: 'contabilidad', quien: [1, 2], f: () => { const a = n(4300, 4620); return { accion: 'Reversó el asiento N° ' + a, detalle: 'Se generó el contraasiento; el original no se modifica', cambios: [['Asiento ' + a, 'Vigente', 'Reversado']] }; } },
+      { w: 1, cat: 'contabilidad', quien: [1, 2], f: () => ({ accion: 'Cerró el período ' + pick(['agosto', 'septiembre']) + ' 2026', detalle: 'Ya no admite asientos con fecha dentro del período', cambios: [['Período', 'Abierto', 'Cerrado']] }) },
+      { w: 4, cat: 'tesoreria', quien: [1, 2, 3], f: () => ({ accion: 'Concilió ' + n(3, 28) + ' movimientos bancarios', detalle: pick(['Banco Nación', 'Banco Galicia', 'Banco Macro']) + ' · cuenta corriente' }) },
+      { w: 3, cat: 'tesoreria', quien: [1, 2, 4], f: () => ({ accion: 'Registró un cobro', detalle: pick(clientes).n + ' · ' + pesos(n(5, 300) * 1000) + ' · transferencia' }) },
+      { w: 1, cat: 'tesoreria', quien: [3], f: () => ({ accion: 'Importó un extracto bancario', detalle: n(40, 160) + ' movimientos leídos, ' + n(0, 2) + ' duplicados descartados' }) },
+      { w: 3, cat: 'maestros', quien: [1, 2, 4], f: () => { const c = pick(clientes); return { accion: 'Modificó el cliente ' + c.n, detalle: 'Cambió la condición frente al IVA', cambios: [['Condición IVA', 'Consumidor Final', 'Responsable Inscripto']] }; } },
+      { w: 2, cat: 'maestros', quien: [1, 2, 3], f: () => { const a = art(), p = a.p; return { accion: 'Cambió el precio de ' + a.n, detalle: 'Lista de precios general', cambios: [['Precio neto', pesos(Math.round(p * 0.92)), pesos(p)]] }; } },
+      { w: 1, cat: 'maestros', quien: [1, 4], f: () => ({ accion: 'Dio de alta un cliente', detalle: pick(['Distribuidora Norte SRL', 'Panificados Del Centro', 'Vet. San Roque']) + ' · CUIT validado' }) },
+      { w: 1, cat: 'seguridad', quien: [1], sinEmp: true, f: () => { const u = pick(['Matías Peña', 'Sofía Lucero']); return { accion: 'Cambió los permisos de ' + u, detalle: 'Rol y empresas habilitadas', cambios: [['Puede anular comprobantes', 'No', 'Sí']] }; } },
+      { w: 1, cat: 'seguridad', quien: [1, 2], sinEmp: true, f: () => ({ accion: 'Exportó un listado a Excel', detalle: pick(['Libro IVA Ventas', 'Mayor de cuentas', 'Cuentas a cobrar']) }) },
+    ];
+    const total = T.reduce((s, t) => s + t.w, 0), ahora = new Date(), out = [];
+    for (let dia = 29; dia >= 0; dia--) {
+      const d = new Date(ahora); d.setDate(d.getDate() - dia); d.setHours(0, 0, 0, 0);
+      const finde = d.getDay() === 0 || d.getDay() === 6;
+      const cant = finde ? (r() < .25 ? 1 : 0) : n(5, 10);
+      for (let k = 0; k < cant; k++) {
+        let x = r() * total, t = T[0];
+        for (const c of T) { x -= c.w; if (x <= 0) { t = c; break; } }
+        const min = n(8 * 60 + 5, 19 * 60);
+        const ts = new Date(d); ts.setMinutes(min, n(0, 59), 0);
+        if (ts > ahora) continue;
+        const u = pick(t.quien), e = t.sinEmp ? null : pick(empresas);
+        const ev = t.f();
+        out.push({ ts: ts.getTime(), u, emp: e ? e.id : null, cat: t.cat, res: 'ok', ip: '203.0.113.' + n(10, 90), disp: pick(equipos), ...ev });
+      }
+    }
+    out.sort((a, b) => a.ts - b.ts);
+    out.forEach((ev, i) => { ev.id = i + 1; });
+    return out.reverse();
+  }
+
+  window.DATOS = { empresas, clientes, articulos, condicion, usuarios, categorias, bitacora: crearBitacora() };
 })();
