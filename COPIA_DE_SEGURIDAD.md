@@ -36,6 +36,13 @@ Tras el lote de stock, cobranzas, TPV y dólar (ver [PRUEBAS_CAJA_NEGRA.md](PRUE
 Andrés cerró el Supervisor y ejecutó [restaurar_copia.ps1](restaurar_copia.ps1). Verificación en disco: servicio `Running` con un `mysqld` nuevo (PID 13188), puerto 30804 abierto, y `cuentacliente.ibd`, `cuentaproveedor.ibd`, `articulo.ibd` y `caja.ibd` con **el mismo hash que la copia limpia**; `retenciones.ibd` y `cuerpostock.ibd` estaban abiertas por MySQL y no se pudieron hashear. No se abrió el cliente.
 La base con las pruebas quedó en `C:\administraNET\mysql\data_con_pruebas_20261028-113633`. Ya hay **cuatro** carpetas `data_con_pruebas_*` (~650 MB cada una): conviene borrar las tres anteriores.
 
+## Quinta restauración realizada (2026-10-28, 11:57)
+
+Tras los lotes de percepciones en compras, pago mixto en el TPV y nota de crédito por devolución parcial: año fiscal 2026 con el vencimiento de Octubre 2024 editado, artículo 4, FA de compra 0001-00004001 (con percepciones Gan 30 e IVA 20) y 0001-00004002, FB 0001-00000001 (pago mixto), FA de venta 0001-00000001 y NCA 0001-00000001. La configuración de percepciones y contabilidad **no** se guardó (el sistema pide contratar los módulos).
+
+Andrés cerró el Supervisor y ejecutó [restaurar_copia.ps1](restaurar_copia.ps1). Verificación en disco: servicio `Running` con un `mysqld` nuevo (PID 16172), puerto 30804 abierto, y `cuentacliente.ibd`, `cuentaproveedor.ibd`, `articulo.ibd` y `caja.ibd` con **el mismo hash que la copia limpia**; `percepcion.ibd` y `years.ibd` estaban abiertas por MySQL y no se pudieron hashear. No se abrió el cliente.
+La base con las pruebas quedó en `C:\administraNET\mysql\data_con_pruebas_20261028-115723`. Hay ahora **cinco** carpetas `data_con_pruebas_*` (~650 MB cada una, ~3 GB en total): conviene borrar las cuatro anteriores.
+
 ## Cómo restaurar (si las pruebas dejan la base sucia)
 
 Preferir el script [restaurar_copia.ps1](restaurar_copia.ps1). Pasos manuales equivalentes:
