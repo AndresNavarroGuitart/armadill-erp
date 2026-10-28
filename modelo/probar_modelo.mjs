@@ -132,6 +132,7 @@ async function confirmar(id, { electronico = false, numero, cae = '7412345678901
 await prueba('CUIT con dígito verificador inválido es rechazado (empresa y tercero)', async () => {
   await rechaza(() => q(`insert into empresa (estudio_id, cuit, razon_social, condicion_iva_codigo) values ($1,'30123456780','X',1)`, [estudio.id]), /check|violates/i, 'CUIT inválido');
   await rechaza(() => q(`insert into tercero (empresa_id, tipo_documento_codigo, nro_documento, razon_social, condicion_iva_codigo, es_cliente) values ($1,80,'20123456780','X',1,true)`, [E]), /check|violates/i);
+  await rechaza(() => q(`insert into tercero (empresa_id, tipo_documento_codigo, nro_documento, razon_social, condicion_iva_codigo, es_cliente) values ($1,80,'00000000000','X',1,true)`, [E]), /check|violates/i, 'CUIT ficticio de ceros');
 });
 await prueba('Un tercero debe ser cliente o proveedor, y el documento no se repite', async () => {
   await rechaza(() => q(`insert into tercero (empresa_id, tipo_documento_codigo, nro_documento, razon_social, condicion_iva_codigo) values ($1,96,'12345678','X',5)`, [E]), /check|violates/i);

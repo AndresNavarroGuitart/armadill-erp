@@ -33,6 +33,8 @@ declare
   i int;
 begin
   if p is null or p !~ '^[0-9]{11}$' then return false; end if;
+  -- prefijos de tipo de persona que asigna ARCA (el 00000000000 cierra el dígito verificador pero no existe)
+  if substr(p, 1, 2) not in ('20','23','24','25','26','27','30','33','34','50','51','55') then return false; end if;
   for i in 1..10 loop
     suma := suma + substr(p, i, 1)::int * pesos[i];
   end loop;

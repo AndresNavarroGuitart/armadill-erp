@@ -61,9 +61,10 @@ create table rubro (
   id         bigint generated always as identity primary key,
   empresa_id bigint not null references empresa(id),
   nombre     text not null,
-  padre_id   bigint references rubro(id),
-  unique (empresa_id, nombre)
+  padre_id   bigint references rubro(id)
 );
+-- el nombre es único dentro del mismo padre (el original repite "Servicios" como rubro y como subrubro)
+create unique index rubro_nombre_unico on rubro (empresa_id, coalesce(padre_id, 0), nombre);
 
 -- El tratamiento de IVA se modela como ARCA: gravado (con alícuota), exento o no gravado.
 create table articulo (
