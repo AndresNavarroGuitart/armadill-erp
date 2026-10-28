@@ -106,6 +106,7 @@ async function crearComprobante(o) {
       [E, c.id, orden++, it.articulo ?? null, it.descripcion ?? 'renglón', it.cantidad ?? 1, it.precio, it.desc ?? 0,
        it.trat ?? 'gravado', it.trat && it.trat !== 'gravado' ? null : ALIC[it.alic ?? '21'], it.importe, it.deposito ?? null]);
     if (it.docItem) await q(`update comprobante_item set documento_item_id = $1 where comprobante_id = $2 and orden = $3`, [it.docItem, c.id, orden - 1]);
+    if (it.cuenta) await q(`update comprobante_item set cuenta_id = $1 where comprobante_id = $2 and orden = $3`, [it.cuenta, c.id, orden - 1]);
   }
   for (const v of o.resumen.ivas) {
     await q(`insert into comprobante_iva (empresa_id, comprobante_id, alicuota_codigo, base_imponible, importe_iva) values ($1,$2,$3,$4,$5)`,
@@ -581,6 +582,120 @@ await prueba('Un extracto que no continúa el saldo del anterior, o con líneas 
 });
 
 // ---------------------------------------------------------------------------
+// 10 quater. Asientos automáticos
+// ---------------------------------------------------------------------------
+for (const [codigo, nombre, tipo] of [
+  ['1.1.2', 'Valores a depositar', 'activo'], ['1.1.6', 'Percepciones sufridas', 'activo'], ['1.1.7', 'Retenciones sufridas', 'activo'],
+  ['2.1.5', 'Percepciones a depositar', 'pasivo'], ['2.1.6', 'Retenciones a depositar', 'pasivo'], ['4.1.2', 'Servicios', 'ingreso'],
+  ['4.1.9', 'Descuentos otorgados', 'egreso'], ['5.1.9', 'Descuentos obtenidos', 'ingreso']]) {
+  cuentas[codigo] = (await uno(`insert into plan_cuenta (empresa_id, codigo, nombre, tipo) values ($1,$2,$3,$4) returning id`, [E, codigo, nombre, tipo])).id;
+}
+const mapaCuentas = {
+  ventas: '4.1.1', compras: '5.1.1', iva_debito: '2.1.4', iva_credito: '1.1.5', deudores: '1.1.3', proveedores: '2.1.1',
+  percepcion_iva_sufrida: '1.1.6', percepcion_iibb_sufrida: '1.1.6', percepcion_ganancias_sufrida: '1.1.6', otros_tributos_compras: '5.1.1',
+  percepcion_iva_practicada: '2.1.5', percepcion_iibb_practicada: '2.1.5', otros_tributos_ventas: '2.1.5',
+  retencion_iva_sufrida: '1.1.7', retencion_ganancias_sufrida: '1.1.7', retencion_iibb_sufrida: '1.1.7', retencion_suss_sufrida: '1.1.7',
+  retencion_iva_practicada: '2.1.6', retencion_ganancias_practicada: '2.1.6', retencion_iibb_practicada: '2.1.6', retencion_suss_practicada: '2.1.6',
+  descuentos_otorgados: '4.1.9', descuentos_obtenidos: '5.1.9', valores_a_depositar: '1.1.2' };
+for (const [concepto, codigo] of Object.entries(mapaCuentas)) {
+  await q(`insert into cuenta_automatica (empresa_id, concepto, cuenta_id) values ($1,$2,$3)`, [E, concepto, cuentas[codigo]]);
+}
+await q(`update caja set cuenta_contable_id = $1 where id = $2`, [cuentas['1.1.1'], caja.id]);
+await q(`update empresa_parametro set asientos_automaticos = true where empresa_id = $1`, [E]);
+const lineasDe = async (asientoId) => (await q(`select c.codigo, l.debe, l.haber from asiento_linea l join plan_cuenta c on c.id = l.cuenta_id where l.asiento_id = $1`, [asientoId]))
+  .map((l) => `${l.codigo} ${Number(l.debe) > 0 ? 'D ' + l.debe : 'H ' + l.haber}`).sort();
+const asientoDeComprobante = async (id) => (await uno(`select asiento_id from comprobante where id = $1`, [id])).asiento_id;
+let compraAuto; let ventaRepartida;
+
+await prueba('Venta confirmada genera su asiento solo: deudores 726,05 / ventas 650 + IVA débito 76,05', async () => {
+  const r = resumen(motor.venta(renglonesV04), { exento: '130.00', noGravado: '130.00' });
+  const id = await crearComprobante({ sentido: 'venta', tipo: 1, tercero: cliente1.id, receptor: 1, incluyeIva: true, resumen: r, items: itemsV04 });
+  await confirmar(id, { electronico: true, numero: 80 });
+  const a = await asientoDeComprobante(id);
+  if (!a) throw new Error('no se generó el asiento');
+  igual((await lineasDe(a)).join(' | '), '1.1.3 D 726.05 | 2.1.4 H 76.05 | 4.1.1 H 650.00', 'líneas del asiento');
+  igual((await uno(`select estado from asiento where id = $1`, [a])).estado, 'contabilizado', 'estado');
+});
+await prueba('Compra con percepciones: compras 1.000, IVA crédito 210, percepciones 20 y 30 / proveedores 1.260', async () => {
+  const salida = motor.compra([{ precio: '1000', cantidad: '1', alicuota: '21' }], { percepciones: { gan: '30', iva: '20' } });
+  compraAuto = await crearComprobante({ sentido: 'compra', tipo: 1, numero: 8001, tercero: proveedor1.id, incluyeIva: false, resumen: resumen(salida, { trib: '50.00' }),
+    items: [{ precio: '1000', importe: '1000' }], tributos: [{ tipo: 'percepcion_ganancias', importe: '30.00' }, { tipo: 'percepcion_iva', importe: '20.00' }] });
+  await confirmar(compraAuto);
+  igual((await lineasDe(await asientoDeComprobante(compraAuto))).join(' | '),
+    '1.1.5 D 210.00 | 1.1.6 D 20.00 | 1.1.6 D 30.00 | 2.1.1 H 1260.00 | 5.1.1 D 1000.00', 'líneas del asiento');
+});
+await prueba('Nota de crédito: el asiento es el inverso de la factura (con descuento al pie, 27,55)', async () => {
+  const items = [{ precio: '10', importe: '10.0000' }, { precio: '10', importe: '10.0000' }, { precio: '10', desc: 0.1, importe: '9.0000' }];
+  const r = resumen(motor.venta([{ precioFinal: '10', cantidad: '1', alicuota: '21' }, { precioFinal: '10', cantidad: '1', alicuota: '21' },
+    { precioFinal: '10', cantidad: '1', alicuota: '21', descPct: '10' }], { descPiePct: '5' }));
+  const fa = await crearComprobante({ sentido: 'venta', tipo: 1, tercero: cliente1.id, receptor: 1, incluyeIva: true, descPiePct: 0.05, resumen: r, items });
+  await confirmar(fa, { electronico: true, numero: 81 });
+  const nc = await crearComprobante({ sentido: 'venta', tipo: 3, tercero: cliente1.id, receptor: 1, incluyeIva: true, descPiePct: 0.05, resumen: r, items, origen: fa });
+  await confirmar(nc, { electronico: true, numero: 82, cae: '74123456789098' });
+  igual((await lineasDe(await asientoDeComprobante(fa))).join(' | '), '1.1.3 D 27.55 | 2.1.4 H 4.78 | 4.1.1 H 22.77', 'factura');
+  igual((await lineasDe(await asientoDeComprobante(nc))).join(' | '), '1.1.3 H 27.55 | 2.1.4 D 4.78 | 4.1.1 D 22.77', 'nota de crédito');
+});
+await prueba('Renglones en dos cuentas de ingreso: el reparto suma EXACTAMENTE la base (82,65 + 41,32 = 123,97)', async () => {
+  const salida = motor.venta([{ precioFinal: '100', cantidad: '1', alicuota: '21' }, { precioFinal: '50', cantidad: '1', alicuota: '21' }]);
+  ventaRepartida = await crearComprobante({ sentido: 'venta', tipo: 1, tercero: cliente1.id, receptor: 1, incluyeIva: true, resumen: resumen(salida),
+    items: [{ precio: '100', importe: '100', cuenta: cuentas['4.1.1'] }, { precio: '50', importe: '50', cuenta: cuentas['4.1.2'] }] });
+  await confirmar(ventaRepartida, { electronico: true, numero: 83 });
+  igual((await lineasDe(await asientoDeComprobante(ventaRepartida))).join(' | '), '1.1.3 D 150.00 | 2.1.4 H 26.03 | 4.1.1 H 82.65 | 4.1.2 H 41.32', 'líneas');
+});
+await prueba('Cobro con retención sufrida: caja 85 + retención 15 / deudores 100 (con el cliente como auxiliar)', async () => {
+  const p = await crearPago({ sentido: 'cobro', tercero: cliente1.id, imputaciones: [{ comprobante: ventaRepartida, importe: '100.00' }],
+    medios: [{ importe: '85.00' }], retenciones: [{ origen: 'sufrida', tipo: 'iibb', jurisdiccion: 913, importe: '15.00', cert: 'AUTO-1' }] });
+  await confirmarPago(p);
+  const a = (await uno(`select asiento_id from pago where id = $1`, [p])).asiento_id;
+  igual((await lineasDe(a)).join(' | '), '1.1.1 D 85.00 | 1.1.3 H 100.00 | 1.1.7 D 15.00', 'líneas');
+  igual((await uno(`select count(*)::int n from asiento_linea where asiento_id = $1 and tercero_id = $2`, [a, cliente1.id])).n, 1, 'línea con el cliente como auxiliar');
+});
+let opAuto;
+await prueba('Orden de pago con retención practicada: proveedores 1.260 / caja 1.235 + retención a depositar 25', async () => {
+  const cert = String((await uno(`select fn_siguiente($1,'cert-iibb') as n`, [E])).n);
+  opAuto = await crearPago({ sentido: 'pago', tercero: proveedor1.id, imputaciones: [{ comprobante: compraAuto, importe: '1260.00' }],
+    medios: [{ importe: '1235.00' }], retenciones: [{ origen: 'practicada', tipo: 'iibb', jurisdiccion: 913, importe: '25.00', cert }] });
+  await confirmarPago(opAuto);
+  const a = (await uno(`select asiento_id from pago where id = $1`, [opAuto])).asiento_id;
+  igual((await lineasDe(a)).join(' | '), '1.1.1 H 1235.00 | 2.1.1 D 1260.00 | 2.1.6 H 25.00', 'líneas');
+});
+await prueba('Anular genera el contraasiento: el original no se toca y el efecto neto es cero', async () => {
+  const orig = (await uno(`select asiento_id from pago where id = $1`, [opAuto])).asiento_id;
+  const antes = (await uno(`select saldo from v_balance_sumas_saldos where cuenta_id = $1`, [cuentas['2.1.6']])).saldo;
+  igual(antes, '-25.00', 'retención a depositar antes de anular');
+  await q(`update pago set estado = 'anulado' where id = $1`, [opAuto]);
+  const contra = await uno(`select id from asiento where origen_tipo = 'contraasiento' and origen_id = $1`, [orig]);
+  if (!contra) throw new Error('no se generó el contraasiento');
+  igual((await uno(`select estado from asiento where id = $1`, [orig])).estado, 'contabilizado', 'el asiento original sigue contabilizado');
+  igual((await uno(`select saldo from v_balance_sumas_saldos where cuenta_id = $1`, [cuentas['2.1.6']])).saldo, '0.00', 'retención a depositar tras anular');
+  const sinCompensar = await uno(`select count(*)::int n from (select cuenta_id, sum(debe - haber) s from asiento_linea where asiento_id in ($1,$2) group by cuenta_id) x where s <> 0`, [orig, contra.id]);
+  igual(sinCompensar.n, 0, 'cuentas sin compensar');
+  const r = resumen(motor.compra([{ precio: '100', cantidad: '1', alicuota: '21' }]));
+  const c = await crearComprobante({ sentido: 'compra', tipo: 1, numero: 8002, tercero: proveedor1.id, incluyeIva: false, resumen: r, items: [{ precio: '100', importe: '100' }] });
+  await confirmar(c);
+  await q(`update comprobante set estado = 'anulado' where id = $1`, [c]);
+  igual((await uno(`select count(*)::int n from asiento where origen_tipo = 'contraasiento' and origen_id = $1`, [await asientoDeComprobante(c)])).n, 1, 'contraasiento del comprobante anulado');
+});
+await prueba('Sin cuenta automática configurada, el comprobante no se confirma y queda en borrador', async () => {
+  const r = resumen(motor.venta([{ precioFinal: '10', cantidad: '1', alicuota: '21' }]));
+  const id = await crearComprobante({ sentido: 'venta', tipo: 1, tercero: cliente1.id, receptor: 1, incluyeIva: true, resumen: r, items: [{ precio: '10', importe: '10' }] });
+  await q(`delete from cuenta_automatica where empresa_id = $1 and concepto = 'iva_debito'`, [E]);
+  await rechaza(() => confirmar(id, { electronico: true, numero: 84 }), /iva_debito/i, 'confirmar sin la cuenta de IVA débito');
+  igual((await uno(`select estado from comprobante where id = $1`, [id])).estado, 'borrador', 'estado');
+  await q(`insert into cuenta_automatica (empresa_id, concepto, cuenta_id) values ($1,'iva_debito',$2)`, [E, cuentas['2.1.4']]);
+});
+await prueba('Con los asientos automáticos apagados no se genera nada; y todo lo generado balancea', async () => {
+  await q(`update empresa_parametro set asientos_automaticos = false where empresa_id = $1`, [E]);
+  const r = resumen(motor.compra([{ precio: '100', cantidad: '1', alicuota: '21' }]));
+  const c = await crearComprobante({ sentido: 'compra', tipo: 1, numero: 8003, tercero: proveedor1.id, incluyeIva: false, resumen: r, items: [{ precio: '100', importe: '100' }] });
+  await confirmar(c);
+  igual(await asientoDeComprobante(c), null, 'asiento con el parámetro apagado');
+  const t = await uno(`select sum(debe) d, sum(haber) h from v_balance_sumas_saldos where empresa_id = $1`, [E]);
+  igual(t.d, t.h, 'sumas y saldos balanceadas');
+  igual((await uno(`select count(*)::int n from asiento where origen_tipo in ('comprobante','pago','contraasiento') and estado <> 'contabilizado'`)).n, 0, 'asientos automáticos sin contabilizar');
+});
+
+// ---------------------------------------------------------------------------
 // 11. ARCA
 // ---------------------------------------------------------------------------
 await prueba('ARCA: la bitácora de llamadas es de solo agregar y el certificado exige un CUIT válido', async () => {
@@ -613,10 +728,11 @@ await prueba('RLS: la empresa B no ve nada de la A, y no puede escribir en ella'
 });
 await prueba('RLS: la empresa A ve sus datos; el catálogo de ARCA es de solo lectura para la aplicación', async () => {
   await q(`select set_config('app.empresa_id', $1, false)`, [String(E)]);
+  const filasLibro = (await uno(`select count(*)::int n from v_libro_iva_ventas where empresa_id = $1`, [E])).n;   // como superusuario
   await q(`set role app_usuario`);
   try {
     if ((await uno(`select count(*)::int n from comprobante`)).n < 8) throw new Error('la empresa A no ve sus comprobantes');
-    igual((await uno(`select count(*)::int n from v_libro_iva_ventas`)).n, 4, 'filas del libro de ventas (FA 1, FA 2, la NCA y la factura desde remito)');
+    igual((await uno(`select count(*)::int n from v_libro_iva_ventas`)).n, filasLibro, 'filas del libro de ventas visibles para la empresa A');
   } finally { await q(`reset role`); }
   await q(`set role app_usuario`);
   try {
