@@ -225,7 +225,7 @@ Son órdenes de magnitud: una consulta con varias herramientas cuesta más porqu
 
 | # | Decisión | Mi propuesta |
 |---|---|---|
-| 12.1 | **Modelo** | Empezar con **Claude Opus 5.5 a esfuerzo `low`** y comparar con Sonnet 5.5 y Haiku 5.5 en la evaluación; bajar de modelo solo si la evaluación lo permite |
+| 12.1 | **Modelo** | **DECIDIDO (2026-10-28): Claude Opus 5.5 con esfuerzo `low`.** Se compara con Sonnet 5.5 y Haiku 5.5 en la evaluación; se cambia de modelo o de esfuerzo solo si la evaluación lo justifica |
 | 12.2 | **¿El asistente puede ver datos de las empresas?** | Interruptor **por estudio, apagado por defecto**; sin él solo responde guías y conceptos |
 | 12.3 | **Guardar conversaciones** | No por defecto; opcional con consentimiento y 30 días |
 | 12.4 | **Presupuesto mensual por estudio** | Tope blando (aviso al 80 %) y duro (corte al 100 %); definir el valor |
