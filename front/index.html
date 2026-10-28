@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="es-AR" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prototipo · gestión contable</title>
+  <meta name="description" content="Prototipo de interfaz para estudios contables. Datos de ejemplo.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-label="Navegación principal">
+      <div class="logo" title="Marca provisoria">m</div>
+      <nav class="nav" id="nav"></nav>
+      <div class="grow"></div>
+    </aside>
+    <div class="main">
+      <header class="topbar" id="topbar">
+        <button class="chip-btn" id="empresaBtn" aria-haspopup="listbox" aria-expanded="false"></button>
+        <span class="periodo" id="periodo"><i></i><span>Octubre 2026 · abierto</span></span>
+        <div class="sp"></div>
+        <button class="buscar" id="abrirPaleta" aria-label="Buscar o ejecutar un comando"></button>
+        <button class="icon-btn" id="tema" aria-label="Cambiar tema"></button>
+        <div class="avatar" title="Andrés">AN</div>
+      </header>
+      <div class="pop" id="popEmpresa" hidden></div>
+      <main id="vista"></main>
+    </div>
+  </div>
+
+  <dialog id="paleta" aria-label="Paleta de comandos">
+    <div class="paleta">
+      <div class="q" id="paletaQ"></div>
+      <div class="res" id="paletaRes" role="listbox"></div>
+      <div class="pie"><span><kbd>↑</kbd> <kbd>↓</kbd> moverse</span><span><kbd>Enter</kbd> elegir</span><span><kbd>Esc</kbd> cerrar</span></div>
+    </div>
+  </dialog>
+  <dialog id="emitir" aria-label="Emisión del comprobante"><div class="emitir" id="emitirBody"></div></dialog>
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="datos.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
