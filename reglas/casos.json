@@ -1,0 +1,213 @@
+[
+  {"id":"C-01","ref":"compras, caso base","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"100","cantidad":"200","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"20000.00","iva":"4200.00"}},"iva":"4200.00","total":"24200.00"}},
+
+  {"id":"C-01b","ref":"FA 0001-00003001 (10 u x 100)","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"100","cantidad":"10","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"1000.00","iva":"210.00"}},"total":"1210.00"}},
+
+  {"id":"C-01c","ref":"FA 0001-00003002 (10 u x 120)","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"120","cantidad":"10","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"1200.00","iva":"252.00"}},"total":"1452.00"}},
+
+  {"id":"C-02a","ref":"compras al 10,5 %","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"10,15","cantidad":"7","alicuota":"10.5"}]},
+   "esperado":{"columnas":{"10.5":{"subtotal":"71.05","iva":"7.46"}}}},
+
+  {"id":"C-02b","ref":"compras al 27 %","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"15,55","cantidad":"9","alicuota":"27"}]},
+   "esperado":{"columnas":{"27":{"subtotal":"139.95","iva":"37.79"}}}},
+
+  {"id":"C-03","ref":"exento y no gravado se suman en una caja","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"100","cantidad":"1","alicuota":"exento"},{"precio":"50","cantidad":"1","alicuota":"nogravado"}]},
+   "esperado":{"exento":"150.00","iva":"0.00","total":"150.00"}},
+
+  {"id":"C-04","ref":"FA 0001-00002001: cuatro condiciones de IVA","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[
+     {"precio":"33,33","cantidad":"3","alicuota":"21"},
+     {"precio":"10,15","cantidad":"7","alicuota":"10.5"},
+     {"precio":"15,55","cantidad":"9","alicuota":"27"},
+     {"precio":"100","cantidad":"1","alicuota":"exento"},
+     {"precio":"50","cantidad":"1","alicuota":"nogravado"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"99.99","iva":"21.00"},"10.5":{"subtotal":"71.05","iva":"7.46"},"27":{"subtotal":"139.95","iva":"37.79"}},
+               "exento":"150.00","iva":"66.25","total":"527.24"}},
+
+  {"id":"C-05","ref":"FA 0001-00002002: redondeo por columna, no por renglón","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[
+     {"precio":"0,30","cantidad":"1","alicuota":"21"},
+     {"precio":"0,30","cantidad":"1","alicuota":"21"},
+     {"precio":"0,30","cantidad":"1","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"0.90","iva":"0.19"}},"total":"1.09"}},
+
+  {"id":"C-06","ref":"descuento por renglón 10 %","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"100","cantidad":"1","alicuota":"21","descPct":"10"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"90.00"}}}},
+
+  {"id":"C-07","ref":"bonificación por renglón 10 %","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"100","cantidad":"1","alicuota":"21","bonifPct":"10"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"90.00"}}}},
+
+  {"id":"C-06b","ref":"descuento y bonificación se encadenan (100 -> 90 -> 81)","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"100","cantidad":"1","alicuota":"21","descPct":"10","bonifPct":"10"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"81.00"}}}},
+
+  {"id":"C-08a","ref":"FA 0001-00002003 sin descuento al pie","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[
+     {"precio":"100","cantidad":"1","alicuota":"21","descPct":"10"},
+     {"precio":"100","cantidad":"1","alicuota":"21","bonifPct":"10"},
+     {"precio":"100","cantidad":"1","alicuota":"21","descPct":"10","bonifPct":"10"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"261.00","iva":"54.81"}},"total":"315.81"}},
+
+  {"id":"C-08b","ref":"FA 0001-00002003 con 5 % al pie: el IVA se calcula después del descuento","funcion":"compra","origen":"observado",
+   "entrada":{"descPiePct":"5","renglones":[
+     {"precio":"100","cantidad":"1","alicuota":"21","descPct":"10"},
+     {"precio":"100","cantidad":"1","alicuota":"21","bonifPct":"10"},
+     {"precio":"100","cantidad":"1","alicuota":"21","descPct":"10","bonifPct":"10"}]},
+   "esperado":{"columnas":{"21":{"subtotal":"261.00","descuento":"13.05","base":"247.95","iva":"52.07"}},"total":"300.02"}},
+
+  {"id":"C-12","ref":"FA 0001-00004001: percepciones sufridas Gan 30 + IVA 20 se suman al total, no a la base ni al IVA","funcion":"compra","origen":"observado",
+   "entrada":{"renglones":[{"precio":"1000","cantidad":"1","alicuota":"21"}],"percepciones":{"gan":"30","iva":"20","ib":"0"}},
+   "esperado":{"columnas":{"21":{"subtotal":"1000.00","iva":"210.00"}},"percepciones":"50.00","total":"1260.00"}},
+
+  {"id":"L-05c","ref":"Posición de IVA con percepción de IVA sufrida 20: saldo = saldo técnico - retención - percepción (la de Ganancias no entra)","funcion":"posicionIva","origen":"observado",
+   "entrada":{"ivaCompras":["210.00"],"percepcion":"20"},
+   "esperado":{"debito":"0.00","credito":"210.00","saldoTecnico":"-210.00","saldo":"-230.00"}},
+
+  {"id":"V-01","ref":"venta al 21 %: precio final a neto + IVA","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[{"precioFinal":"157,30","cantidad":"1","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"neto":"130.00","iva":"27.30"}},"total":"157.30"}},
+
+  {"id":"V-02","ref":"venta al 10,5 %","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[{"precioFinal":"143,65","cantidad":"1","alicuota":"10.5"}]},
+   "esperado":{"columnas":{"10.5":{"neto":"130.00","iva":"13.65"}},"total":"143.65"}},
+
+  {"id":"V-03","ref":"venta al 27 % (el original la pierde)","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[{"precioFinal":"165,10","cantidad":"1","alicuota":"27"}]},
+   "esperado":{"columnas":{"27":{"neto":"130.00","iva":"35.10"}},"total":"165.10"}},
+
+  {"id":"V-04","ref":"FA 0001-00000001 con cinco condiciones: el total correcto es la suma de renglones (726,05); el original dio 430,95","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[
+     {"precioFinal":"157,30","cantidad":"1","alicuota":"21"},
+     {"precioFinal":"143,65","cantidad":"1","alicuota":"10.5"},
+     {"precioFinal":"165,10","cantidad":"1","alicuota":"27"},
+     {"precioFinal":"130","cantidad":"1","alicuota":"exento"},
+     {"precioFinal":"130","cantidad":"1","alicuota":"nogravado"}]},
+   "esperado":{"exento":"130.00","noGravado":"130.00","iva":"76.05","total":"726.05","sumaRenglones":"726.05"}},
+
+  {"id":"V-05","ref":"FA 0001-00000001 del lote 2: 5 x 157,30","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[{"precioFinal":"157,30","cantidad":"5","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"neto":"650.00","iva":"136.50"}},"total":"786.50"}},
+
+  {"id":"V-06","ref":"precio final 10,00: neto 8,26 e IVA 1,74 (IVA = final - neto)","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[{"precioFinal":"10","cantidad":"1","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"neto":"8.26","iva":"1.74"}},"total":"10.00"}},
+
+  {"id":"V-07","ref":"FA 0001-00000002 sin descuento al pie: 10 + 10 + 9","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[
+     {"precioFinal":"10","cantidad":"1","alicuota":"21"},
+     {"precioFinal":"10","cantidad":"1","alicuota":"21"},
+     {"precioFinal":"10","cantidad":"1","alicuota":"21","descPct":"10"}]},
+   "esperado":{"columnas":{"21":{"final":"29.00","neto":"23.97","iva":"5.03"}},"total":"29.00"}},
+
+  {"id":"V-08","ref":"FA 0001-00000002 con 5 % al pie","funcion":"venta","origen":"observado",
+   "entrada":{"descPiePct":"5","renglones":[
+     {"precioFinal":"10","cantidad":"1","alicuota":"21"},
+     {"precioFinal":"10","cantidad":"1","alicuota":"21"},
+     {"precioFinal":"10","cantidad":"1","alicuota":"21","descPct":"10"}]},
+   "esperado":{"columnas":{"21":{"neto":"23.97","descuento":"1.20","base":"22.77","iva":"4.78"}},"total":"27.55"}},
+
+  {"id":"V-09","ref":"FB 0001-00000001 (TPV): el libro desglosa el IVA de la B","funcion":"desglosar","origen":"observado",
+   "entrada":{"totalFinal":"435,60","alicuota":"21"},
+   "esperado":{"neto":"360.00","iva":"75.60","total":"435.60"}},
+
+  {"id":"D-01","ref":"dólar: 130 USD neto x 1100","funcion":"aPesos","origen":"observado",
+   "entrada":{"precioUsd":"130","cotizacion":"1100"},"esperado":"143000.00"},
+
+  {"id":"D-02","ref":"dólar: 157,30 USD final x 1100","funcion":"aPesos","origen":"observado",
+   "entrada":{"precioUsd":"157,30","cotizacion":"1100"},"esperado":"173030.00"},
+
+  {"id":"D-03","ref":"dólar: Factura A de 1 u, Lista 2: neto 143.000 + IVA 30.030","funcion":"venta","origen":"observado",
+   "entrada":{"renglones":[{"precioFinal":"173030","cantidad":"1","alicuota":"21"}]},
+   "esperado":{"columnas":{"21":{"neto":"143000.00","iva":"30030.00"}},"total":"173030.00"}},
+
+  {"id":"R-01","ref":"REC 0001-00000001: imputado 500, retención 15, saldo de la factura 786,50 -> 286,50","funcion":"recibo","origen":"observado",
+   "entrada":{"imputado":"500","retenciones":["15"],"saldoComprobante":"786,50"},
+   "esperado":{"retenciones":"15.00","mediosDeCobro":"485.00","total":"500.00","saldoComprobante":"286.50","estado":"N/Canc"}},
+
+  {"id":"R-02","ref":"OP 0001-00000002: imputado 24.200, retenciones 500 + 400, cancela la factura","funcion":"recibo","origen":"observado",
+   "entrada":{"imputado":"24200","retenciones":["500","400"],"saldoComprobante":"24200"},
+   "esperado":{"retenciones":"900.00","mediosDeCobro":"23300.00","saldoComprobante":"0.00","estado":"Canc"}},
+
+  {"id":"R-03","ref":"OP de prueba con retención IIBB 500: pago + retención = imputado","funcion":"recibo","origen":"observado",
+   "entrada":{"imputado":"24200","retenciones":["500"]},
+   "esperado":{"retenciones":"500.00","mediosDeCobro":"23700.00"}},
+
+  {"id":"R-10","ref":"PROPUESTA: retención sugerida IIBB 2,5 % sobre 20.000 (mínimo 1.000)","funcion":"retencionSugerida","origen":"propuesta",
+   "entrada":{"base":"20000","porcentaje":"2.5","minimo":"1000"},"esperado":"500.00"},
+
+  {"id":"R-11","ref":"PROPUESTA: por debajo del mínimo no se retiene (800 < 1.000)","funcion":"retencionSugerida","origen":"propuesta",
+   "entrada":{"base":"800","porcentaje":"2.5","minimo":"1000"},"esperado":"0.00"},
+
+  {"id":"L-01","ref":"nota de crédito en el libro: signo negativo en todas las columnas","funcion":"filaLibro","origen":"observado",
+   "entrada":{"tipo":"NCA","fila":{"subtotal":"22.77","iva":"4.78","total":"27.55"}},
+   "esperado":{"subtotal":"-22.77","iva":"-4.78","total":"-27.55"}},
+
+  {"id":"L-05a","ref":"Posición de IVA, lote 1 de compras (crédito 118,51)","funcion":"posicionIva","origen":"observado",
+   "entrada":{"ivaCompras":["21.00","7.46","37.79","0.19","52.07"]},
+   "esperado":{"debito":"0.00","credito":"118.51","saldoTecnico":"-118.51"}},
+
+  {"id":"L-05b","ref":"Posición de IVA con ventas y una NC que compensa a la FA 2","funcion":"posicionIva","origen":"observado",
+   "entrada":{"ivaVentas":["27.30","13.65","4.78","-4.78"],"ivaCompras":["21.00","7.46","37.79","0.19","52.07"]},
+   "esperado":{"debito":"40.95","credito":"118.51","saldoTecnico":"-77.56","saldo":"-77.56"}},
+
+  {"id":"S-01","ref":"cuenta corriente: FA 786,50 y recibo 500","funcion":"saldoCuenta","origen":"observado",
+   "entrada":{"movimientos":[{"tipo":"FA","importe":"786,50"},{"tipo":"REC","importe":"500"}]},"esperado":"286.50"},
+
+  {"id":"S-02","ref":"cuenta corriente: FA 430,95 + FA 27,55 - NCA 27,55","funcion":"saldoCuenta","origen":"observado",
+   "entrada":{"movimientos":[{"tipo":"FA","importe":"430,95"},{"tipo":"FA","importe":"27,55"},{"tipo":"NCA","importe":"27,55"}]},"esperado":"430.95"},
+
+  {"id":"T-01","ref":"stock observado al final: compra 1, venta TPV 3, compra 10, venta 5, devolución 2 -> 5","funcion":"stock","origen":"observado",
+   "entrada":{"movimientos":[{"tipo":"compra","cantidad":"1"},{"tipo":"venta","cantidad":"3"},{"tipo":"compra","cantidad":"10"},{"tipo":"venta","cantidad":"5"},{"tipo":"devolucionVenta","cantidad":"2"}]},
+   "esperado":"5"},
+
+  {"id":"T-02","ref":"stock negativo permitido: compra 1, venta 3 en el TPV -> -2","funcion":"stock","origen":"observado",
+   "entrada":{"movimientos":[{"tipo":"compra","cantidad":"1"},{"tipo":"venta","cantidad":"3"}]},
+   "esperado":"-2"},
+
+  {"id":"S-03","ref":"NC por devolución parcial de 2 u de la FA de 5 u a 157,30","funcion":"devolucionParcial","origen":"observado",
+   "entrada":{"precioFinal":"157,30","cantidadDevuelta":"2","alicuota":"21"},
+   "esperado":{"columnas":{"21":{"neto":"260.00","iva":"54.60"}},"total":"314.60"}},
+
+  {"id":"S-04","ref":"saldo del cliente tras la NC parcial: 786,50 - 314,60","funcion":"saldoCuenta","origen":"observado",
+   "entrada":{"movimientos":[{"tipo":"FA","importe":"786,50"},{"tipo":"NCA","importe":"314,60"}]},"esperado":"471.90"},
+
+  {"id":"M-01","ref":"pago mixto TPV: efectivo 200 + tarjeta 235,60 = 435,60","funcion":"pagoMixto","origen":"observado",
+   "entrada":{"total":"435,60","medios":["200","235,60"]},
+   "esperado":{"suma":"435.60","saldo":"0.00","valido":true}},
+
+  {"id":"M-02","ref":"pago mixto TPV: la suma de medios debe igualar el total (145 de 145,20 no alcanza)","funcion":"pagoMixto","origen":"observado",
+   "entrada":{"total":"145,20","medios":["145"]},
+   "esperado":{"saldo":"0.20","valido":false}},
+
+  {"id":"P-01","ref":"período fiscal: la fecha cae en un período abierto con vencimiento futuro","funcion":"periodoAceptado","origen":"propuesta",
+   "entrada":{"fecha":"2026-10-28","hoy":"2026-10-28","periodos":[
+     {"inicio":"2024-10-01","fin":"2024-10-31","vencimiento":"2024-11-15","abierto":true,"anulado":false},
+     {"inicio":"2026-10-01","fin":"2026-10-31","vencimiento":"2026-11-15","abierto":true,"anulado":false}]},
+   "esperado":{"aceptado":true,"motivo":"ok"}},
+
+  {"id":"P-02","ref":"período fiscal: sin período para esa fecha","funcion":"periodoAceptado","origen":"propuesta",
+   "entrada":{"fecha":"2026-10-28","hoy":"2026-10-28","periodos":[
+     {"inicio":"2024-10-01","fin":"2024-10-31","vencimiento":"2024-11-15","abierto":true,"anulado":false}]},
+   "esperado":{"aceptado":false,"motivo":"sin_periodo"}},
+
+  {"id":"P-03","ref":"período fiscal: el período de la fecha está vencido","funcion":"periodoAceptado","origen":"propuesta",
+   "entrada":{"fecha":"2026-10-28","hoy":"2026-12-01","periodos":[
+     {"inicio":"2026-10-01","fin":"2026-10-31","vencimiento":"2026-11-15","abierto":true,"anulado":false}]},
+   "esperado":{"aceptado":false,"motivo":"vencido"}},
+
+  {"id":"P-04","ref":"período fiscal: período cerrado","funcion":"periodoAceptado","origen":"propuesta",
+   "entrada":{"fecha":"2026-10-28","hoy":"2026-10-28","periodos":[
+     {"inicio":"2026-10-01","fin":"2026-10-31","vencimiento":"2026-11-15","abierto":false,"anulado":false}]},
+   "esperado":{"aceptado":false,"motivo":"cerrado"}}
+]
