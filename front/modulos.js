@@ -547,5 +547,5 @@ window.crearModulos = function (H) {
   Object.assign(C, window.crearCompras(H, { ...comun, cuitValido: V.cuitValido, fmtDoc: V.fmtDoc, parseDoc: V.parseDoc }));
   Object.assign(A, window.crearArchivos(H, comun));
   Object.assign(F, window.crearFinanzas(H, { ...comun, abrirCobro: V.abrirCobro, abrirPendientes: C.abrirPendientes, asientos, cuentaNombre, centavos, archivos: A }));
-  return { montar, precio: V.precio, alFacturar: V.alFacturar, rutas, nombres: Object.keys(MODULOS), titulo: (n) => MODULOS[n].titulo };
+  return { montar, precio: V.precio, alFacturar: V.alFacturar, consulta: { existencias, bajoMinimo, ivaPeriodo }, rutas, nombres: Object.keys(MODULOS), titulo: (n) => MODULOS[n].titulo };
 };

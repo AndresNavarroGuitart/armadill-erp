@@ -537,6 +537,26 @@ dialog#detalle { overflow: visible; }
 .venc .v.hecho { opacity: .55; } .venc .v.hecho .dia, .venc .v.hecho b { text-decoration: line-through; text-decoration-thickness: 2px; }
 .venc .v .mio { position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 
+/* ---------- asistente ---------- */
+.chat { max-width: 860px; margin: 0 auto; padding-bottom: 96px; }
+.msgs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; } .chat { min-width: 0; } .msg { min-width: 0; }
+.msg { display: flex; gap: 10px; align-items: flex-start; scroll-margin-bottom: 110px; } .msg.yo { justify-content: flex-end; }
+.as-av { width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; background: var(--grad); color: #fff; flex: none; } .as-av .i { width: 18px; height: 18px; }
+.burbuja { max-width: min(680px, 100%); padding: 12px 16px; border-radius: 18px; font-size: 14.5px; line-height: 1.5; min-width: 0; }
+.msg.bot .burbuja { background: var(--surface); border: 1px solid var(--line); border-top-left-radius: 6px; box-shadow: var(--shadow-1); }
+.msg.yo .burbuja { background: var(--grad); color: #fff; border-top-right-radius: 6px; }
+.burbuja p { margin: 0 0 8px; } .burbuja p:last-child { margin-bottom: 0; }
+.burbuja ol, .burbuja ul { margin: 6px 0 10px; padding-left: 22px; display: grid; gap: 5px; }
+.burbuja kbd { font-family: var(--f-mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.burbuja .lineas { margin: 6px 0; font-size: 13px; } .burbuja .tb-scroll { margin: 6px 0 10px; }
+.as-acc { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.as-fuente { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 500; }
+.as-fuente .i { width: 13px; height: 13px; }
+.as-fuente.guia { background: var(--brand-soft); color: var(--brand-ink); } .as-fuente.datos { background: var(--accent-soft); color: var(--accent-ink); } .as-fuente.ref { background: var(--warn-soft); color: var(--warn); }
+.puntos { display: inline-flex; gap: 4px; padding: 6px 2px; } .puntos i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: salto 1s infinite; } .puntos i:nth-child(2) { animation-delay: .15s; } .puntos i:nth-child(3) { animation-delay: .3s; }
+@keyframes salto { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+.as-input { max-width: 860px; margin: 0 auto; } .as-input .in { flex: 1; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1100px) {
   .ev.cab, .ev-f { grid-template-columns: 84px 90px 170px minmax(0, 1fr) 100px; } .ev-emp, .ev.cab span:nth-child(5) { display: none; }
@@ -571,6 +591,7 @@ dialog#detalle { overflow: visible; }
   .det { padding: 18px; margin: 3vh auto; max-height: 94vh; } .form-aj { grid-template-columns: 1fr; }
   .flujo li { font-size: 11px; }
   .nivel .barra-m { display: none; }
+  .chat { padding-bottom: 150px; } .as-input .btn { padding: 10px 12px; } .burbuja { font-size: 14px; }
   .dosc { grid-template-columns: 1fr; } .par { grid-template-columns: 1fr 1fr; } .par .eq { display: none; } .par .x { justify-self: end; }
   .planilla .nivel .barra-m { display: block; }
   .reng.as { grid-template-columns: 1fr 1fr 30px; } .reng.as .cta { grid-column: 1 / -1; }

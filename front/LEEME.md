@@ -31,6 +31,17 @@ Sirve para conciliar cualquier par de listados (extracto contra libro, ventas co
 
 Cada conciliación, deshacer y descarga queda en la trazabilidad (con nombres de archivo y cantidades, nunca con el contenido). El lector de Excel (SheetJS 0.18.5) se carga **solo cuando se sube un Excel**, desde cdnjs y con control de integridad (SRI); sin conexión sirve el CSV. En el producto, el procesamiento de archivos grandes pasaría al servidor, con el mismo motor.
 
+## Asistente del sistema (icono del robot, menú de la izquierda)
+
+Un chat para preguntar sin salir del sistema. Cada respuesta dice **de dónde sale**: *Guía del sistema* (verde), *Datos de la empresa* (azul) o *Referencia general* (ámbar, para lo que depende de la norma vigente).
+
+- **Cómo hacer algo:** emitir una factura, presupuesto/pedido/remito, cargar clientes y proveedores, comprar, cobrar y pagar, conciliar el banco o dos archivos, asientos manuales, cerrar un período, liquidar el IVA, ajustar el stock, cambiar precios, usar el calendario. Con botones que llevan directo a la pantalla.
+- **Conceptos:** alícuotas de IVA, Ganancias, Ingresos Brutos, monotributo, retenciones, tipos de factura A/B/C, CAE, condición IVA del receptor, diferencia entre presupuesto, pedido, remito y factura, costo, períodos, asientos automáticos, validación del CUIT.
+- **Datos de la empresa activa:** IVA a pagar, qué vence, quién debe y a quién se le debe, stock de un artículo o lo que hay que reponer, precios por lista, saldos de caja y bancos, cheques en cartera, ventas del mes, datos de un cliente o proveedor.
+- **Qué NO hace en el prototipo:** no es un modelo de lenguaje. Es un buscador de respuestas armadas, así que si la pregunta se aparta de lo previsto, lo dice y sugiere preguntas parecidas. **No inventa porcentajes que cambian** (tramos de Ganancias, escalas del monotributo, alícuotas de Ingresos Brutos): explica cómo funcionan y manda a confirmar el valor vigente en ARCA.
+- Las consultas que muestran datos de la empresa quedan en la trazabilidad (tema y empresa, **nunca el texto de la pregunta**).
+- **Para el producto:** el mismo panel se conectaría, por medio del servidor, a un modelo de lenguaje (Claude) que responda con la guía del sistema como contexto y consulte los datos con las mismas herramientas y permisos de la API (el aislamiento por empresa lo sigue imponiendo la base). La clave del modelo vive solo en el servidor, nunca en el navegador; se limita el uso por usuario, se citan las fuentes y no se guardan las preguntas con datos personales sin consentimiento.
+
 ## Calendario y notificaciones
 
 - **Inicio → Próximos vencimientos:** cada vencimiento se abre con su detalle (fecha, hora, empresa, aviso, nota) y se puede **marcar como cumplido** o reabrir. **Agregar evento** crea uno propio (título, fecha, hora opcional, tipo, cuánto antes avisar, empresa y nota); los propios también se editan y se eliminan, y se reconocen por un punto azul. También está en la paleta (`Ctrl K`).

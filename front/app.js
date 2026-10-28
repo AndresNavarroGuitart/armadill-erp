@@ -30,6 +30,7 @@
     arrow: 'M7 17L17 7M8 7h9v9',
     bolt: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z',
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+    bot: 'M12 4v3M8 7h8a3 3 0 013 3v6a3 3 0 01-3 3H8a3 3 0 01-3-3v-6a3 3 0 013-3zM9.5 12.5h.01M14.5 12.5h.01M9.5 16h5',
     bell: 'M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0',
     x: 'M6 6l12 12M18 6L6 18',
     coin: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v10M9.5 9.5c0-1 1-1.7 2.5-1.7s2.5.7 2.5 1.7-1 1.5-2.5 1.8-2.5.8-2.5 1.8 1 1.7 2.5 1.7 2.5-.7 2.5-1.7',
@@ -59,6 +60,7 @@
     ventas: { titulo: 'Ventas', icono: 'trend', zona: 1, modulo: true },
     compras: { titulo: 'Compras', icono: 'cart', zona: 1, modulo: true },
     finanzas: { titulo: 'Finanzas', icono: 'wallet', zona: 1, modulo: true },
+    asistente: { titulo: 'Asistente', icono: 'bot', zona: 2, montar: (root) => ASIS.vista(root) },
     estudio: { titulo: 'Estudio', icono: 'grid', zona: 2, montar: vEstudio },
     trazabilidad: { titulo: 'Trazabilidad', icono: 'history', zona: 2, montar: vTrazabilidad },
     nueva: { titulo: 'Nueva factura', icono: 'plus', grupo: 'ventas', montar: vNueva },
@@ -646,6 +648,8 @@
     ir('nueva'); toast(c ? 'Factura nueva para ' + c.n : 'Factura nueva');
   }
   const MOD = window.crearModulos({ $, $$, esc, ic, ARS, corto, toast, contar, sumarDias, empresa, registrar, abrirFactura, ir, D });
+
+  const ASIS = window.crearAsistente({ $, $$, esc, ic, ARS, corto, toast, registrar, empresa, D, eventosDe, sumarDias, ir }, MOD);
 
   /* ---------- arranque ---------- */
   const guardado = leer('proto_tema');
