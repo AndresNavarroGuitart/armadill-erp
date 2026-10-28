@@ -18,6 +18,19 @@ Ver: `http://localhost:3007/administranet-replica/front/index.html` (servidor `q
 | Trazabilidad | Registro de solo lectura de cada movimiento: **fecha, hora, usuario, actividad, empresa y resultado**. Filtros por tipo, período, usuario, empresa y texto; cada fila se abre para ver origen (IP/equipo), antes → después y la huella. Exporta a CSV lo que se ve y verifica la integridad |
 | Paleta de comandos | `Ctrl K`: ir a una pantalla, cambiar de empresa, facturarle a un cliente |
 
+## Conciliación entre dos archivos (Tesorería → Conciliación → "Entre dos archivos")
+
+Sirve para conciliar cualquier par de listados (extracto contra libro, ventas contra cobranzas, lo que informa un cliente contra lo nuestro):
+
+1. **Archivos A y B:** se arrastran o se eligen (CSV, TSV, TXT, Excel .xlsx/.xls con selector de hoja; hasta 15 MB y 50.000 filas). Se leen **en el navegador**: no se suben ni se guardan. Reconoce separador, codificación (UTF-8 o Windows-1252), números en formato argentino o inglés (`1.234,56` y `1,234.56`, negativos con paréntesis o guion al final) y fechas `dd/mm/aaaa`, `aaaa-mm-dd` y de Excel.
+2. **Columnas:** cada archivo muestra sus columnas con el tipo que detectó (fecha, importe, texto) y un ejemplo.
+3. **Qué comparar:** se eligen pares de columnas (A ↔ B) y cómo se comparan: **importe** (con tolerancia en pesos), **fecha** (con tolerancia en días), **texto igual** o **texto contiene**. Propone los pares solo (importe y fecha). Opción de ignorar el signo del importe, para extractos que traen débitos y créditos por separado.
+4. **Conciliar:** primero cruza lo exacto y después lo que entra en la tolerancia; una fila de un lado se asocia con una sola del otro.
+5. **Planilla:** por cada archivo, filas conciliadas y pendientes, **% de conciliación** e **importe total, conciliado y pendiente con su %**; y el control "diferencia entre archivos = pendientes + tolerancia, no explicada $ 0".
+6. **Listas:** *Conciliado* (cada coincidencia, con la diferencia y si fue automática o manual; se abre para ver las filas completas y **deshacerla**) y *Pendiente de conciliar* (A y B lado a lado: se eligen filas de los dos lados y se concilian a mano si los importes coinciden). Se baja todo a CSV.
+
+Cada conciliación, deshacer y descarga queda en la trazabilidad (con nombres de archivo y cantidades, nunca con el contenido). El lector de Excel (SheetJS 0.18.5) se carga **solo cuando se sube un Excel**, desde cdnjs y con control de integridad (SRI); sin conexión sirve el CSV. En el producto, el procesamiento de archivos grandes pasaría al servidor, con el mismo motor.
+
 ## Cómo está organizado el menú
 
 `Inicio` · `Ventas` · `Compras` (con Stock) · `Finanzas` (con Tesorería, Contabilidad e Impuestos). Cada módulo tiene sus solapas y números clave arriba (se puede entrar a cada uno con un clic). Todo se alcanza también con `Ctrl K` ("Compras · Stock · Movimientos").

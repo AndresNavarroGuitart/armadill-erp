@@ -4,7 +4,7 @@
 window.crearModulos = function (H) {
   'use strict';
   const { $, $$, esc, ic, ARS, corto, toast, contar, sumarDias, empresa, registrar, abrirFactura, ir, D } = H;
-  const V = {}, C = {}, F = {};   /* Ventas completo (ventas.js) y Compras completo (compras.js), se completan al final */
+  const V = {}, C = {}, F = {}, A = {};   /* Ventas completo (ventas.js) y Compras completo (compras.js), se completan al final */
   const pe = (n) => ARS.format(n);
   const fe = (dias) => sumarDias(-dias).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
   const hace = (d) => (d === 0 ? 'hoy' : 'hace ' + d + ' d');
@@ -545,6 +545,7 @@ window.crearModulos = function (H) {
   const comun = { pe, pill, ent, c2, dato, cierra, dialogo, tabla, art, saldos, mover, siguiente, depNombre, copiar, unidades, hace, enDias, fe, abrirFactura, repintar, terminar, costoDe };
   Object.assign(V, window.crearVentas(H, comun));
   Object.assign(C, window.crearCompras(H, { ...comun, cuitValido: V.cuitValido, fmtDoc: V.fmtDoc, parseDoc: V.parseDoc }));
-  Object.assign(F, window.crearFinanzas(H, { ...comun, abrirCobro: V.abrirCobro, abrirPendientes: C.abrirPendientes, asientos, cuentaNombre, centavos }));
+  Object.assign(A, window.crearArchivos(H, comun));
+  Object.assign(F, window.crearFinanzas(H, { ...comun, abrirCobro: V.abrirCobro, abrirPendientes: C.abrirPendientes, asientos, cuentaNombre, centavos, archivos: A }));
   return { montar, precio: V.precio, alFacturar: V.alFacturar, rutas, nombres: Object.keys(MODULOS), titulo: (n) => MODULOS[n].titulo };
 };

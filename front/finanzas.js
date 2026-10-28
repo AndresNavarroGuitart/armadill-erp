@@ -183,7 +183,9 @@ window.crearFinanzas = function (H, I) {
   }
 
   /* ---------- conciliación bancaria ---------- */
-  let selCuenta = null, selB = new Set(), selL = new Set();
+  let selCuenta = null, selB = new Set(), selL = new Set(), modoConcil = 'banco';
+  const selectorModo = () => `<div class="seg rise" role="group" aria-label="Tipo de conciliación" style="margin-bottom:14px"><button data-modo="banco" aria-pressed="${modoConcil === 'banco'}">Banco contra libros</button><button data-modo="archivos" aria-pressed="${modoConcil === 'archivos'}">Entre dos archivos</button></div>`;
+  const cambiarModo = (cuerpo, e, nav) => (m) => { modoConcil = m; vConciliacion(cuerpo, e, nav); };
   function iniciarConcil(e) {
     if (e.concil) return e.concil; maxMovId(e); e.concil = {}; let g = 1;
     banco(e).forEach((c, k) => {
@@ -196,6 +198,8 @@ window.crearFinanzas = function (H, I) {
   }
   const grupoLibre = (e) => Math.max(0, ...Object.values(e.concil).flatMap((c) => c.lineas.map((l) => l.grupo || 0)), ...e.tes.movs.map((m) => m.grupo || 0)) + 1;
   function vConciliacion(cuerpo, e, nav) {
+    if (modoConcil === 'archivos') { cuerpo.onchange = null; I.archivos.vista(cuerpo, e, nav + selectorModo(), cambiarModo(cuerpo, e, nav)); return; }
+    cuerpo.onchange = null;
     const conc = iniciarConcil(e), bancos = banco(e); maxMovId(e);
     if (!selCuenta || !bancos.some((b) => b.id === selCuenta)) selCuenta = bancos[0].id;
     const cu = bancos.find((b) => b.id === selCuenta), st = conc[cu.id], libros = e.tes.movs.filter((m) => m.cuenta === cu.n);
@@ -203,7 +207,7 @@ window.crearFinanzas = function (H, I) {
     const sB = pendB.reduce((s, l) => s + l.importe, 0), sL = pendL.reduce((s, m) => s + m.importe, 0), saldoBanco = cu.saldo - sL + sB;
     const grupos = (arr) => new Set(arr.filter((x) => x.grupo).map((x) => x.grupo)).size;
     const fila = (x, tipo) => `<button class="cl ${x.grupo ? 'ok' : ''}" data-${tipo}="${x.id}" aria-pressed="${(tipo === 'b' ? selB : selL).has(x.id)}" ${x.grupo ? 'data-g="' + x.grupo + '"' : ''}><span class="num mudo">${fe(x.dias)}</span><span class="t"><b>${esc(tipo === 'b' ? x.desc : x.concepto)}</b><small>${x.grupo ? 'Conciliado · grupo ' + x.grupo : tipo === 'b' ? 'Sin conciliar' : esc(x.tipo)}</small></span><b class="num ${x.importe < 0 ? 'neg' : 'pos'}">${x.importe < 0 ? '−' : '+'} ${pe(Math.abs(x.importe))}</b></button>`;
-    cuerpo.innerHTML = `${nav}
+    cuerpo.innerHTML = `${nav}${selectorModo()}
       <div class="seg subnav rise" role="group" aria-label="Cuenta">${bancos.map((b) => `<button data-cb="${b.id}" aria-pressed="${b.id === cu.id}">${esc(b.n)}</button>`).join('')}</div>
       <div class="grid">
         <article class="card s4 rise" style="--d:1"><h3>${ic('bank')} Cómo cierra</h3><div class="mini mini2">
@@ -223,6 +227,7 @@ window.crearFinanzas = function (H, I) {
       $$('[data-b]', cuerpo).forEach((x) => x.setAttribute('aria-pressed', selB.has(Number(x.dataset.b)))); $$('[data-l]', cuerpo).forEach((x) => x.setAttribute('aria-pressed', selL.has(Number(x.dataset.l))));
     };
     cuerpo.onclick = (ev) => {
+      const mo = ev.target.closest('[data-modo]'); if (mo) { modoConcil = mo.dataset.modo; vConciliacion(cuerpo, e, nav); return; }
       const cb = ev.target.closest('[data-cb]'); if (cb) { selCuenta = cb.dataset.cb; selB.clear(); selL.clear(); vConciliacion(cuerpo, e, nav); return; }
       const x = ev.target.closest('.cl'); if (!x) return;
       if (x.dataset.g) { deshacer(Number(x.dataset.g), st, libros, e, cuerpo, nav); return; }
