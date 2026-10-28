@@ -4,6 +4,7 @@
 //   - rechaza lo que el original dejaba pasar (total distinto de la suma de renglones, etc.),
 //   - aísla empresas (RLS), impide modificar comprobantes confirmados y audita los cambios.
 // Uso:  node modelo/probar_modelo.mjs
+import { createHash } from 'node:crypto';
 import { crearBase } from './cargar.mjs';
 import * as motor from '../reglas/calculo.mjs';
 
@@ -739,6 +740,107 @@ await prueba('RLS: la empresa A ve sus datos; el catálogo de ARCA es de solo le
   try {
     await rechaza(() => q(`update arca_alicuota_iva set tasa = 0.3 where codigo = 5`), /permission denied/i, 'cambiar un catálogo de ARCA');
   } finally { await q(`reset role`); }
+});
+
+// ---------------------------------------------------------------------------
+// 13. Trazabilidad (libro de eventos encadenado)
+// ---------------------------------------------------------------------------
+const contexto = (estudioId, empresaId, usuarioId) => q(`select set_config('app.estudio_id', $1, false), set_config('app.empresa_id', $2, false), set_config('app.usuario_id', $3, false)`,
+  [String(estudioId ?? ''), String(empresaId ?? ''), String(usuarioId ?? '')]);
+await contexto(estudio.id, null, usuario.id);
+
+await prueba('Trazabilidad: cada evento se encadena con el anterior y la base fija quién, cuándo y el número', async () => {
+  const a = await uno(`select fn_registrar_evento('acceso', 'Inició sesión', 'Ingreso con usuario y segundo factor', 'ok', null, null, null, null, '203.0.113.5', 'Chrome en Windows') id`);
+  const b = await uno(`select fn_registrar_evento('comprobantes', 'Emitió Factura A 0003-00001241', 'CAE obtenido', 'ok', $1, 'comprobante', $2, null, '203.0.113.5', 'Chrome en Windows') id`, [E, fa1]);
+  const c = await uno(`select fn_registrar_evento('maestros', 'Modificó el cliente X', null, 'ok', $1, null, null, '[{"campo":"Condición IVA","antes":"Consumidor Final","despues":"Responsable Inscripto"}]'::jsonb) id`, [E]);
+  const filas = await q(`select * from evento where id = any($1) order by nro`, [[a.id, b.id, c.id]]);
+  igual(filas.map((f) => f.nro).join(','), '1,2,3', 'números de la cadena');
+  igual(filas[0].huella_prev, '', 'huella previa del primer evento');
+  igual(filas[1].huella_prev, filas[0].huella, 'enlace 2 → 1');
+  igual(filas[2].huella_prev, filas[1].huella, 'enlace 3 → 2');
+  igual(filas[0].usuario_id, usuario.id, 'usuario tomado de la sesión');
+  igual(filas[1].empresa_id, E, 'empresa');
+  igual((await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v, null, 'cadena íntegra');
+  igual((await uno(`select count(*)::int n from v_trazabilidad where usuario = 'Contador'`)).n, 3, 'la vista muestra el nombre del usuario');
+});
+
+await prueba('Trazabilidad: la huella es SHA-256 sobre el contenido (se recalcula fuera de la base)', async () => {
+  const e = await uno(`select e.*, to_char(e.en at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') ts, host(e.ip) ip_txt from evento e where nro = 2 and estudio_id = $1`, [estudio.id]);
+  const texto = [e.huella_prev, e.estudio_id, e.nro, e.empresa_id ?? '', e.usuario_id ?? '', e.usuario_texto ?? '', e.categoria, e.accion, e.detalle ?? '', e.resultado,
+    e.entidad_tabla ?? '', e.entidad_id ?? '', '', e.ip_txt ?? '', e.dispositivo ?? '', e.ts].join('|');
+  igual(createHash('sha256').update(texto, 'utf8').digest('hex'), e.huella, 'huella recalculada');
+});
+
+await prueba('Trazabilidad: no se edita, no se borra, no se vacía, y la fecha no la elige quien escribe', async () => {
+  await rechaza(() => q(`update evento set accion = 'otra' where nro = 1`), /solo agregar/i, 'editar un evento');
+  await rechaza(() => q(`delete from evento where nro = 1`), /solo agregar/i, 'borrar un evento');
+  await rechaza(() => q(`truncate evento`), /solo agregar/i, 'vaciar la trazabilidad');
+  const r = await uno(`insert into evento (estudio_id, usuario_id, categoria, accion, en, nro, huella) values ($1, $2, 'seguridad', 'Con fecha vieja', '2020-01-01', 99, 'falsa') returning nro, en > now() - interval '1 minute' reciente`, [estudio.id, usuario.id]);
+  igual(r.nro, 4, 'número asignado por la base, no el pedido');
+  igual(r.reciente, true, 'fecha asignada por la base');
+});
+
+await prueba('Trazabilidad: alterar, quitar o intercalar un evento rompe la cadena y se detecta', async () => {
+  const verificar = async () => (await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v;
+  igual(await verificar(), null, 'antes de tocar');
+  await q('begin');
+  try {   // quien tiene acceso de administrador a la base puede desactivar el trigger: la cadena es lo que lo delata
+    await q(`alter table evento disable trigger trg_evento_solo_agregar`);
+    await q(`update evento set detalle = 'Retocado' where nro = 2 and estudio_id = $1`, [estudio.id]);
+    igual(await verificar(), 2, 'evento alterado');
+    await q('rollback'); await q('begin');
+    await q(`alter table evento disable trigger trg_evento_solo_agregar`);
+    await q(`delete from evento where nro = 2 and estudio_id = $1`, [estudio.id]);
+    igual(await verificar(), 3, 'evento quitado (número salteado)');
+  } finally { await q('rollback'); }
+  igual(await verificar(), null, 'tras deshacer la prueba');
+});
+
+await prueba('Trazabilidad: exige categoría válida, usuario o texto de quien actuó, y datos de entidad completos', async () => {
+  await rechaza(() => q(`select fn_registrar_evento('otra', 'x')`), /check|violates/i, 'categoría inválida');
+  await rechaza(() => q(`select fn_registrar_evento('acceso', 'x', null, 'quizas')`), /check|violates/i, 'resultado inválido');
+  await rechaza(() => q(`select fn_registrar_evento('acceso', '  ')`), /check|violates/i, 'acción vacía');
+  await rechaza(() => q(`select fn_registrar_evento('acceso', 'x', null, 'ok', null, 'comprobante')`), /check|violates/i, 'tabla sin id');
+  await rechaza(() => q(`select fn_registrar_evento('acceso', 'x', null, 'ok', null, null, null, '{"a":1}'::jsonb)`), /check|violates/i, 'cambios que no son una lista');
+  await contexto(estudio.id, null, null);                 // todavía no hay usuario: ingreso fallido
+  await rechaza(() => q(`select fn_registrar_evento('acceso', 'Intento de ingreso fallido', null, 'fallo')`), /check|violates/i, 'sin usuario ni texto');
+  const f = await uno(`select fn_registrar_evento('acceso', 'Intento de ingreso fallido', 'Contraseña incorrecta', 'fallo', null, null, null, null, null, null, 'alguien@estudio.test') id`);
+  igual((await uno(`select usuario_id, usuario_texto, resultado from evento where id = $1`, [f.id])).usuario_texto, 'alguien@estudio.test', 'texto de quien intentó ingresar');
+  await contexto(estudio.id, null, usuario.id);
+  await contexto(null, null, usuario.id);
+  await rechaza(() => q(`select fn_registrar_evento('acceso', 'x')`), /sin estudio/i, 'sin estudio en el contexto');
+  await contexto(estudio.id, null, usuario.id);
+});
+
+await prueba('Trazabilidad: cada estudio tiene su propia cadena, independiente de las demás', async () => {
+  const otro = await uno(`insert into estudio (nombre) values ('Otro Estudio') returning id`);
+  const uOtro = await uno(`insert into usuario (estudio_id, email, nombre) values ($1,'otro@estudio.test','Otra') returning id`, [otro.id]);
+  await contexto(otro.id, null, uOtro.id);
+  const e1 = await uno(`select fn_registrar_evento('acceso', 'Inició sesión') id`);
+  igual((await uno(`select nro, huella_prev from evento where id = $1`, [e1.id])).nro, 1, 'primer evento del otro estudio');
+  igual((await uno(`select fn_verificar_trazabilidad($1) v`, [otro.id])).v, null, 'cadena del otro estudio');
+  igual((await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v, null, 'la cadena del primer estudio sigue íntegra');
+  await contexto(estudio.id, null, usuario.id);
+});
+
+await prueba('Trazabilidad: RLS — cada estudio ve solo lo suyo, escribe solo en lo suyo y la aplicación no puede modificar', async () => {
+  const otro = await uno(`select id from estudio where nombre = 'Otro Estudio'`);
+  const empOtro = await uno(`insert into empresa (estudio_id, cuit, razon_social, condicion_iva_codigo) values ($1,$2,'Empresa Ajena',1) returning id`, [otro.id, cuit('3055123456')]);
+  await q(`set role app_usuario`);
+  try {
+    const propios = (await uno(`select count(*)::int n from evento`)).n;
+    const ajenos = (await uno(`select count(*)::int n from evento where estudio_id <> $1`, [estudio.id])).n;
+    igual(ajenos, 0, 'eventos de otro estudio visibles');
+    if (propios < 5) throw new Error(`el estudio debía ver sus eventos y ve ${propios}`);
+    igual((await uno(`select count(*)::int n from v_trazabilidad`)).n, propios, 'la vista respeta el mismo aislamiento');
+    await rechaza(() => q(`insert into evento (estudio_id, usuario_id, categoria, accion, huella) values ($1,$2,'acceso','Suplantación','x')`, [otro.id, usuario.id]),
+      /row-level security/i, 'escribir en la cadena de otro estudio');
+    await rechaza(() => q(`select fn_registrar_evento('acceso', 'x', null, 'ok', $1)`, [empOtro.id]), /row-level security/i, 'atribuir un evento a una empresa de otro estudio');
+    await rechaza(() => q(`update evento set accion = 'x'`), /permission denied/i, 'modificar desde la aplicación');
+    await rechaza(() => q(`delete from evento`), /permission denied/i, 'borrar desde la aplicación');
+    await q(`select fn_registrar_evento('seguridad', 'Exportó la trazabilidad a CSV', '12 movimientos')`);   // sí puede agregar
+  } finally { await q(`reset role`); }
+  igual((await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v, null, 'cadena íntegra tras escribir como aplicación');
 });
 
 console.log(`\n${correctas} pruebas correctas, ${fallas} con falla`);

@@ -29,7 +29,7 @@ Ver: `http://localhost:3007/administranet-replica/front/index.html` (servidor `q
 - Es de solo lectura: la pantalla no tiene ninguna acción de editar ni borrar. Que verificar la integridad y exportar también queden registrados es intencional (ISO 27001: quién consultó o sacó información).
 - **La huella es demostrativa** (FNV, en el navegador). En el producto la calcula el servidor con SHA-256 encadenada, sobre una tabla de solo agregar.
 - El CSV neutraliza valores que empiezan con `=`, `+`, `-` o `@` para que Excel no los ejecute como fórmula.
-- **Falta en el modelo:** la tabla `auditoria` de `modelo/02_tenencia_seguridad.sql` ya guarda quién cambió qué (INSERT/UPDATE/DELETE con antes y después), pero no cubre eventos que no son cambios de datos: inicios de sesión y fallidos, exportaciones, consultas sensibles, rechazos de ARCA. Hace falta una tabla de eventos de solo agregar (y el campo de huella) antes de conectar esta pantalla. La pantalla en producto exigiría un permiso propio ("Ver trazabilidad").
+- **Modelo:** ya está en `modelo/12_trazabilidad.sql` (tabla `evento` de solo agregar con cadena de huellas SHA-256 por estudio, `fn_registrar_evento`, `fn_verificar_trazabilidad`, vista `v_trazabilidad`) y se prueba en `npm run test:modelo`. Para conectar la pantalla falta la API (y que escriba los eventos de ingreso, exportación y rechazo de ARCA), el permiso `trazabilidad.ver` en el catálogo de permisos, y **resguardar la cabeza de la cadena** (`v_trazabilidad_cabeza`) fuera de la base cada cierto tiempo: quitar los últimos eventos no rompe la cadena. Definir también cuántos años se conserva (ISO 27001).
 
 ## Para pasar a producto
 

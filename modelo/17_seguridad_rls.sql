@@ -14,6 +14,7 @@ begin
       from information_schema.columns c
       join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
      where c.table_schema = 'public' and c.column_name = 'empresa_id' and t.table_type = 'BASE TABLE'
+       and c.table_name <> 'evento'      -- la trazabilidad es del estudio (tiene eventos sin empresa): política propia más abajo
   loop
     execute format('alter table %I enable row level security', r.table_name);
     execute format('alter table %I force row level security', r.table_name);
@@ -41,6 +42,15 @@ alter table rol enable row level security;
 alter table rol force row level security;
 create policy acceso_rol on rol using (estudio_id = fn_estudio_actual()) with check (estudio_id = fn_estudio_actual());
 
+-- Trazabilidad: la lee y la escribe el estudio dueño. No hay política de modificación ni de baja.
+-- Qué usuarios del estudio pueden verla (permiso `trazabilidad.ver`) lo decide la API, no la base.
+alter table evento enable row level security;
+alter table evento force row level security;
+create policy leer_evento on evento for select using (estudio_id = fn_estudio_actual());
+create policy agregar_evento on evento for insert
+  with check (estudio_id = fn_estudio_actual()
+              and (empresa_id is null or exists (select 1 from empresa e where e.id = empresa_id and e.estudio_id = fn_estudio_actual())));
+
 -- Permisos del rol de la aplicación sobre todo el esquema (RLS decide qué filas).
 grant select, insert, update, delete on all tables in schema public to app_usuario;
 grant usage on all sequences in schema public to app_usuario;
@@ -48,6 +58,9 @@ grant execute on all functions in schema public to app_usuario;
 -- Los catálogos de ARCA y los padrones son de solo lectura para la aplicación.
 revoke insert, update, delete on arca_tipo_comprobante, arca_alicuota_iva, arca_tipo_documento,
   arca_condicion_iva, arca_concepto, arca_moneda, arca_jurisdiccion, unidad_medida from app_usuario;
+
+-- Los libros de solo agregar no se modifican ni desde la aplicación (los triggers lo impiden también al dueño).
+revoke update, delete, truncate on evento, auditoria from app_usuario;
 
 -- Auditoría de lo que importa.
 create trigger aud_comprobante    after insert or update or delete on comprobante    for each row execute function fn_auditar();
