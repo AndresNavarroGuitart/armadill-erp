@@ -3,7 +3,7 @@
 window.crearVentas = function (H, I) {
   'use strict';
   const { $, $$, esc, ic, toast, registrar, ir, D, empresa } = H;
-  const { pe, pill, ent, c2, dato, cierra, dialogo, tabla, art, saldos, mover, siguiente, depNombre, copiar, unidades, hace, abrirFactura, repintar, terminar } = I;
+  const { pe, pill, ent, c2, dato, cierra, dialogo, tabla, art, saldos, mover, siguiente, depNombre, copiar, unidades, hace, abrirFactura, repintar, terminar, costoDe } = I;
 
   const LISTAS_PRECIO = [{ n: 'General', f: 0 }, { n: 'Mayorista', f: -10 }, { n: 'Minorista', f: 8 }];
   const DESC_MAX = 20;   /* permiso "ventas.descuento_max" del rol; lo decide la API en el producto */
@@ -250,7 +250,7 @@ window.crearVentas = function (H, I) {
       ...LISTAS_PRECIO.map((l, k) => ({ t: l.n, w: '130px', sec: k > 0, r: true, f: (a) => `<${k ? 'span' : 'b'} class="num">${pe(precioLista(e, a, l.n))}</${k ? 'span' : 'b'}>` })),
       { t: 'Margen', w: '80px', sec: true, r: true, f: (a) => { const m = Math.round(((base(e, a) - a.costo) / base(e, a)) * 100); return `<span class="num ${m < 10 ? 'mal' : ''}">${m} %</span>`; } },
       { t: '', w: '110px', sec: true, f: (a) => ((e.precios || {})[a.cod] != null ? pill('Modificado').replace('class="pill "', 'class="pill blue"') : '') },
-    ], D.articulos.filter((a) => a.v && (a.n + a.cod).toLowerCase().includes(texto)), abrirPrecio);
+    ], D.articulos.filter((a) => a.v && (a.n + a.cod).toLowerCase().includes(texto)).map((a) => ({ ...a, costo: costoDe(e, a) })), abrirPrecio);
     pintar(); $('#mq', cuerpo).addEventListener('input', (ev) => { texto = ev.target.value.toLowerCase(); pintar(); });
   }
   function abrirPrecio(a) {
@@ -349,5 +349,5 @@ window.crearVentas = function (H, I) {
     if (origen) registrar('comprobantes', `Facturó ${origen.tipo === 'remito' ? 'el remito' : 'el pedido'} ${origen.doc.nro}`, `Factura ${nro} · ${pe(total)}`);
   }
 
-  return { nuevo, editor, abrirCliente, abrirCobro, vPrecios, precio, acciones, alFacturar };
+  return { nuevo, editor, abrirCliente, abrirCobro, vPrecios, precio, acciones, alFacturar, cuitValido, fmtDoc, parseDoc };
 };
