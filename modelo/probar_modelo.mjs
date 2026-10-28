@@ -844,5 +844,82 @@ await prueba('Trazabilidad: RLS — cada estudio ve solo lo suyo, escribe solo e
   igual((await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v, null, 'cadena íntegra tras escribir como aplicación');
 });
 
+// ---------------------------------------------------------------------------
+// 14. Asistente: configuración, registro de uso y cuota
+// ---------------------------------------------------------------------------
+{
+  const otro = await uno(`select id from estudio where nombre = 'Otro Estudio'`);
+  const uOtro = await uno(`select id from usuario where email = 'otro@estudio.test'`);
+  const usuario2 = await uno(`insert into usuario (estudio_id, email, nombre) values ($1,'segundo@estudio.test','Segundo') returning id`, [estudio.id]);
+  const estado = async (est, usr) => uno(`select * from fn_asistente_estado($1, $2)`, [est, usr]);
+  const usar = (est, usr, resultado, costo = 0) => q(`insert into asistente_uso (estudio_id, usuario_id, modelo, resultado, costo_usd, tokens_entrada, tokens_salida) values ($1,$2,$3,$4,$5,1000,300)`, [est, usr, resultado === 'modo_basico' ? 'basico' : 'claude-opus-5-5', resultado, costo]);
+
+  await prueba('Asistente: sin configuración rige lo predeterminado (activo, 40 por día, tope provisorio) y los datos de empresas están apagados', async () => {
+    const e0 = await estado(estudio.id, usuario.id);
+    igual(e0.motivo, null, 'motivo'); igual(e0.cuota_diaria, 40, 'cuota diaria'); igual(Number(e0.tope_mensual), 50, 'tope mensual'); igual(e0.usadas_hoy, 0, 'usadas');
+    await q(`insert into asistente_config (estudio_id) values ($1)`, [estudio.id]);
+    const c = await uno(`select * from asistente_config where estudio_id = $1`, [estudio.id]);
+    igual(c.datos_activo, false, 'datos de empresas apagados por defecto'); igual(c.guardar_conversaciones, false, 'conversaciones sin guardar por defecto');
+  });
+
+  await prueba('Asistente: el registro de uso no se edita ni se borra ni se vacía, y no admite números negativos', async () => {
+    await usar(estudio.id, usuario.id, 'ok', 0.05);
+    await rechaza(() => q(`update asistente_uso set costo_usd = 0`), /solo agregar/i, 'editar el uso');
+    await rechaza(() => q(`delete from asistente_uso`), /solo agregar/i, 'borrar el uso');
+    await rechaza(() => q(`truncate asistente_uso`), /solo agregar/i, 'vaciar el uso');
+    await rechaza(() => q(`insert into asistente_uso (estudio_id, usuario_id, modelo, resultado, tokens_entrada) values ($1,$2,'m','ok',-1)`, [estudio.id, usuario.id]), /check|violates/i, 'tokens negativos');
+    await rechaza(() => q(`insert into asistente_uso (estudio_id, usuario_id, modelo, resultado) values ($1,$2,'m','otro')`, [estudio.id, usuario.id]), /check|violates/i, 'resultado inválido');
+  });
+
+  await prueba('Asistente: la cuota diaria corta a quien la agota, solo cuenta lo que llamó a Claude y no afecta a los demás', async () => {
+    await q(`update asistente_config set cuota_diaria_usuario = 3 where estudio_id = $1`, [estudio.id]);
+    await usar(estudio.id, usuario.id, 'modo_basico'); await usar(estudio.id, usuario.id, 'cuota');   // no cuentan
+    igual((await estado(estudio.id, usuario.id)).motivo, null, 'con 1 consulta de 3');
+    await usar(estudio.id, usuario.id, 'ok', 0.05); await usar(estudio.id, usuario.id, 'rechazado', 0.01);
+    const e3 = await estado(estudio.id, usuario.id);
+    igual(e3.motivo, 'cuota_diaria', 'con 3 de 3'); igual(e3.aviso, true, 'aviso previo');
+    igual((await estado(estudio.id, usuario2.id)).motivo, null, 'otra persona del mismo estudio');
+  });
+
+  await prueba('Asistente: el tope mensual del estudio corta a todos, con aviso al 80 %', async () => {
+    await q(`update asistente_config set cuota_diaria_usuario = 40, tope_mensual_usd = 1 where estudio_id = $1`, [estudio.id]);
+    const gastado = Number((await estado(estudio.id, usuario2.id)).gasto_mes);
+    await usar(estudio.id, usuario2.id, 'ok', Math.max(0, 0.85 - gastado));
+    const e80 = await estado(estudio.id, usuario2.id); igual(e80.motivo, null, 'al 85 %'); igual(e80.aviso, true, 'aviso al 80 %');
+    await usar(estudio.id, usuario2.id, 'ok', 0.2);
+    igual((await estado(estudio.id, usuario2.id)).motivo, 'tope_mensual', 'pasado el tope');
+    igual((await estado(estudio.id, usuario.id)).motivo, 'tope_mensual', 'también para el resto del estudio');
+  });
+
+  await prueba('Asistente: apagarlo por estudio tiene prioridad y no afecta a otro estudio', async () => {
+    await q(`update asistente_config set activo = false where estudio_id = $1`, [estudio.id]);
+    igual((await estado(estudio.id, usuario.id)).motivo, 'apagado', 'estudio apagado'); igual((await estado(estudio.id, usuario.id)).aviso, false, 'sin aviso si está apagado');
+    igual((await estado(otro.id, uOtro.id)).motivo, null, 'otro estudio sigue activo');
+    await q(`update asistente_config set activo = true where estudio_id = $1`, [estudio.id]);
+  });
+
+  await prueba('Asistente: RLS — cada estudio ve y escribe solo lo suyo', async () => {
+    await contexto(estudio.id, null, usuario.id);
+    await q(`set role app_usuario`);
+    try {
+      const mios = (await uno(`select count(*)::int n from asistente_uso`)).n;
+      if (mios < 6) throw new Error(`debía ver su uso y ve ${mios}`);
+      igual((await uno(`select count(*)::int n from asistente_uso where estudio_id <> $1`, [estudio.id])).n, 0, 'uso de otro estudio visible');
+      igual((await uno(`select count(*)::int n from v_asistente_gasto_mes where estudio_id <> $1`, [estudio.id])).n, 0, 'gasto de otro estudio visible');
+      await rechaza(() => usar(otro.id, uOtro.id, 'ok'), /row-level security/i, 'escribir uso en otro estudio');
+      await rechaza(() => q(`update asistente_uso set costo_usd = 0`), /permission denied/i, 'modificar el uso desde la aplicación');
+      await usar(estudio.id, usuario.id, 'modo_basico');                       // sí puede agregar lo suyo
+      igual((await estado(estudio.id, usuario.id)).cuota_diaria, 40, 'estado de cuota con el rol de la aplicación');
+    } finally { await q(`reset role`); }
+  });
+
+  await prueba('Asistente: la trazabilidad admite la categoría "asistente"', async () => {
+    await contexto(estudio.id, null, usuario.id);
+    const id = (await uno(`select fn_registrar_evento('asistente', 'Consultó al asistente', 'Modo: claude · 1.300 tokens') id`)).id;
+    igual((await uno(`select categoria from evento where id = $1`, [id])).categoria, 'asistente', 'categoría');
+    igual((await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v, null, 'cadena íntegra');
+  });
+}
+
 console.log(`\n${correctas} pruebas correctas, ${fallas} con falla`);
 process.exit(fallas ? 1 : 0);

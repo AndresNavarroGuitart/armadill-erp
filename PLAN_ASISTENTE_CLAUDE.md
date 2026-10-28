@@ -243,8 +243,8 @@ Son órdenes de magnitud: una consulta con varias herramientas cuesta más porqu
 
 | Fase | Qué se entrega | Se pasa a la siguiente cuando |
 |---|---|---|
-| **0 (hoy)** | Prototipo con respuestas armadas | — |
-| **1** | API del asistente + guías y conceptos con caché, **sin datos**; modo básico de respaldo; cuota y tope de gasto; registro de uso | Evaluación de honestidad y seguridad en verde; costo real medido |
+| **0** | Prototipo con respuestas armadas | Hecho |
+| **1** | API del asistente + guías y conceptos con caché, **sin datos**; modo básico de respaldo; cuota y tope de gasto; registro de uso | **Construida (2026-10-28)**, ver [asistente/LEEME.md](asistente/LEEME.md): 35 pruebas y 7 del modelo en verde. Falta la prueba de humo real (costo y caché medidos) y conectar la pantalla |
 | **2** | Herramientas de lectura con RLS y permisos; interruptor por estudio | Cero fugas entre empresas en las pruebas; datos correctos contra la base |
 | **3** | Búsqueda web restringida a ARCA con cita y fecha para los valores vigentes | Respuestas con fuente en el 100 % de las preguntas de normas |
 | **4** | **Borradores**: el asistente prepara una factura o un asiento y una persona lo revisa y confirma (nunca se emite solo) | Auditoría de seguridad; confirmación obligatoria; registro de quién confirmó |

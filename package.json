@@ -8,9 +8,15 @@
     "test:modelo": "node modelo/probar_modelo.mjs",
     "test:arca": "node arca/probar_payload.mjs",
     "test:migracion": "node migracion/probar_migracion.mjs",
-    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs"
+    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs",
+    "test:asistente": "node asistente/probar_asistente.mjs",
+    "asistente:dev": "node asistente/servidor_dev.mjs",
+    "asistente:humo": "node asistente/probar_claude.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0"
   }
 }
