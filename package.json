@@ -6,7 +6,8 @@
   "scripts": {
     "test:reglas": "node reglas/probar.mjs",
     "test:modelo": "node modelo/probar_modelo.mjs",
-    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs"
+    "test:arca": "node arca/probar_payload.mjs",
+    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13"
