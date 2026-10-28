@@ -10,10 +10,21 @@ Ver: `http://localhost:3007/administranet-replica/front/index.html` (servidor `q
 |---|---|
 | Inicio | Una empresa "en una mirada": KPIs animados, caja y bancos con cursor, **qué hacer hoy** y próximos vencimientos |
 | Estudio | La cartera completa ordenada por urgencia (semáforo); entrar a una empresa con un clic |
-| Comprobantes | Listado con filtros por estado y búsqueda en vivo |
+| **Ventas** | Presupuestos → pedidos → remitos → facturas, y clientes. Cada documento se abre con su recorrido (qué pasó y qué falta) y sus acciones: convertir en pedido, generar remito (descuenta stock y **se rechaza si no alcanza**), facturar |
+| **Compras** | Órdenes de compra → recepciones → facturas de compra, y proveedores. **Stock** vive acá: existencias por depósito con alerta de mínimo, libro de movimientos (ID `MV-…`, solo agregar), depósitos y ajuste de inventario. Recepcionar una orden ingresa el stock; pagar una factura queda en tesorería |
+| **Finanzas** | **Tesorería** (cajas y bancos, cheques, cobros y pagos), **Contabilidad** (libro diario con asientos que se generan solos desde los comprobantes, plan de cuentas, sumas y saldos que verifican Debe = Haber) e **Impuestos** (posición de IVA, libros de IVA, retenciones, vencimientos; para monotributo, solo la cuota) |
+| Estudio y Trazabilidad | Siguen abajo en el menú: son del estudio, no de una empresa |
 | Nueva factura | El tipo (A/B/C) se elige solo según el cliente; vista previa del comprobante en vivo; chequeos de reglas (RG 5616, fechas de servicio, total = suma de renglones); panel "cómo se lo enviamos a ARCA" |
 | Trazabilidad | Registro de solo lectura de cada movimiento: **fecha, hora, usuario, actividad, empresa y resultado**. Filtros por tipo, período, usuario, empresa y texto; cada fila se abre para ver origen (IP/equipo), antes → después y la huella. Exporta a CSV lo que se ve y verifica la integridad |
 | Paleta de comandos | `Ctrl K`: ir a una pantalla, cambiar de empresa, facturarle a un cliente |
+
+## Cómo está organizado el menú
+
+`Inicio` · `Ventas` · `Compras` (con Stock) · `Finanzas` (con Tesorería, Contabilidad e Impuestos). Cada módulo tiene sus solapas y números clave arriba (se puede entrar a cada uno con un clic). Todo se alcanza también con `Ctrl K` ("Compras · Stock · Movimientos").
+
+Las acciones entre documentos mueven datos de verdad dentro de la pestaña y **dejan rastro en la trazabilidad**: convertir un presupuesto, generar un remito, registrar una recepción, pagar una factura o ajustar stock. Lo que todavía es solo un aviso ("próximamente en el prototipo"): crear presupuestos, pedidos y remitos desde cero, nuevos clientes y proveedores, asientos manuales, transferencias entre depósitos y la conciliación.
+
+Los datos son de ejemplo y consistentes entre sí: el stock se deriva de los movimientos, los asientos de los comprobantes, el IVA de las facturas y el balance de los asientos.
 
 ## Decisiones de diseño
 

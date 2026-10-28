@@ -35,6 +35,10 @@
     history: 'M12 7v5l3 2M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5',
     download: 'M12 4v11M7 11l5 5 5-5M5 20h14',
     lock: 'M6 11h12v9H6zM8 11V8a4 4 0 018 0v3',
+    trend: 'M3 17l6-6 4 4 8-8M15 7h6v6',
+    cart: 'M3 4h2l2.4 11.2a2 2 0 002 1.6h7.5a2 2 0 002-1.5L21 8H6M10 21a1 1 0 100-2 1 1 0 000 2zM17 21a1 1 0 100-2 1 1 0 000 2z',
+    box: 'M21 8l-9-5-9 5v8l9 5 9-5V8zM3 8l9 5 9-5M12 13v8',
+    wallet: 'M3 7a2 2 0 012-2h13v4M3 7v11a2 2 0 002 2h15V9H5a2 2 0 01-2-2zM16 14h2',
   };
   const ic = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="${P[n]}"/></svg>`;
 
@@ -48,22 +52,34 @@
   const CAPITAL = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
   /* ---------- navegación ---------- */
+  /* zona 1: módulos de trabajo; zona 2: estudio y control. "grupo" resalta el módulo al que pertenece una pantalla suelta. */
   const VISTAS = {
-    inicio: { titulo: 'Inicio', icono: 'home', montar: vInicio },
-    estudio: { titulo: 'Estudio', icono: 'grid', montar: vEstudio },
-    comprobantes: { titulo: 'Comprobantes', icono: 'receipt', montar: vComprobantes },
-    nueva: { titulo: 'Nueva factura', icono: 'plus', montar: vNueva },
-    trazabilidad: { titulo: 'Trazabilidad', icono: 'history', montar: vTrazabilidad },
+    inicio: { titulo: 'Inicio', icono: 'home', zona: 1, montar: vInicio },
+    ventas: { titulo: 'Ventas', icono: 'trend', zona: 1, modulo: true },
+    compras: { titulo: 'Compras', icono: 'cart', zona: 1, modulo: true },
+    finanzas: { titulo: 'Finanzas', icono: 'wallet', zona: 1, modulo: true },
+    estudio: { titulo: 'Estudio', icono: 'grid', zona: 2, montar: vEstudio },
+    trazabilidad: { titulo: 'Trazabilidad', icono: 'history', zona: 2, montar: vTrazabilidad },
+    nueva: { titulo: 'Nueva factura', icono: 'plus', grupo: 'ventas', montar: vNueva },
   };
   function pintarNav(actual) {
-    $('#nav').innerHTML = Object.entries(VISTAS).map(([k, v]) =>
-      `<button data-ir="${k}" data-tip="${v.titulo}" aria-label="${v.titulo}" ${k === actual ? 'aria-current="page"' : ''}>${ic(v.icono)}</button>`).join('');
+    [1, 2].forEach((z) => {
+      $('#nav' + (z === 1 ? '' : '2')).innerHTML = Object.entries(VISTAS).filter(([, v]) => v.zona === z).map(([k, v]) =>
+        `<button data-ir="${k}" data-tip="${v.titulo}" aria-label="${v.titulo}" ${k === actual ? 'aria-current="page"' : ''}>${ic(v.icono)}</button>`).join('');
+    });
   }
   function render() {
-    const nombre = location.hash.replace('#/', '') || 'inicio';
-    const vista = VISTAS[nombre] || VISTAS.inicio;
-    const actual = VISTAS[nombre] ? nombre : 'inicio';
-    const montar = () => { pintarNav(actual); $('#vista').innerHTML = ''; vista.montar($('#vista')); window.scrollTo(0, 0); };
+    let partes = location.hash.replace('#/', '').split('/').filter(Boolean);
+    if (partes[0] === 'comprobantes') partes = ['ventas', 'facturas'];
+    const nombre = VISTAS[partes[0]] ? partes[0] : 'inicio', vista = VISTAS[nombre], actual = vista.grupo || nombre, root = $('#vista');
+    const montar = () => {
+      pintarNav(actual);
+      if (vista.modulo) {
+        if (root._mod && root._mod.nombre === nombre && root._mod.empresaId === estado.empresaId) { root._mod.cambiar(partes); return; }
+        root._mod = null; root.innerHTML = ''; MOD.montar(root, nombre, partes);
+      } else { root._mod = null; root.innerHTML = ''; vista.montar(root); }
+      window.scrollTo(0, 0);
+    };
     if (document.startViewTransition && !reducir) document.startViewTransition(montar); else montar();
   }
   const ir = (n) => { if (location.hash === '#/' + n) render(); else location.hash = '#/' + n; };
@@ -145,20 +161,20 @@
     const varVentas = ((e.ventasMes - e.ventasPrev) / e.ventasPrev) * 100;
     const diaIva = e.venc[0];
     const tareas = [
-      { t: ri ? 'Presentar IVA' : 'Pagar monotributo', s: diaIva.dias < 0 ? `Venció hace ${-diaIva.dias} días` : `Vence en ${diaIva.dias} días`, p: Math.max(.08, Math.min(.95, 1 - diaIva.dias / 20)), c: diaIva.dias <= 3 ? 'var(--warn)' : 'var(--brand)', go: 'comprobantes' },
-      { t: 'Conciliar el banco', s: `${e.conciliar} movimientos sin conciliar`, p: Math.max(.1, 1 - e.conciliar / 40), c: 'var(--accent)', go: 'comprobantes' },
-      { t: 'Reclamar cobranzas', s: `${e.vencido} facturas vencidas`, p: Math.max(.1, 1 - e.vencido / 8), c: e.vencido > 3 ? 'var(--bad)' : 'var(--cyan)', go: 'comprobantes' },
+      { t: ri ? 'Presentar IVA' : 'Pagar monotributo', s: diaIva.dias < 0 ? `Venció hace ${-diaIva.dias} días` : `Vence en ${diaIva.dias} días`, p: Math.max(.08, Math.min(.95, 1 - diaIva.dias / 20)), c: diaIva.dias <= 3 ? 'var(--warn)' : 'var(--brand)', go: 'finanzas/impuestos' },
+      { t: 'Conciliar el banco', s: `${e.conciliar} movimientos sin conciliar`, p: Math.max(.1, 1 - e.conciliar / 40), c: 'var(--accent)', go: 'finanzas/tesoreria' },
+      { t: 'Reclamar cobranzas', s: `${e.vencido} facturas vencidas`, p: Math.max(.1, 1 - e.vencido / 8), c: e.vencido > 3 ? 'var(--bad)' : 'var(--cyan)', go: 'ventas/clientes' },
     ];
     const saludo = hoy.getHours() < 12 ? 'Buen día' : hoy.getHours() < 20 ? 'Buenas tardes' : 'Buenas noches';
     root.innerHTML = `
       <section class="hero rise">
         <div><h1>${saludo}, Andrés.<br><em>${esc(e.nombre)}</em> en una mirada.</h1>
         <p>${tareas.filter((t) => t.p < .75).length ? `Tenés <b>${tareas.filter((t) => t.p < .75).length === 1 ? '1 cosa' : tareas.filter((t) => t.p < .75).length + ' cosas'}</b> para mirar hoy. Lo demás está en orden.` : 'Todo está en orden por hoy.'}</p></div>
-        <div class="acciones"><button class="btn primary" data-ir="nueva">${ic('plus')} Nueva factura</button><button class="btn" data-toast="Registrar cobro: próximamente en el prototipo">${ic('coin')} Registrar cobro</button><button class="btn" data-toast="Conciliación: próximamente en el prototipo">${ic('bank')} Conciliar</button></div>
+        <div class="acciones"><button class="btn primary" data-ir="nueva">${ic('plus')} Nueva factura</button><button class="btn" data-ir="finanzas/tesoreria/cobros">${ic('coin')} Registrar cobro</button><button class="btn" data-ir="finanzas/tesoreria">${ic('bank')} Conciliar</button></div>
       </section>
       <section class="grid">
         <article class="card kpi s3 rise" style="--d:1"><h3>Ventas del mes</h3>${spark(e.ventas)}<div class="v" data-cuenta="${e.ventasMes}" data-f="corto">$ 0</div><div class="d"><b class="${varVentas >= 0 ? 'up' : 'down'}">${varVentas >= 0 ? '▲' : '▼'} ${Math.abs(varVentas).toFixed(1).replace('.', ',')}%</b> vs. mes anterior</div></article>
-        <article class="card kpi s3 rise" style="--d:2"><h3>${ri ? 'IVA a pagar' : 'Cuota del mes'}</h3>${spark(e.ventas.map((v) => v * .1).reverse(), 'var(--accent)')}<div class="v" data-cuenta="${ri ? e.ivaPagar : 38000}" data-f="corto">$ 0</div><button class="accion" data-ir="comprobantes">${ri ? 'Ver posición de IVA' : 'Ver detalle'} ${ic('arrow')}</button></article>
+        <article class="card kpi s3 rise" style="--d:2"><h3>${ri ? 'IVA a pagar' : 'Cuota del mes'}</h3>${spark(e.ventas.map((v) => v * .1).reverse(), 'var(--accent)')}<div class="v" data-cuenta="${ri ? e.ivaPagar : 38000}" data-f="corto">$ 0</div><button class="accion" data-ir="finanzas/impuestos">${ri ? 'Ver posición de IVA' : 'Ver detalle'} ${ic('arrow')}</button></article>
         <article class="card kpi s3 rise" style="--d:3"><h3>Caja y bancos</h3>${spark(e.flujo, 'var(--cyan)')}<div class="v" data-cuenta="${e.caja}" data-f="corto">$ 0</div><div class="d">${e.conciliar} movimientos por conciliar</div></article>
         <article class="card kpi s3 rise" style="--d:4"><h3>Por cobrar</h3>${spark(e.ventas.slice().reverse(), 'var(--brand)')}<div class="v" data-cuenta="${e.porCobrar}" data-f="corto">$ 0</div><div class="d"><b class="${e.vencido > 3 ? 'down' : ''}">${e.vencido} vencidas</b></div></article>
 
@@ -206,23 +222,6 @@
           <div class="datos"><div><small>Ventas del mes</small><b class="num">${corto(e.ventasMes)}</b></div><div><small>Por cobrar</small><b class="num">${corto(e.porCobrar)}</b></div></div>
           <footer><span>${esc(prox.nombre)}</span><span class="pill ${s.nivel === 'r' ? 'bad' : s.nivel === 'y' ? 'warn' : ''}">${prox.dias < 0 ? 'vencido' : prox.dias === 0 ? 'hoy' : 'en ' + prox.dias + ' d'}</span></footer></button>`;
       }).join('')}</section>`;
-  }
-
-  /* ---------- vista: comprobantes ---------- */
-  function vComprobantes(root) {
-    const e = empresa(); let filtro = 'Todos', texto = '';
-    const pillEstado = { Autorizado: '', Borrador: 'mute', Rechazado: 'bad', Anulado: 'warn' };
-    root.innerHTML = `
-      <section class="hero rise"><div><h1>Comprobantes <em>emitidos</em></h1><p>${esc(e.nombre)} · punto de venta 0003</p></div><div class="acciones"><button class="btn primary" data-ir="nueva">${ic('plus')} Nueva factura</button></div></section>
-      <div class="filtros rise" style="--d:1">${['Todos', 'Autorizado', 'Borrador', 'Rechazado', 'Anulado'].map((f) => `<button class="f" data-filtro="${f}" aria-pressed="${f === 'Todos'}">${f}</button>`).join('')}<input id="q" placeholder="Buscar cliente o número…" aria-label="Buscar"></div>
-      <div class="card lista rise" style="--d:2" id="lista"></div>`;
-    const pintar = () => {
-      const filas = e.comp.filter((c) => (filtro === 'Todos' || c.estado === filtro) && (c.cliente + c.nro).toLowerCase().includes(texto));
-      $('#lista').innerHTML = filas.length ? filas.map((c) => `<div class="fila"><span class="letra">${c.letra}</span><span class="t col-cli"><b>${esc(c.cliente)}</b><span>Factura ${c.letra} ${c.nro}</span></span><span class="col-fecha num" style="color:var(--ink-2)">${sumarDias(-c.dias).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</span><span><span class="pill ${pillEstado[c.estado]}"><i></i>${c.estado}</span></span><span class="imp num">${ARS.format(c.total)}</span></div>`).join('') : `<div class="vacio">Nada con ese filtro.</div>`;
-    };
-    pintar();
-    $$('[data-filtro]', root).forEach((b) => b.addEventListener('click', () => { filtro = b.dataset.filtro; $$('[data-filtro]', root).forEach((x) => x.setAttribute('aria-pressed', x === b)); pintar(); }));
-    $('#q', root).addEventListener('input', (ev) => { texto = ev.target.value.toLowerCase(); pintar(); });
   }
 
   /* ---------- factura: cálculo ---------- */
@@ -376,11 +375,12 @@
       const cae = String(Math.floor(70000000000000 + Math.random() * 9999999999999));
       const e = empresa(), f = estado.fac, letra = letraPara(e, f.cliente) || 'C', c = calcular(f, letra);
       const nro = '0003-' + String(Math.max(...e.comp.map((x) => Number(x.nro.slice(5)))) + 1).padStart(8, '0'), cliente = f.cliente ? f.cliente.n : 'Consumidor Final';
-      e.comp.unshift({ letra, cliente, dias: 0, nro, total: c.total / 100, estado: 'Autorizado' });
+      const items = f.items.filter((i) => i.art || Number(i.precio)).map((i) => ({ art: i.art || 'Renglón sin detalle', cod: (D.articulos.find((a) => a.n === i.art) || {}).cod || '', cant: Number(i.cant) || 0, precio: Number(i.precio) || 0, al: i.al }));
+      e.comp.unshift({ letra, cliente, dias: 0, nro, items, total: c.total / 100, estado: 'Autorizado' });
       registrar('comprobantes', `Emitió Factura ${letra} ${nro}`, `${cliente} · ${fmt(c.total)} · CAE ${cae} (simulado)`);
       body.innerHTML = `<h4>Factura ${letra} autorizada</h4><div class="sub" style="color:var(--muted);margin-bottom:14px">Simulado · el CAE de abajo es inventado.</div><div class="cae"><small style="color:var(--ink-2)">CAE</small><b>${cae}</b><small style="color:var(--ink-2)">Vence ${sumarDias(10).toLocaleDateString('es-AR')}</small></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn" id="otra">Hacer otra</button><button class="btn primary" id="verLista">Ver comprobantes</button></div>`;
       $('#otra').onclick = () => { estado.fac = null; dlg.close(); render(); };
-      $('#verLista').onclick = () => { estado.fac = null; dlg.close(); ir('comprobantes'); };
+      $('#verLista').onclick = () => { estado.fac = null; dlg.close(); ir('ventas/facturas'); };
     };
     siguiente();
   }
@@ -503,7 +503,8 @@
   /* ---------- paleta de comandos ---------- */
   let paletaSel = 0, paletaItems = [];
   function comandos() {
-    const nav = Object.entries(VISTAS).map(([k, v]) => ({ g: 'Ir a', t: v.titulo, ic: v.icono, f: () => ir(k) }));
+    const nav = [...Object.entries(VISTAS).filter(([k]) => k !== 'nueva').map(([k, v]) => ({ g: 'Ir a', t: v.titulo, ic: v.icono, f: () => ir(k) })),
+      ...MOD.rutas.map((r) => ({ g: 'Ir a', t: r.t, ic: r.ruta.startsWith('ventas') ? 'trend' : r.ruta.startsWith('compras') ? (r.ruta.includes('stock') ? 'box' : 'cart') : 'wallet', f: () => ir(r.ruta) }))];
     const acc = [
       { g: 'Acciones', t: 'Emitir factura nueva', ic: 'plus', f: () => { estado.fac = null; ir('nueva'); } },
       { g: 'Acciones', t: document.documentElement.dataset.theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro', ic: 'sun', f: alternarTema },
@@ -537,7 +538,7 @@
 
   /* ---------- eventos globales ---------- */
   document.addEventListener('click', (ev) => {
-    const ird = ev.target.closest('[data-ir]'); if (ird) { cerrarPop(); ir(ird.dataset.ir); return; }
+    const ird = ev.target.closest('[data-ir]'); if (ird) { cerrarPop(); if ($('#detalle').open) $('#detalle').close(); ir(ird.dataset.ir); return; }
     const emp = ev.target.closest('[data-emp]'); if (emp) { const id = Number(emp.dataset.emp); if (emp.dataset.entrar) { estado.empresaId = id; estado.fac = null; guardar('proto_empresa', id); registrar('acceso', 'Entró a la empresa ' + empresa().nombre, 'Desde la cartera del estudio'); pintarTopbar(); ir('inicio'); } else cambiarEmpresa(id); return; }
     const ts = ev.target.closest('[data-toast]'); if (ts) { toast(ts.dataset.toast); return; }
     const op = ev.target.closest('#paletaRes .op'); if (op) { $('#paleta').close(); paletaItems[Number(op.dataset.n)].f(); return; }
@@ -545,7 +546,7 @@
     if (ev.target.closest('#abrirPaleta')) { abrirPaleta(); return; }
     if (ev.target.closest('#tema')) { alternarTema(); return; }
     if (!ev.target.closest('#popEmpresa')) cerrarPop();
-    if (ev.target === $('#paleta') || ev.target === $('#emitir')) ev.target.close();
+    if (ev.target === $('#paleta') || ev.target === $('#emitir') || ev.target === $('#detalle')) ev.target.close();
   });
   document.addEventListener('keydown', (ev) => {
     if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); const d = $('#paleta'); d.open ? d.close() : abrirPaleta(); }
@@ -553,6 +554,15 @@
   });
   window.addEventListener('scroll', () => $('#topbar').classList.toggle('scrolled', scrollY > 6), { passive: true });
   window.addEventListener('hashchange', render);
+
+  /* ---------- módulos (ventas, compras, finanzas) ---------- */
+  function abrirFactura(nombre, items) {
+    const c = D.clientes.find((x) => x.n === nombre) || null;
+    estado.fac = nuevaFactura(); estado.fac.cliente = c;
+    if (items.length) estado.fac.items = items.map((i) => ({ art: i.art, cant: i.cant, precio: i.precio, al: i.al }));
+    ir('nueva'); toast(c ? 'Factura nueva para ' + c.n : 'Factura nueva');
+  }
+  const MOD = window.crearModulos({ $, $$, esc, ic, ARS, corto, toast, contar, sumarDias, empresa, registrar, abrirFactura, ir, D });
 
   /* ---------- arranque ---------- */
   const guardado = leer('proto_tema');

@@ -15,7 +15,7 @@ create table evento (
   empresa_id     bigint references empresa(id),         -- null: evento del estudio (ingresos, permisos, exportaciones)
   usuario_id     bigint references usuario(id),         -- lo fija la base con el usuario de la sesión
   usuario_texto  text,                                  -- quien intentó ingresar sin llegar a ser un usuario; o 'sistema'
-  categoria      text not null check (categoria in ('acceso','comprobantes','contabilidad','tesoreria','maestros','seguridad')),
+  categoria      text not null check (categoria in ('acceso','comprobantes','contabilidad','tesoreria','stock','maestros','seguridad')),
   accion         text not null check (length(btrim(accion)) > 0),
   detalle        text,
   resultado      text not null default 'ok' check (resultado in ('ok','rechazo','fallo')),
