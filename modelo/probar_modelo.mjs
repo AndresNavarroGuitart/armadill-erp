@@ -105,6 +105,7 @@ async function crearComprobante(o) {
       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [E, c.id, orden++, it.articulo ?? null, it.descripcion ?? 'renglón', it.cantidad ?? 1, it.precio, it.desc ?? 0,
        it.trat ?? 'gravado', it.trat && it.trat !== 'gravado' ? null : ALIC[it.alic ?? '21'], it.importe, it.deposito ?? null]);
+    if (it.docItem) await q(`update comprobante_item set documento_item_id = $1 where comprobante_id = $2 and orden = $3`, [it.docItem, c.id, orden - 1]);
   }
   for (const v of o.resumen.ivas) {
     await q(`insert into comprobante_iva (empresa_id, comprobante_id, alicuota_codigo, base_imponible, importe_iva) values ($1,$2,$3,$4,$5)`,
@@ -434,6 +435,78 @@ await prueba('Stock: el original dejó vender sin existencia (−2); acá es pol
 });
 
 // ---------------------------------------------------------------------------
+// 10 bis. Documentos comerciales: presupuesto → pedido → remito → factura, y orden de compra → remito
+// ---------------------------------------------------------------------------
+async function crearDoc(tipo, tercero, items, origen = null) {
+  const d = await uno(`insert into documento_comercial (empresa_id, tipo, fecha, tercero_id, documento_origen_id) values ($1,$2,'2026-10-28',$3,$4) returning id, numero`,
+    [E, tipo, tercero, origen]);
+  const ids = [];
+  let orden = 1;
+  for (const it of items) {
+    ids.push((await uno(`insert into documento_item (empresa_id, documento_id, orden, articulo_id, descripcion, cantidad, precio_unitario, deposito_id, item_origen_id)
+      values ($1,$2,$3,$4,'renglón',$5,$6,$7,$8) returning id`, [E, d.id, orden++, it.articulo, it.cantidad, it.precio ?? 0, it.deposito ?? null, it.origenItem ?? null])).id);
+  }
+  return { id: d.id, numero: d.numero, items: ids };
+}
+const confirmarDoc = (id) => q(`update documento_comercial set estado = 'confirmado' where id = $1`, [id]);
+const stockDe = async (art) => (await uno(`select coalesce(sum(saldo),0) as s from v_stock_saldo where articulo_id = $1`, [art])).s;
+const docArt = await uno(`insert into articulo (empresa_id, codigo, nombre, alicuota_venta_codigo, alicuota_compra_codigo) values ($1,'DOC1','Artículo de documentos',5,5) returning id`, [E]);
+let pedido; let remito1;
+
+await prueba('Compra: orden de compra → remito de compra mueve el stock (+10) y se numera sola', async () => {
+  const oc = await crearDoc('orden_compra', proveedor1.id, [{ articulo: docArt.id, cantidad: 10, precio: 100, deposito: deposito.id }]);
+  igual(oc.numero, '1', 'numeración automática'); await confirmarDoc(oc.id);
+  const rc = await crearDoc('remito_compra', proveedor1.id, [{ articulo: docArt.id, cantidad: 10, precio: 100, deposito: deposito.id, origenItem: oc.items[0] }], oc.id);
+  await confirmarDoc(rc.id);
+  igual(await stockDe(docArt.id), '10.0000', 'stock tras el remito de compra');
+  const v = await uno(`select pedido, remitado, pendiente_remitir from v_documento_pendiente where item_id = $1`, [oc.items[0]]);
+  igual([v.pedido, v.remitado, v.pendiente_remitir].join('/'), '10.0000/10.0000/0.0000', 'cumplimiento de la orden');
+});
+await prueba('Venta: presupuesto → pedido → remito parcial (3 de 5): stock 7 y 2 pendientes', async () => {
+  const pre = await crearDoc('presupuesto', cliente1.id, [{ articulo: docArt.id, cantidad: 5, precio: 157.3 }]);
+  await confirmarDoc(pre.id);
+  pedido = await crearDoc('pedido_venta', cliente1.id, [{ articulo: docArt.id, cantidad: 5, precio: 157.3, origenItem: pre.items[0] }], pre.id);
+  await confirmarDoc(pedido.id);
+  remito1 = await crearDoc('remito_venta', cliente1.id, [{ articulo: docArt.id, cantidad: 3, precio: 157.3, deposito: deposito.id, origenItem: pedido.items[0] }], pedido.id);
+  await confirmarDoc(remito1.id);
+  igual(await stockDe(docArt.id), '7.0000', 'stock');
+  const v = await uno(`select pedido, remitado, pendiente_remitir from v_documento_pendiente where item_id = $1`, [pedido.items[0]]);
+  igual([v.pedido, v.remitado, v.pendiente_remitir].join('/'), '5.0000/3.0000/2.0000', 'cumplimiento del pedido');
+});
+await prueba('Remitar más de lo pedido es rechazado; completar lo pendiente (2) es aceptado', async () => {
+  const demas = await crearDoc('remito_venta', cliente1.id, [{ articulo: docArt.id, cantidad: 3, deposito: deposito.id, origenItem: pedido.items[0] }], pedido.id);
+  await rechaza(() => confirmarDoc(demas.id), /solo pide/i, 'sobre-entrega');
+  const resto = await crearDoc('remito_venta', cliente1.id, [{ articulo: docArt.id, cantidad: 2, deposito: deposito.id, origenItem: pedido.items[0] }], pedido.id);
+  await confirmarDoc(resto.id);
+  igual(await stockDe(docArt.id), '5.0000', 'stock tras completar');
+  igual((await uno(`select pendiente_remitir from v_documento_pendiente where item_id = $1`, [pedido.items[0]])).pendiente_remitir, '0.0000', 'pendiente');
+  await q(`update documento_comercial set estado = 'anulado' where id = $1`, [resto.id]);
+  igual(await stockDe(docArt.id), '7.0000', 'anular el remito devuelve el stock');
+});
+await prueba('Factura desde un remito: lo remitado queda facturado y el stock no se mueve de nuevo', async () => {
+  const salida = motor.venta([{ precioFinal: '157,30', cantidad: '3', alicuota: '21' }]);
+  const r = resumen(salida);
+  const f = await crearComprobante({ sentido: 'venta', tipo: 1, tercero: cliente1.id, receptor: 1, incluyeIva: true, resumen: r,
+    items: [{ articulo: docArt.id, cantidad: 3, precio: '157.30', importe: '471.90', docItem: remito1.items[0] }] });
+  await confirmar(f, { electronico: true, numero: 70 });
+  const v = await uno(`select remitado, facturado, remitado_sin_facturar from v_documento_pendiente where item_id = $1`, [pedido.items[0]]);
+  igual([v.remitado, v.facturado, v.remitado_sin_facturar].join('/'), '3.0000/3.0000/0.0000', 'remitado/facturado/sin facturar');
+  igual(await stockDe(docArt.id), '7.0000', 'stock sin cambios por la factura');
+});
+await prueba('Documentos: cadena inválida, rol del tercero y modificación de un confirmado son rechazados', async () => {
+  const pre = await crearDoc('presupuesto', cliente1.id, [{ articulo: docArt.id, cantidad: 1 }]);
+  await confirmarDoc(pre.id);
+  const mal = await crearDoc('remito_venta', cliente1.id, [{ articulo: docArt.id, cantidad: 1, deposito: deposito.id, origenItem: pre.items[0] }], pre.id);
+  await rechaza(() => confirmarDoc(mal.id), /no puede originarse/i, 'remito desde presupuesto');
+  const ocCliente = await crearDoc('orden_compra', cliente1.id, [{ articulo: docArt.id, cantidad: 1 }]);
+  await rechaza(() => confirmarDoc(ocCliente.id), /no es proveedor/i, 'orden de compra a un cliente');
+  const sinDeposito = await crearDoc('remito_venta', cliente1.id, [{ articulo: docArt.id, cantidad: 1 }]);
+  await rechaza(() => confirmarDoc(sinDeposito.id), /necesita depósito/i, 'remito sin depósito');
+  await rechaza(() => q(`update documento_comercial set fecha = '2026-10-29' where id = $1`, [pre.id]), /no se modifica/i, 'cambiar un confirmado');
+  await rechaza(() => q(`update documento_comercial set estado = 'borrador' where id = $1`, [pre.id]), /Transición/i, 'volver a borrador');
+});
+
+// ---------------------------------------------------------------------------
 // 11. ARCA
 // ---------------------------------------------------------------------------
 await prueba('ARCA: la bitácora de llamadas es de solo agregar y el certificado exige un CUIT válido', async () => {
@@ -469,7 +542,7 @@ await prueba('RLS: la empresa A ve sus datos; el catálogo de ARCA es de solo le
   await q(`set role app_usuario`);
   try {
     if ((await uno(`select count(*)::int n from comprobante`)).n < 8) throw new Error('la empresa A no ve sus comprobantes');
-    igual((await uno(`select count(*)::int n from v_libro_iva_ventas`)).n, 3, 'filas del libro de ventas (FA 1, FA 2 y la NCA)');
+    igual((await uno(`select count(*)::int n from v_libro_iva_ventas`)).n, 4, 'filas del libro de ventas (FA 1, FA 2, la NCA y la factura desde remito)');
   } finally { await q(`reset role`); }
   await q(`set role app_usuario`);
   try {
