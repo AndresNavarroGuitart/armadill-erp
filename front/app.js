@@ -288,11 +288,11 @@
     };
     const abrirLista = () => {
       const t = inCli.value.toLowerCase();
-      const r = D.clientes.filter((c) => (c.n + c.doc).toLowerCase().includes(t));
-      ul.innerHTML = r.map((c, i) => `<li role="option" data-i="${D.clientes.indexOf(c)}" ${i === 0 ? 'aria-selected="true"' : ''}><span><b>${esc(c.n)}</b><br><small>${esc(c.doc)}</small></span><span class="pill ${c.iva === 'RI' ? '' : 'blue'}">${D.condicion[c.iva]}</span></li>`).join('') || '<li>Sin resultados</li>';
+      const r = empresa().clientes.filter((c) => (c.n + c.doc).toLowerCase().includes(t));
+      ul.innerHTML = r.map((c, i) => `<li role="option" data-i="${empresa().clientes.indexOf(c)}" ${i === 0 ? 'aria-selected="true"' : ''}><span><b>${esc(c.n)}</b><br><small>${esc(c.doc)}</small></span><span class="pill ${c.iva === 'RI' ? '' : 'blue'}">${D.condicion[c.iva]}</span></li>`).join('') || '<li>Sin resultados</li>';
       ul.hidden = false; inCli.setAttribute('aria-expanded', 'true');
     };
-    const elegir = (i) => { f.cliente = D.clientes[i]; ul.hidden = true; inCli.value = ''; pintarCli(); recalcular(); };
+    const elegir = (i) => { f.cliente = empresa().clientes[i]; ul.hidden = true; inCli.value = ''; pintarCli(); recalcular(); };
     inCli.addEventListener('focus', abrirLista); inCli.addEventListener('input', abrirLista);
     inCli.addEventListener('keydown', (ev) => {
       const items = $$('li[data-i]', ul), cur = items.findIndex((x) => x.getAttribute('aria-selected') === 'true');
@@ -319,7 +319,7 @@
     rEl.addEventListener('input', (ev) => {
       const fila = ev.target.closest('.reng[data-i]'); if (!fila) return; const it = f.items[Number(fila.dataset.i)];
       it.art = $('.art', fila).value; it.cant = $('.cant', fila).value; it.precio = $('.precio', fila).value; it.al = $('.al', fila).value;
-      if (ev.target.classList.contains('art')) { const a = D.articulos.find((x) => x.n === it.art); if (a) { it.precio = a.p; it.al = a.al; $('.precio', fila).value = a.p; $('.al', fila).value = a.al; } }
+      if (ev.target.classList.contains('art')) { const a = D.articulos.find((x) => x.n === it.art); if (a) { it.precio = MOD.precio(e, a, f.cliente); it.al = a.al; $('.precio', fila).value = it.precio; $('.al', fila).value = a.al; } }
       recalcular();
     });
     rEl.addEventListener('click', (ev) => { const b = ev.target.closest('.x'); if (!b) return; const i = Number(b.closest('.reng').dataset.i); f.items.splice(i, 1); if (!f.items.length) f.items.push({ art: '', cant: 1, precio: 0, al: '21' }); pintarRenglones(); });
@@ -378,6 +378,7 @@
       const items = f.items.filter((i) => i.art || Number(i.precio)).map((i) => ({ art: i.art || 'Renglón sin detalle', cod: (D.articulos.find((a) => a.n === i.art) || {}).cod || '', cant: Number(i.cant) || 0, precio: Number(i.precio) || 0, al: i.al }));
       e.comp.unshift({ letra, cliente, dias: 0, nro, items, total: c.total / 100, estado: 'Autorizado' });
       registrar('comprobantes', `Emitió Factura ${letra} ${nro}`, `${cliente} · ${fmt(c.total)} · CAE ${cae} (simulado)`);
+      MOD.alFacturar(f.origen, `${letra} ${nro}`, c.total / 100, cliente);
       body.innerHTML = `<h4>Factura ${letra} autorizada</h4><div class="sub" style="color:var(--muted);margin-bottom:14px">Simulado · el CAE de abajo es inventado.</div><div class="cae"><small style="color:var(--ink-2)">CAE</small><b>${cae}</b><small style="color:var(--ink-2)">Vence ${sumarDias(10).toLocaleDateString('es-AR')}</small></div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn" id="otra">Hacer otra</button><button class="btn primary" id="verLista">Ver comprobantes</button></div>`;
       $('#otra').onclick = () => { estado.fac = null; dlg.close(); render(); };
       $('#verLista').onclick = () => { estado.fac = null; dlg.close(); ir('ventas/facturas'); };
@@ -510,7 +511,7 @@
       { g: 'Acciones', t: document.documentElement.dataset.theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro', ic: 'sun', f: alternarTema },
     ];
     const emps = D.empresas.map((e) => ({ g: 'Cambiar de empresa', t: e.nombre, s: e.cuit, ic: 'grid', f: () => cambiarEmpresa(e.id) }));
-    const clis = D.clientes.map((c) => ({ g: 'Clientes', t: c.n, s: c.doc, ic: 'receipt', f: () => { estado.fac = nuevaFactura(); estado.fac.cliente = c; ir('nueva'); toast('Factura nueva para ' + c.n); } }));
+    const clis = empresa().clientes.map((c) => ({ g: 'Clientes', t: c.n, s: c.doc, ic: 'receipt', f: () => { estado.fac = nuevaFactura(); estado.fac.cliente = c; ir('nueva'); toast('Factura nueva para ' + c.n); } }));
     return [...nav, ...acc, ...emps, ...clis];
   }
   function pintarPaleta() {
@@ -556,10 +557,10 @@
   window.addEventListener('hashchange', render);
 
   /* ---------- módulos (ventas, compras, finanzas) ---------- */
-  function abrirFactura(nombre, items) {
-    const c = D.clientes.find((x) => x.n === nombre) || null;
-    estado.fac = nuevaFactura(); estado.fac.cliente = c;
-    if (items.length) estado.fac.items = items.map((i) => ({ art: i.art, cant: i.cant, precio: i.precio, al: i.al }));
+  function abrirFactura(nombre, items, origen) {
+    const c = empresa().clientes.find((x) => x.n === nombre) || null;
+    estado.fac = nuevaFactura(); estado.fac.cliente = c; estado.fac.origen = origen || null;
+    if (items.length) estado.fac.items = items.map((i) => ({ art: i.art, cant: i.cant, precio: Math.round(i.precio * (1 - (i.desc || 0) / 100) * 100) / 100, al: i.al }));
     ir('nueva'); toast(c ? 'Factura nueva para ' + c.n : 'Factura nueva');
   }
   const MOD = window.crearModulos({ $, $$, esc, ic, ARS, corto, toast, contar, sumarDias, empresa, registrar, abrirFactura, ir, D });

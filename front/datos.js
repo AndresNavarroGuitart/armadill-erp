@@ -69,7 +69,7 @@
   function totales(items, sinIva) {
     const grupos = new Map(); let exento = 0, noGrav = 0, bruto = 0;
     items.forEach((it) => {
-      const imp = redondear(it.cant * it.precio); bruto += imp;
+      const imp = redondear(it.cant * it.precio * (1 - (it.desc || 0) / 100)); bruto += imp;
       if (sinIva) return;
       if (it.al === 'ex') exento += imp; else if (it.al === 'ng') noGrav += imp; else grupos.set(it.al, (grupos.get(it.al) || 0) + imp);
     });

@@ -4,6 +4,7 @@
 window.crearModulos = function (H) {
   'use strict';
   const { $, $$, esc, ic, ARS, corto, toast, contar, sumarDias, empresa, registrar, abrirFactura, ir, D } = H;
+  const V = {};   /* Ventas completo (ventas.js), se completa al final */
   const pe = (n) => ARS.format(n);
   const fe = (dias) => sumarDias(-dias).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
   const hace = (d) => (d === 0 ? 'hoy' : 'hace ' + d + ' d');
@@ -13,7 +14,7 @@ window.crearModulos = function (H) {
     'Sin facturar': 'warn', Facturado: '', Anulado: 'mute', Autorizado: '', Rechazado: 'bad', Enviada: 'blue', 'Recibida parcial': 'warn', Recibida: '', Cancelada: 'mute',
     Impaga: 'blue', Vencida: 'bad', Pagada: '', Anulada: 'mute', Confirmado: '', 'En cartera': 'blue', Depositado: 'blue', Cobrado: '', Entregado: 'blue',
     Normal: '', 'Bajo mínimo': 'warn', 'Sin stock': 'bad', Automático: 'blue', Manual: 'mute', Recibido: 'blue', Propio: 'mute', Cobro: '', Pago: 'blue', 'Comisión bancaria': 'mute',
-    'Remito de venta': 'blue', 'Remito de compra': '', 'Ajuste de inventario': 'warn', Transferencia: 'mute', 'Saldo inicial': 'mute', IIBB: 'blue', Ganancias: 'warn', IVA: '', Sufrida: 'blue', Practicada: 'mute',
+    'Remito de venta': 'blue', Modificado: 'blue', 'Anulación de remito': 'warn', 'Remito de compra': '', 'Ajuste de inventario': 'warn', Transferencia: 'mute', 'Saldo inicial': 'mute', IIBB: 'blue', Ganancias: 'warn', IVA: '', Sufrida: 'blue', Practicada: 'mute',
   };
   const pill = (t) => `<span class="pill ${PILL[t] || ''}"><i></i>${esc(t)}</span>`;
   const ini = (n) => n.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
@@ -85,7 +86,7 @@ window.crearModulos = function (H) {
   const nroCol = (t) => ({ t, w: '170px', f: (d) => `<b class="num">${esc(d.nro)}</b>` });
   const LISTAS = {
     'ventas/presupuestos': {
-      singular: 'Presupuesto', nuevo: 'Nuevo presupuesto', ph: 'Buscar cliente o número…', datos: (e) => e.presup, estados: ['Borrador', 'Enviado', 'Aceptado', 'Convertido', 'Vencido'],
+      singular: 'Presupuesto', nuevo: 'Nuevo presupuesto', ph: 'Buscar cliente o número…', datos: (e) => e.presup, estados: ['Borrador', 'Enviado', 'Aceptado', 'Convertido', 'Rechazado', 'Vencido'],
       buscar: (d) => d.tercero + d.nro, cols: () => [nroCol('Presupuesto'), { t: 'Cliente', w: 'minmax(0,1.4fr)', f: (d) => ent(d.tercero) }, fechaCol,
         { t: 'Vence', w: '100px', sec: true, f: (d) => { const v = 15 - d.dias; return `<span class="num">${enDias(v)}</span>`; } }, estadoCol, tot],
     },
@@ -108,7 +109,7 @@ window.crearModulos = function (H) {
       ficha: 'cliente', singular: 'Cliente', nuevo: 'Nuevo cliente', ph: 'Buscar cliente o documento…', datos: (e) => e.clientes, buscar: (d) => d.n + d.doc,
       filtros: [['Todos', () => true], ['Con saldo', (d) => d.saldo > 0], ['Deuda vencida', (d) => d.vencido > 0]],
       cols: () => [{ t: 'Cliente', w: 'minmax(0,1.5fr)', f: (d) => ent(d.n, d.doc) }, { t: 'Condición IVA', w: '170px', sec: true, f: (d) => `<span class="pill ${d.iva === 'RI' ? '' : 'blue'}">${D.condicion[d.iva]}</span>` },
-        { t: 'Plazo', w: '90px', sec: true, f: (d) => (d.plazo ? d.plazo + ' días' : 'Contado') }, { t: 'Última compra', w: '120px', sec: true, f: (d) => hace(d.ultima) },
+        { t: 'Plazo', w: '90px', sec: true, f: (d) => (d.plazo ? d.plazo + ' días' : 'Contado') }, { t: 'Última compra', w: '120px', sec: true, f: (d) => (d.ultima == null ? 'Sin compras' : hace(d.ultima)) },
         { t: 'Ventas 12 m', w: '120px', sec: true, r: true, f: (d) => `<span class="num">${corto(d.anio)}</span>` },
         { t: 'Saldo', w: '140px', r: true, f: (d) => (d.saldo ? `<b class="num">${pe(d.saldo)}</b>${d.vencido ? `<small class="mal">${corto(d.vencido)} vencido</small>` : ''}` : '<span class="mudo">—</span>') }],
     },
@@ -131,7 +132,7 @@ window.crearModulos = function (H) {
       ficha: 'proveedor', singular: 'Proveedor', nuevo: 'Nuevo proveedor', ph: 'Buscar proveedor o documento…', datos: (e) => e.proveedores, buscar: (d) => d.n + d.doc,
       filtros: [['Todos', () => true], ['Con saldo', (d) => d.saldo > 0], ['Deuda vencida', (d) => d.vencido > 0]],
       cols: () => [{ t: 'Proveedor', w: 'minmax(0,1.5fr)', f: (d) => ent(d.n, d.doc) }, { t: 'Condición IVA', w: '170px', sec: true, f: (d) => `<span class="pill ${d.iva === 'RI' ? '' : 'blue'}">${D.condicion[d.iva]}</span>` },
-        { t: 'Plazo de pago', w: '110px', sec: true, f: (d) => (d.plazo ? d.plazo + ' días' : 'Contado') }, { t: 'Última compra', w: '120px', sec: true, f: (d) => hace(d.ultima) },
+        { t: 'Plazo de pago', w: '110px', sec: true, f: (d) => (d.plazo ? d.plazo + ' días' : 'Contado') }, { t: 'Última compra', w: '120px', sec: true, f: (d) => (d.ultima == null ? 'Sin compras' : hace(d.ultima)) },
         { t: 'Compras 12 m', w: '120px', sec: true, r: true, f: (d) => `<span class="num">${corto(d.anio)}</span>` },
         { t: 'Saldo a pagar', w: '140px', r: true, f: (d) => (d.saldo ? `<b class="num">${pe(d.saldo)}</b>${d.vencido ? `<small class="mal">${corto(d.vencido)} vencido</small>` : ''}` : '<span class="mudo">—</span>') }],
     },
@@ -176,7 +177,7 @@ window.crearModulos = function (H) {
   function abrirDoc(clave, d) {
     const L = LISTAS[clave], e = empresa(), t = D.totales(d.items || [], sinIvaDe(e, clave));
     const titulo = clave === 'ventas/facturas' ? `Factura ${d.letra} ${d.nro}` : d.nro, items = d.items || [];
-    const lineas = items.length ? items.map((i) => `<tr><td>${esc(i.art)}<small>${esc(i.cod || '')}</small></td><td class="num">${i.cant}</td><td class="num">${pe(i.precio)}</td><td>${i.al === 'ex' ? 'Exento' : i.al === 'ng' ? 'No gravado' : sinIvaDe(e, clave) ? '—' : String(D.TASA[i.al] * 100).replace('.', ',') + ' %'}</td><td class="num r">${pe(i.cant * i.precio)}</td></tr>`).join('')
+    const lineas = items.length ? items.map((i) => `<tr><td>${esc(i.art)}<small>${esc(i.cod || '')}</small></td><td class="num">${i.cant}</td><td class="num">${pe(i.precio)}${i.desc ? `<small>Dto. ${String(i.desc).replace('.', ',')} %</small>` : ''}</td><td>${i.al === 'ex' ? 'Exento' : i.al === 'ng' ? 'No gravado' : sinIvaDe(e, clave) ? '—' : String(D.TASA[i.al] * 100).replace('.', ',') + ' %'}</td><td class="num r">${pe(i.cant * i.precio * (1 - (i.desc || 0) / 100))}</td></tr>`).join('')
       : `<tr><td colspan="5" style="color:var(--muted)">Detalle según el comprobante emitido.</td></tr>`;
     const tots = items.length ? (sinIvaDe(e, clave) ? '' : `<div><span>Neto gravado</span><span>${pe(t.neto)}</span></div>${t.ivas.map((x) => `<div><span>IVA ${String(D.TASA[x.al] * 100).replace('.', ',')} %</span><span>${pe(x.iva)}</span></div>`).join('')}${t.exento ? `<div><span>Exento</span><span>${pe(t.exento)}</span></div>` : ''}${t.noGrav ? `<div><span>No gravado</span><span>${pe(t.noGrav)}</span></div>` : ''}`) : '';
     const acc = acciones(clave, d, e);
@@ -194,34 +195,7 @@ window.crearModulos = function (H) {
   function acciones(clave, d, e) {
     const out = [], mt = e.cond === 'MT';
     const imprimir = { t: 'Imprimir / PDF', f: () => toast('PDF simulado: el prototipo no genera archivos') };
-    if (clave === 'ventas/presupuestos' && (d.estado === 'Enviado' || d.estado === 'Aceptado')) {
-      out.push({ t: 'Convertir en pedido', p: 1, f: () => {
-        const ped = { nro: siguiente(e.pedidos, '0001-'), tercero: d.tercero, dias: 0, items: copiar(d.items), estado: 'Pendiente', rem: 0, fac: 0, total: d.total };
-        e.pedidos.unshift(ped); d.estado = 'Convertido';
-        registrar('comprobantes', `Convirtió el presupuesto ${d.nro} en el pedido ${ped.nro}`, `${d.tercero} · ${pe(d.total)}`, { entidad: 'pedido' });
-        toast(`Pedido ${ped.nro} creado`); terminar();
-      } });
-    }
-    if (clave === 'ventas/pedidos' && (d.estado === 'Pendiente' || d.estado === 'Parcial')) {
-      out.push({ t: 'Generar remito', p: 1, f: () => {
-        const pend = d.items.filter((i) => (art(i.cod) || {}).stock).map((i) => ({ ...i, cant: i.cant - Math.round((i.cant * d.rem) / 100) })).filter((i) => i.cant > 0);
-        if (!pend.length) { toast('El pedido no tiene artículos con stock: se factura directamente'); return; }
-        const s = saldos(e), dep = [1, 2].find((x) => pend.every((i) => (s[i.cod + '|' + x] || 0) >= i.cant));
-        if (!dep) {
-          const falta = pend.find((i) => (s[i.cod + '|1'] || 0) + (s[i.cod + '|2'] || 0) < i.cant) || pend[0];
-          registrar('comprobantes', `Se rechazó el remito del pedido ${d.nro}`, `Stock insuficiente de ${falta.art}: hacen falta ${falta.cant}`, { res: 'rechazo' });
-          toast(`Stock insuficiente de ${falta.art} (hacen falta ${falta.cant}). El sistema no deja stock negativo.`); return;
-        }
-        const rem = { nro: siguiente(e.remitos, '0002-'), tercero: d.tercero, dias: 0, items: pend, dep, estado: 'Sin facturar', total: D.totales(pend, mt).total };
-        e.remitos.unshift(rem); pend.forEach((i) => mover(e, i.cod, dep, -i.cant, 'Remito de venta', rem.nro));
-        d.rem = 100; d.estado = 'Completo';
-        registrar('comprobantes', `Generó el remito ${rem.nro} del pedido ${d.nro}`, `${d.tercero} · ${unidades(pend)} unidades salen de ${depNombre(e, dep)}`, { entidad: 'remito' });
-        toast(`Remito ${rem.nro} generado y stock descontado`); terminar();
-      } });
-    }
-    if ((clave === 'ventas/remitos' && d.estado === 'Sin facturar') || clave === 'ventas/facturas') {
-      out.push({ t: clave === 'ventas/facturas' ? 'Duplicar como nueva factura' : 'Facturar', p: clave === 'ventas/remitos', f: () => { $('#detalle').close(); abrirFactura(d.tercero || d.cliente, d.items || []); } });
-    }
+    if (clave.startsWith('ventas')) out.push(...V.acciones(clave, d, e));
     if (clave === 'compras/ordenes' && d.estado === 'Borrador') {
       out.push({ t: 'Enviar al proveedor', p: 1, f: () => { d.estado = 'Enviada'; registrar('comprobantes', `Envió la orden de compra ${d.nro}`, `${d.tercero} · ${pe(d.total)}`); toast('Orden enviada (simulado)'); terminar(); } });
     }
@@ -261,9 +235,12 @@ window.crearModulos = function (H) {
       <div class="partes">${dato('Documento', esc(d.doc))}${dato('Plazo', d.plazo ? d.plazo + ' días' : 'Contado')}${venta ? dato('Lista de precios', d.lista) : dato('Última compra', hace(d.ultima))}${dato(venta ? 'Saldo' : 'Saldo a pagar', d.saldo ? pe(d.saldo) : '—')}${dato('Vencido', d.vencido ? `<span class="mal">${pe(d.vencido)}</span>` : '—')}${dato(venta ? 'Ventas 12 meses' : 'Compras 12 meses', pe(d.anio))}</div>
       <h5 class="sub-h">${venta ? 'Últimas facturas' : 'Últimas facturas de compra'}</h5>
       ${docs.length ? `<div class="mini">${docs.map((c) => `<div><span class="num">${esc(venta ? `Factura ${c.letra} ${c.nro}` : c.nro)}</span><span class="mudo">${fe(c.dias)}</span>${pill(c.estado)}<b class="num">${pe(c.total)}</b></div>`).join('')}</div>` : '<p class="mudo" style="margin:0">Sin comprobantes recientes en este período.</p>'}
-      <footer class="det-f">${venta ? '<button class="btn primary" data-fact>Facturarle</button>' : '<button class="btn primary" data-toast="Nueva orden de compra: próximamente en el prototipo">Nueva orden de compra</button>'}${d.vencido ? '<button class="btn" data-recl>' + (venta ? 'Reclamar saldo vencido' : 'Programar el pago') + '</button>' : ''}<button class="btn" data-cerrar>Cerrar</button></footer>`);
+      <footer class="det-f">${venta ? '<button class="btn primary" data-fact>Facturarle</button><button class="btn" data-pre>Nuevo presupuesto</button><button class="btn" data-ped>Nuevo pedido</button>' + (d.saldo ? '<button class="btn" data-cobro>Registrar cobro</button>' : '') + '<button class="btn" data-edit>Editar datos</button>' : '<button class="btn primary" data-toast="Nueva orden de compra: próximamente en el prototipo">Nueva orden de compra</button>'}${d.vencido ? '<button class="btn" data-recl>' + (venta ? 'Reclamar saldo vencido' : 'Programar el pago') + '</button>' : ''}<button class="btn" data-cerrar>Cerrar</button></footer>`);
     const dlg = $('#detalle');
     const f = $('[data-fact]', dlg); if (f) f.addEventListener('click', () => { dlg.close(); abrirFactura(d.n, []); });
+    const ir2 = (sel, fn) => { const b = $(sel, dlg); if (b) b.addEventListener('click', () => { dlg.close(); fn(); }); };
+    ir2('[data-pre]', () => V.nuevo('presupuesto', { cliente: d.n })); ir2('[data-ped]', () => V.nuevo('pedido', { cliente: d.n }));
+    ir2('[data-cobro]', () => V.abrirCobro(d)); ir2('[data-edit]', () => V.abrirCliente(d));
     const r = $('[data-recl]', dlg); if (r) r.addEventListener('click', () => { registrar('maestros', venta ? `Envió el reclamo de saldo vencido a ${d.n}` : `Programó el pago a ${d.n}`, pe(d.vencido)); toast(venta ? 'Reclamo enviado (simulado)' : 'Pago programado (simulado)'); });
   }
   function abrirArticulo(x) {
@@ -489,15 +466,18 @@ window.crearModulos = function (H) {
   /* ---------- armado de cada módulo ---------- */
   const MODULOS = {
     ventas: { titulo: 'Ventas', em: (e) => e.nombre, sub: 'Del presupuesto a la factura, con cada paso registrado.', defecto: 'facturas',
-      tabs: [['presupuestos', 'Presupuestos'], ['pedidos', 'Pedidos'], ['remitos', 'Remitos'], ['facturas', 'Facturas'], ['clientes', 'Clientes']] },
+      tabs: [['presupuestos', 'Presupuestos'], ['pedidos', 'Pedidos'], ['remitos', 'Remitos'], ['facturas', 'Facturas'], ['clientes', 'Clientes'], ['precios', 'Precios']] },
     compras: { titulo: 'Compras', em: (e) => e.nombre, sub: 'Órdenes, recepciones, facturas, proveedores y el stock que se mueve con ellas.', defecto: 'ordenes',
       tabs: [['ordenes', 'Órdenes de compra'], ['remitos', 'Recepciones'], ['facturas', 'Facturas'], ['proveedores', 'Proveedores'], ['stock', 'Stock']] },
     finanzas: { titulo: 'Finanzas', em: (e) => e.nombre, sub: 'Tesorería, contabilidad e impuestos, derivados de los comprobantes.', defecto: 'tesoreria',
       tabs: [['tesoreria', 'Tesorería'], ['contabilidad', 'Contabilidad'], ['impuestos', 'Impuestos']] },
   };
-  const TAB_VISTAS = { 'compras/stock': vStock, 'finanzas/tesoreria': vTesoreria, 'finanzas/contabilidad': vContabilidad, 'finanzas/impuestos': vImpuestos };
+  const TAB_VISTAS = { 'ventas/precios': (c, e) => V.vPrecios(c, e), 'compras/stock': vStock, 'finanzas/tesoreria': vTesoreria, 'finanzas/contabilidad': vContabilidad, 'finanzas/impuestos': vImpuestos };
     function accionesHero(clave) {
-    if (clave.startsWith('ventas')) { const L = LISTAS[clave]; return [['btn primary', 'Nueva factura', 'ir:nueva'], ...(L && L.nuevo ? [['btn', L.nuevo, 'toast']] : [])]; }
+    if (clave.startsWith('ventas')) {
+      const NUEVO = { 'ventas/presupuestos': ['Nuevo presupuesto', 'ir:ventas/nuevo/presupuesto'], 'ventas/pedidos': ['Nuevo pedido', 'ir:ventas/nuevo/pedido'], 'ventas/remitos': ['Nuevo remito', 'ir:ventas/nuevo/remito'], 'ventas/clientes': ['Nuevo cliente', 'cli'] };
+      return NUEVO[clave] ? [['btn primary', ...NUEVO[clave]], ['btn', 'Nueva factura', 'ir:nueva']] : [['btn primary', 'Nueva factura', 'ir:nueva']];
+    }
     if (clave === 'compras/stock') return [['btn primary', 'Ajuste de inventario', 'ajuste']];
     if (clave.startsWith('compras')) { const L = LISTAS[clave]; return [['btn primary', L.nuevo, 'toast']]; }
     if (clave === 'finanzas/tesoreria') return [['btn primary', 'Registrar cobro', 'toast'], ['btn', 'Registrar pago', 'toast']];
@@ -542,7 +522,7 @@ window.crearModulos = function (H) {
     $('#modAcc').innerHTML = accionesHero(clave).map(([c, t, a], i) => `<button class="${c}" data-ha="${i}">${t}</button>`).join('');
     $$('[data-ha]', $('#modAcc')).forEach((b) => b.addEventListener('click', () => {
       const [, t, a] = accionesHero(clave)[Number(b.dataset.ha)];
-      if (a === 'toast') toast(t + ': próximamente en el prototipo'); else if (a === 'ajuste') abrirAjuste(); else if (a.startsWith('ir:')) { ir(a.slice(3)); }
+      if (a === 'toast') toast(t + ': próximamente en el prototipo'); else if (a === 'cli') V.abrirCliente(null); else if (a === 'ajuste') abrirAjuste(); else if (a.startsWith('ir:')) { ir(a.slice(3)); }
     }));
   }
   function pintarCuerpo() {
@@ -553,6 +533,10 @@ window.crearModulos = function (H) {
 
   function montar(root, nombre, partes) {
     const M = MODULOS[nombre], e = empresa();
+    if (nombre === 'ventas' && partes[1] === 'nuevo' && ['presupuesto', 'pedido', 'remito'].includes(partes[2])) {
+      ctx = { nombre, editor: true }; root.innerHTML = ''; V.editor(root, partes[2]); window.scrollTo(0, 0);
+      root._mod = { empresaId: e.id, nombre, cambiar(p) { montar(root, nombre, p); } }; return;
+    }
     const poner = (p) => {
       const tab = M.tabs.some(([k]) => k === p[1]) ? p[1] : M.defecto, clave = nombre + '/' + tab;
       ctx = { nombre, tab, sub: p[2] || (SUBS[clave] ? SUBS[clave][0][0] : null) };
@@ -562,7 +546,7 @@ window.crearModulos = function (H) {
     root.innerHTML = `<section class="hero rise"><div><h1>${M.titulo} <em>${esc(M.em(e))}</em></h1><p>${M.sub}</p></div><div class="acciones" id="modAcc"></div></section>
       <div class="stats" id="modStats"></div><div class="tabs rise" id="modTabs" role="tablist" style="--d:2"></div><div id="modCuerpo"></div>`;
     pintarStats(); pintarTabs(); pintarCuerpo();
-    root._mod = { empresaId: e.id, nombre, cambiar(p) { poner(p); pintarTabs(); pintarCuerpo(); window.scrollTo({ top: 0 }); } };
+    root._mod = { empresaId: e.id, nombre, cambiar(p) { if (p[1] === 'nuevo') { montar(root, nombre, p); return; } poner(p); pintarTabs(); pintarCuerpo(); window.scrollTo({ top: 0 }); } };
   }
 
   /* rutas para la paleta de comandos */
@@ -571,5 +555,7 @@ window.crearModulos = function (H) {
     const clave = n + '/' + k;
     if (SUBS[clave]) SUBS[clave].forEach(([s, ts]) => rutas.push({ ruta: `${clave}/${s}`, t: `${M.titulo} · ${t} · ${ts}` })); else rutas.push({ ruta: clave, t: `${M.titulo} · ${t}` });
   }));
-  return { montar, rutas, nombres: Object.keys(MODULOS), titulo: (n) => MODULOS[n].titulo };
+  ['presupuesto', 'pedido', 'remito'].forEach((t) => rutas.push({ ruta: 'ventas/nuevo/' + t, t: 'Ventas · Nuevo ' + t }));
+  Object.assign(V, window.crearVentas(H, { pe, pill, ent, c2, dato, cierra, dialogo, tabla, art, saldos, mover, siguiente, depNombre, copiar, unidades, hace, abrirFactura, repintar, terminar }));
+  return { montar, precio: V.precio, alFacturar: V.alFacturar, rutas, nombres: Object.keys(MODULOS), titulo: (n) => MODULOS[n].titulo };
 };
