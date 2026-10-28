@@ -411,6 +411,7 @@
     const dia = mismoDia(d, hoy) ? 'Hoy' : mismoDia(d, ayer) ? 'Ayer' : d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
     return { dia, hora: d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }), largo: d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) };
   }
+  const codigo = (ev) => 'TR-' + String(ev.id).padStart(6, '0');
   const nombreEmpresa = (id) => { const e = D.empresas.find((x) => x.id === id); return e ? e.nombre : 'Estudio (sin empresa)'; };
 
   function vTrazabilidad(root) {
@@ -425,7 +426,7 @@
         <div class="seg" role="group" aria-label="Período">${[['hoy', 'Hoy'], ['7', '7 días'], ['30', '30 días']].map(([k, v]) => `<button data-per="${k}" aria-pressed="${k === f.per}">${v}</button>`).join('')}</div>
         <select class="in" id="fUsuario" aria-label="Usuario"><option value="">Todos los usuarios</option>${D.usuarios.map((u) => `<option value="${u.id}">${esc(u.n)}</option>`).join('')}</select>
         <select class="in" id="fEmpresa" aria-label="Empresa"><option value="">Todas las empresas</option><option value="est">Sin empresa (del estudio)</option>${D.empresas.map((e) => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}</select>
-        <input id="fq" placeholder="Buscar actividad, cliente o número…" aria-label="Buscar en la trazabilidad"></div>
+        <input id="fq" placeholder="Buscar por ID, actividad, cliente o número…" aria-label="Buscar en la trazabilidad"></div>
       <div class="resumen rise" style="--d:3" id="resumenTraza"></div>
       <div class="card lista traza rise" style="--d:4" id="listaTraza"></div>
       <p class="pie-proto">${ic('lock')} Cada registro lleva una huella encadenada con el anterior: si alguien alterara uno, la verificación lo detecta.</p>`;
@@ -434,7 +435,7 @@
       const t = f.q.toLowerCase(), d0 = desde();
       return bit.filter((ev) => ev.ts >= d0 && (f.cat === 'todas' || ev.cat === f.cat) && (!f.u || ev.u === Number(f.u))
         && (!f.emp || (f.emp === 'est' ? ev.emp == null : ev.emp === Number(f.emp)))
-        && (!t || (ev.accion + ' ' + ev.detalle + ' ' + usuarioDe(ev.u).n + ' ' + nombreEmpresa(ev.emp)).toLowerCase().includes(t)));
+        && (!t || (codigo(ev) + ' ' + ev.accion + ' ' + ev.detalle + ' ' + usuarioDe(ev.u).n + ' ' + nombreEmpresa(ev.emp)).toLowerCase().includes(t)));
     };
     const detalle = (ev) => {
       const u = usuarioDe(ev.u), c = cuando(ev.ts);
@@ -443,7 +444,7 @@
         <div><dt>Usuario</dt><dd>${esc(u.n)} · ${esc(u.rol)}</dd></div>
         <div><dt>Empresa</dt><dd>${esc(nombreEmpresa(ev.emp))}</dd></div>
         <div><dt>Origen</dt><dd>${esc(ev.ip)} · ${esc(ev.disp)}</dd></div>
-        <div><dt>Registro</dt><dd>N° ${String(ev.id).padStart(6, '0')} · ${esc(D.categorias[ev.cat])}</dd></div>
+        <div><dt>ID</dt><dd><code class="id-traza">${codigo(ev)}</code> · ${esc(D.categorias[ev.cat])}</dd></div>
         <div><dt>Resultado</dt><dd>${RES[ev.res][0]}</dd></div></dl>
         ${ev.cambios ? `<table class="cambios"><thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead><tbody>${ev.cambios.map(([k, a, b]) => `<tr><td>${esc(k)}</td><td class="antes">${esc(a)}</td><td class="desp">${esc(b)}</td></tr>`).join('')}</tbody></table>` : ''}
         <div class="huella"><span>Huella <code>${ev.h}</code></span><span>Anterior <code>${ev.hp || '— inicio del registro —'}</code></span></div>`;
@@ -451,9 +452,10 @@
     const pintar = () => {
       const filas = filtrados(), shown = filas.slice(0, f.max), mal = filas.filter((x) => x.res !== 'ok').length;
       $('#resumenTraza').innerHTML = `<span class="pill blue"><i></i>${filas.length} movimiento${filas.length === 1 ? '' : 's'}</span><span class="pill"><i></i>${new Set(filas.map((x) => x.u)).size} usuario${new Set(filas.map((x) => x.u)).size === 1 ? '' : 's'}</span>${mal ? `<span class="pill bad"><i></i>${mal} con problemas</span>` : ''}`;
-      $('#listaTraza').innerHTML = filas.length ? `<div class="ev cab"><span>Fecha y hora</span><span>Usuario</span><span>Actividad</span><span>Empresa</span><span>Resultado</span></div>` + shown.map((ev) => {
+      $('#listaTraza').innerHTML = filas.length ? `<div class="ev cab"><span>ID</span><span>Fecha y hora</span><span>Usuario</span><span>Actividad</span><span>Empresa</span><span>Resultado</span></div>` + shown.map((ev) => {
         const u = usuarioDe(ev.u), c = cuando(ev.ts);
         return `<article class="ev" data-res="${ev.res}"><button class="ev-f" aria-expanded="false" aria-controls="det${ev.id}">
+          <span class="ev-id num">${codigo(ev)}</span>
           <span class="ev-cuando num"><b>${c.dia}</b><small>${c.hora}</small></span>
           <span class="ev-u"><span class="avatar t${u.tono}">${esc(u.ini)}</span><span class="t"><b>${esc(u.n)}</b><span>${esc(u.rol)}</span></span></span>
           <span class="ev-act"><b>${esc(ev.accion)}</b><span>${esc(ev.detalle)}</span></span>
@@ -486,9 +488,9 @@
       /* los valores que empiezan con = + - @ se neutralizan para que Excel no los ejecute como fórmula */
       const q = (v) => { let s = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
       const pad = (n) => String(n).padStart(2, '0');
-      const lineas = [['Registro', 'Fecha', 'Hora', 'Usuario', 'Rol', 'Empresa', 'Categoría', 'Actividad', 'Detalle', 'Resultado', 'IP', 'Huella']].concat(filas.map((ev) => {
+      const lineas = [['ID', 'Fecha', 'Hora', 'Usuario', 'Rol', 'Empresa', 'Categoría', 'Actividad', 'Detalle', 'Resultado', 'IP', 'Huella']].concat(filas.map((ev) => {
         const d = new Date(ev.ts), u = usuarioDe(ev.u);
-        return [ev.id, `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, cuando(ev.ts).hora, u.n, u.rol, nombreEmpresa(ev.emp), D.categorias[ev.cat], ev.accion, ev.detalle, RES[ev.res][0], ev.ip, ev.h];
+        return [codigo(ev), `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, cuando(ev.ts).hora, u.n, u.rol, nombreEmpresa(ev.emp), D.categorias[ev.cat], ev.accion, ev.detalle, RES[ev.res][0], ev.ip, ev.h];
       })).map((l) => l.map(q).join(';')).join('\r\n');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob(['﻿' + lineas], { type: 'text/csv;charset=utf-8' }));

@@ -762,6 +762,7 @@ await prueba('Trazabilidad: cada evento se encadena con el anterior y la base fi
   igual(filas[1].empresa_id, E, 'empresa');
   igual((await uno(`select fn_verificar_trazabilidad($1) v`, [estudio.id])).v, null, 'cadena íntegra');
   igual((await uno(`select count(*)::int n from v_trazabilidad where usuario = 'Contador'`)).n, 3, 'la vista muestra el nombre del usuario');
+  igual((await uno(`select codigo from v_trazabilidad where estudio_id = $1 and nro = 2`, [estudio.id])).codigo, 'TR-000002', 'ID visible del evento');
 });
 
 await prueba('Trazabilidad: la huella es SHA-256 sobre el contenido (se recalcula fuera de la base)', async () => {

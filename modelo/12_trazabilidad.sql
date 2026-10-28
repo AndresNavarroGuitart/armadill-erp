@@ -107,9 +107,9 @@ begin
 end
 $$;
 
--- Lectura para la pantalla: con el nombre del usuario y de la empresa. Hereda RLS de quien consulta.
+-- Lectura para la pantalla: con el nombre del usuario y de la empresa, y el ID visible (TR-000123 = posición en la cadena del estudio). Hereda RLS de quien consulta.
 create view v_trazabilidad with (security_invoker = true) as
-  select e.id, e.estudio_id, e.nro, e.en, e.empresa_id, em.razon_social as empresa,
+  select e.id, e.estudio_id, e.nro, 'TR-' || lpad(e.nro::text, 6, '0') as codigo, e.en, e.empresa_id, em.razon_social as empresa,
          e.usuario_id, coalesce(u.nombre, e.usuario_texto) as usuario,
          e.categoria, e.accion, e.detalle, e.resultado, e.entidad_tabla, e.entidad_id, e.cambios,
          e.ip, e.dispositivo, e.huella_prev, e.huella
