@@ -1,6 +1,6 @@
 # Modelo de datos de la réplica (2026-10-28)
 
-Modelo **nuevo y limpio** para un producto destinado a estudios contables (multiempresa, contabilidad en el centro). No convive con la base MySQL del original: el original es fuente de reglas y de migración. Implementación en [modelo/](modelo/) (PostgreSQL, validado en 18 con PGlite). Se comprueba con `npm test` en esta carpeta: **47 casos de reglas + 41 pruebas del modelo + 8 del pedido a ARCA, todas correctas**.
+Modelo **nuevo y limpio** para un producto destinado a estudios contables (multiempresa, contabilidad en el centro). No convive con la base MySQL del original: el original es fuente de reglas y de migración. Implementación en [modelo/](modelo/) (PostgreSQL, validado en 18 con PGlite). Se comprueba con `npm test` en esta carpeta: **47 casos de reglas + 48 pruebas del modelo + 8 del pedido a ARCA, todas correctas**.
 
 ## 1. Decisiones (cada una revisable)
 
@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (14 archivos SQL)
+## 2. Módulos (15 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -34,7 +34,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 10 ARCA | certificados (solo referencia al secreto), tickets WSAA, bitácora de llamadas, CAEA, padrón |
 | 11 vistas | saldo por comprobante y por tercero, libros de IVA, posición de IVA, stock, caja, balance, cartera de cheques |
 | 13 documentos comerciales | presupuesto → pedido → remito de venta y orden de compra → remito de compra; el remito confirmado **mueve el stock** y la anulación lo contrarresta; sobre-entrega rechazada; cumplimiento derivado en `v_documento_pendiente` (pedido, remitado, facturado, pendiente); la factura referencia el renglón del remito |
-| 14 seguridad | RLS en todas las tablas con `empresa_id` (se carga **última**, para cubrir las tablas de los archivos anteriores), rol `app_usuario`, auditoría |
+| 14 conciliación bancaria | extractos importados y **cerrados** (el saldo final debe ser el inicial más las líneas y continuar el extracto anterior; el mismo archivo no se importa dos veces), conciliación n a n que **siempre balancea** (`fn_conciliar`), sugerencias 1 a 1 solo si el candidato es único (`fn_sugerir_conciliacion`), registro de comisiones e intereses del banco (`fn_movimiento_desde_linea`), deshacer con constancia, y `v_conciliacion_estado`: diferencia banco − libros explicada por las partidas pendientes (`no_explicada` debe ser 0) |
+| 15 seguridad | RLS en todas las tablas con `empresa_id` (se carga **última**, para cubrir las tablas de los archivos anteriores), rol `app_usuario`, auditoría |
 
 ## 3. Invariantes que impone la base (y el original no)
 
@@ -55,5 +56,5 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 
 - **Contador:** significado del `ImporteImp` original (¿no imponible, base mínima o retención mínima?); método de costeo; si el bloqueo por vencimiento debe estar activo.
 - **Catálogos ARCA:** cargarlos desde `FEParamGet*` y confirmar RG 5616, 5707, 5782 (ver [REFERENCIA_ODOO_ARGENTINA.md](REFERENCIA_ODOO_ARGENTINA.md)).
-- **Falta modelar:** precios, descuentos e IVA en presupuesto y pedido (hoy solo cantidad y precio unitario); reserva de stock por pedido; conciliación bancaria; generación automática de asientos (en la aplicación); presentaciones SICORE/SIRE; módulos con licencia del original (percepciones de venta, contabilidad) a partir de normativa; migración desde MySQL (`app.migracion = 'on'` permite carga histórica controlada).
+- **Falta modelar:** precios, descuentos e IVA en presupuesto y pedido (hoy solo cantidad y precio unitario); reserva de stock por pedido; importadores de extractos por banco (el modelo recibe líneas ya normalizadas) y conciliación de cheques por número; generación automática de asientos (en la aplicación); presentaciones SICORE/SIRE; módulos con licencia del original (percepciones de venta, contabilidad) a partir de normativa; migración desde MySQL (`app.migracion = 'on'` permite carga histórica controlada).
 - La verificación de renglones contra la cabecera en ventas con **descuento al pie** no se hace (la base sale del desglose).

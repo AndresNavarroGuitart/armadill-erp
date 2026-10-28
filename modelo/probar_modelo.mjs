@@ -507,6 +507,80 @@ await prueba('Documentos: cadena inválida, rol del tercero y modificación de u
 });
 
 // ---------------------------------------------------------------------------
+// 10 ter. Conciliación bancaria
+// ---------------------------------------------------------------------------
+const banco = await uno(`insert into cuenta_bancaria (empresa_id, banco, cbu) values ($1,'Banco Prueba','0110000000000000000001') returning id`, [E]);
+const bancoOtra = await uno(`insert into cuenta_bancaria (empresa_id, banco) values ($1,'Otro Banco') returning id`, [E]);
+const mov = async (fecha, importe, concepto, cuenta = banco.id) =>
+  (await uno(`insert into movimiento_tesoreria (empresa_id, fecha, cuenta_bancaria_id, importe, concepto) values ($1,$2,$3,$4,$5) returning id`, [E, fecha, cuenta, importe, concepto])).id;
+const movApertura = await mov('2026-09-30', 5000, 'saldo de apertura');
+const movPago = await mov('2026-10-05', -1000, 'transferencia a proveedor');
+const movCobro = await mov('2026-10-10', 2500, 'cobro de cliente');
+const movTransito = await mov('2026-10-20', -300, 'transferencia en tránsito');
+let ext; let lineas;
+async function nuevoExtracto(saldoFinal, hash = 'hash-oct-2026') {
+  const e = await uno(`insert into extracto_bancario (empresa_id, cuenta_bancaria_id, desde, hasta, saldo_inicial, saldo_final, hash_archivo)
+    values ($1,$2,'2026-10-01','2026-10-31',5000,$3,$4) returning id`, [E, banco.id, saldoFinal, hash]);
+  const ids = [];
+  let orden = 1;
+  for (const [fecha, importe, desc] of [['2026-10-06', -1000, 'TRANSF ENVIADA'], ['2026-10-11', 2500, 'TRANSF RECIBIDA'], ['2026-10-25', -45.5, 'COMISION MANTENIMIENTO']]) {
+    ids.push((await uno(`insert into extracto_linea (empresa_id, extracto_id, orden, fecha, descripcion, importe) values ($1,$2,$3,$4,$5,$6) returning id`, [E, e.id, orden++, fecha, desc, importe])).id);
+  }
+  return { id: e.id, lineas: ids };
+}
+await prueba('Extracto: el saldo final debe ser el inicial más las líneas; no se importa dos veces el mismo archivo', async () => {
+  const malo = await nuevoExtracto(6000);
+  await rechaza(() => q(`update extracto_bancario set estado = 'cerrado' where id = $1`, [malo.id]), /saldo final 6000.00 no es el inicial/i, 'cerrar con saldo erróneo');
+  await q(`delete from extracto_bancario where id = $1`, [malo.id]);
+  ext = await nuevoExtracto(6454.5);
+  lineas = ext.lineas;
+  await rechaza(() => nuevoExtracto(6454.5), /duplicate|unique/i, 'archivo repetido');
+  await q(`update extracto_bancario set estado = 'cerrado' where id = $1`, [ext.id]);
+  await rechaza(() => q(`update extracto_linea set importe = 1 where id = $1`, [lineas[0]]), /cerrado/i, 'editar un extracto cerrado');
+  await rechaza(() => q(`delete from extracto_bancario where id = $1`, [ext.id]), /no se borra/i, 'borrar un extracto cerrado');
+});
+await prueba('Sugerencias: solo las coincidencias únicas (−1.000 y +2.500); el tránsito y la comisión quedan afuera', async () => {
+  const s = await q(`select * from fn_sugerir_conciliacion($1)`, [banco.id]);
+  igual(s.length, 2, 'cantidad de sugerencias');
+  igual(s.map((x) => `${x.linea_id}:${x.movimiento_id}`).sort().join(','), [`${lineas[0]}:${movPago}`, `${lineas[1]}:${movCobro}`].sort().join(','), 'pares');
+});
+await prueba('Conciliar: confirma las sugeridas y la diferencia queda explicada por las partidas pendientes', async () => {
+  for (const [l, m] of [[lineas[0], movPago], [lineas[1], movCobro]]) await q(`select fn_conciliar($1, $2::bigint[], $3::bigint[], '2026-10-31')`, [banco.id, [l], [m]]);
+  const v = await uno(`select * from v_conciliacion_estado where cuenta_bancaria_id = $1`, [banco.id]);
+  igual(v.saldo_banco, '6454.50', 'saldo del banco'); igual(v.saldo_libros, '6200.00', 'saldo de los libros');
+  igual(v.diferencia_total, '254.50', 'diferencia total'); igual(v.pendiente_banco, '-45.50', 'pendiente del banco');
+  igual(v.pendiente_libros, '-300.00', 'pendiente de libros'); igual(v.diferencia_apertura, '0.00', 'apertura'); igual(v.no_explicada, '0.00', 'no explicada');
+});
+await prueba('Conciliar: sumas distintas, línea ya conciliada o movimiento de otra cuenta son rechazados', async () => {
+  await rechaza(() => q(`select fn_conciliar($1, $2::bigint[], $3::bigint[])`, [banco.id, [lineas[2]], [movTransito]]), /No concilia: el extracto suma -45.50 y los libros -300.00/i, 'importes distintos');
+  await rechaza(() => q(`select fn_conciliar($1, $2::bigint[], $3::bigint[])`, [banco.id, [lineas[0]], [movTransito]]), /ya está conciliada/i, 'línea ya conciliada');
+  const otro = await mov('2026-10-25', -45.5, 'otra cuenta', bancoOtra.id);
+  await rechaza(() => q(`select fn_conciliar($1, $2::bigint[], $3::bigint[])`, [banco.id, [lineas[2]], [otro]]), /otra cuenta/i, 'movimiento de otra cuenta');
+});
+await prueba('La comisión del banco se registra en los libros y se concilia; queda solo el cheque en tránsito', async () => {
+  const m = await uno(`select fn_movimiento_desde_linea($1, 'Comisión de mantenimiento') as id`, [lineas[2]]);
+  await q(`select fn_conciliar($1, $2::bigint[], $3::bigint[])`, [banco.id, [lineas[2]], [m.id]]);
+  const v = await uno(`select * from v_conciliacion_estado where cuenta_bancaria_id = $1`, [banco.id]);
+  igual(v.pendiente_banco, '0.00', 'pendiente del banco'); igual(v.saldo_libros, '6154.50', 'saldo de los libros');
+  igual(v.diferencia_total, '300.00', 'diferencia: el tránsito'); igual(v.no_explicada, '0.00', 'no explicada');
+});
+await prueba('Deshacer una conciliación libera ambos lados y deja constancia', async () => {
+  const c = await uno(`select id from conciliacion where cuenta_bancaria_id = $1 and importe = 2500`, [banco.id]);
+  await q(`select fn_deshacer_conciliacion($1)`, [c.id]);
+  igual((await uno(`select pendiente_banco from v_conciliacion_estado where cuenta_bancaria_id = $1`, [banco.id])).pendiente_banco, '2500.00', 'pendiente del banco');
+  igual((await uno(`select estado from conciliacion where id = $1`, [c.id])).estado, 'deshecha', 'estado');
+  await rechaza(() => q(`select fn_deshacer_conciliacion($1)`, [c.id]), /ya fue deshecha/i, 'deshacer dos veces');
+});
+await prueba('Un extracto que no continúa el saldo del anterior, o con líneas fuera de rango, no se cierra', async () => {
+  const e = await uno(`insert into extracto_bancario (empresa_id, cuenta_bancaria_id, desde, hasta, saldo_inicial, saldo_final) values ($1,$2,'2026-11-01','2026-11-30',9999,10099) returning id`, [E, banco.id]);
+  await q(`insert into extracto_linea (empresa_id, extracto_id, orden, fecha, importe) values ($1,$2,1,'2026-11-05',100)`, [E, e.id]);
+  await rechaza(() => q(`update extracto_bancario set estado = 'cerrado' where id = $1`, [e.id]), /no continúa el saldo final anterior/i, 'saldo inicial discontinuo');
+  await q(`update extracto_bancario set saldo_inicial = 6454.50, saldo_final = 6554.50 where id = $1`, [e.id]);
+  await q(`insert into extracto_linea (empresa_id, extracto_id, orden, fecha, importe) values ($1,$2,2,'2026-12-05',1)`, [E, e.id]);
+  await rechaza(() => q(`update extracto_bancario set estado = 'cerrado' where id = $1`, [e.id]), /fuera del rango/i, 'línea fuera de rango');
+});
+
+// ---------------------------------------------------------------------------
 // 11. ARCA
 // ---------------------------------------------------------------------------
 await prueba('ARCA: la bitácora de llamadas es de solo agregar y el certificado exige un CUIT válido', async () => {
