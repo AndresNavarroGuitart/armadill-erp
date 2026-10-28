@@ -207,7 +207,7 @@ Antes de cada cambio de modelo, de prompt o de guías se corre una evaluación a
 
 ## 12. Costos y decisiones abiertas
 
-**Precios por millón de tokens (primer parte oficial, lista de hoy):** Claude Opus 5.5 $4 entrada / $20 salida (lectura de caché $0,20); Claude Sonnet 5.5 $2 / $10 (lectura de caché $0,20); Claude Haiku 5.5 $0,10 / $0,50 (para prompts de hasta 100.000 tokens). El pensamiento del modelo se cobra como salida.
+**Precios por millón de tokens (lista de precios vigente al 28-10-2026):** Claude Opus 5.5 $4 entrada / $20 salida (lectura de caché $0,20); Claude Sonnet 5.5 $2 / $10 (lectura de caché $0,20); Claude Haiku 5.5 $0,10 / $0,50 (para prompts de hasta 100.000 tokens). El pensamiento del modelo se cobra como salida.
 
 **Supuestos de una consulta:** corpus de 20.000 tokens leído del caché, 5.000 tokens nuevos (pregunta, historial y resultados de herramientas) y 1.500 de salida.
 
