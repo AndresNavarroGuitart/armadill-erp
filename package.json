@@ -1,0 +1,14 @@
+{
+  "name": "administranet-replica-reglas-y-modelo",
+  "private": true,
+  "type": "module",
+  "description": "Motor de reglas de calculo y modelo de datos de la replica; ambos verificados con pruebas automaticas",
+  "scripts": {
+    "test:reglas": "node reglas/probar.mjs",
+    "test:modelo": "node modelo/probar_modelo.mjs",
+    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.13"
+  }
+}
