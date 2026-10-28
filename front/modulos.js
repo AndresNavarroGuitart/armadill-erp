@@ -4,7 +4,7 @@
 window.crearModulos = function (H) {
   'use strict';
   const { $, $$, esc, ic, ARS, corto, toast, contar, sumarDias, empresa, registrar, abrirFactura, ir, D } = H;
-  const V = {}, C = {};   /* Ventas completo (ventas.js) y Compras completo (compras.js), se completan al final */
+  const V = {}, C = {}, F = {};   /* Ventas completo (ventas.js) y Compras completo (compras.js), se completan al final */
   const pe = (n) => ARS.format(n);
   const fe = (dias) => sumarDias(-dias).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '');
   const hace = (d) => (d === 0 ? 'hoy' : 'hace ' + d + ' d');
@@ -14,7 +14,7 @@ window.crearModulos = function (H) {
     'Sin facturar': 'warn', Facturado: '', Anulado: 'mute', Autorizado: '', Rechazado: 'bad', Enviada: 'blue', 'Recibida parcial': 'warn', Recibida: '', Cancelada: 'mute',
     Impaga: 'blue', Vencida: 'bad', Pagada: '', Anulada: 'mute', Confirmado: '', 'En cartera': 'blue', Depositado: 'blue', Cobrado: '', Entregado: 'blue',
     Normal: '', 'Bajo mínimo': 'warn', 'Sin stock': 'bad', Automático: 'blue', Manual: 'mute', Recibido: 'blue', Propio: 'mute', Cobro: '', Pago: 'blue', 'Comisión bancaria': 'mute',
-    'Remito de venta': 'blue', Modificado: 'blue', 'Anulación de recepción': 'warn', 'Anulación de remito': 'warn', 'Remito de compra': '', 'Ajuste de inventario': 'warn', Transferencia: 'mute', 'Saldo inicial': 'mute', IIBB: 'blue', Ganancias: 'warn', IVA: '', Sufrida: 'blue', Practicada: 'mute',
+    'Remito de venta': 'blue', Modificado: 'blue', Reversado: 'warn', Presentado: '', Abierto: '', Cerrado: 'mute', 'Anulación de recepción': 'warn', 'Anulación de remito': 'warn', 'Remito de compra': '', 'Ajuste de inventario': 'warn', Transferencia: 'mute', 'Saldo inicial': 'mute', IIBB: 'blue', Ganancias: 'warn', IVA: '', Sufrida: 'blue', Practicada: 'mute',
   };
   const pill = (t) => `<span class="pill ${PILL[t] || ''}"><i></i>${esc(t)}</span>`;
   const ini = (n) => n.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
@@ -61,7 +61,7 @@ window.crearModulos = function (H) {
       const cuenta = p.medio === 'Efectivo' ? '1.1.1' : '1.1.2', imp = cent(p.importe);
       add(p.dias, `${p.tipo === 'Cobro' ? 'Cobro de' : 'Pago a'} ${p.tercero}`, p.nro, true, p.tipo === 'Cobro' ? [[cuenta, imp, 0], ['1.1.3', 0, imp]] : [['2.1.1', imp, 0], [cuenta, 0, imp]]);
     });
-    e.manuales.forEach((m) => add(m.dias, m.concepto, 'Asiento manual', false, [[m.debe, cent(m.importe), 0], [m.haber, 0, cent(m.importe)]]));
+    e.manuales.forEach((m) => { add(m.dias, m.concepto, m.origen || 'Asiento manual', !!m.auto, m.lineas || [[m.debe, cent(m.importe), 0], [m.haber, 0, cent(m.importe)]]); out[out.length - 1].manual = m; });
     out.sort((a, b) => b.dias - a.dias).forEach((a, i) => { a.nro = i + 1; a.debe = a.lineas.reduce((s, l) => s + l[1], 0); });
     return out.reverse();
   }
@@ -269,8 +269,8 @@ window.crearModulos = function (H) {
   const subnav = (clave, sub, items) => `<div class="seg subnav rise" role="group" aria-label="Secciones">${items.map(([k, t]) => `<button data-ir="${clave}/${k}" aria-pressed="${k === sub}">${t}</button>`).join('')}</div>`;
   const SUBS = {
     'compras/stock': [['existencias', 'Existencias'], ['movimientos', 'Movimientos'], ['depositos', 'Depósitos']],
-    'finanzas/tesoreria': [['cuentas', 'Cajas y bancos'], ['cheques', 'Cheques'], ['cobros', 'Cobros y pagos']],
-    'finanzas/contabilidad': [['diario', 'Libro diario'], ['plan', 'Plan de cuentas'], ['balance', 'Sumas y saldos']],
+    'finanzas/tesoreria': [['cuentas', 'Cajas y bancos'], ['cheques', 'Cheques'], ['cobros', 'Cobros y pagos'], ['conciliacion', 'Conciliación']],
+    'finanzas/contabilidad': [['diario', 'Libro diario'], ['plan', 'Plan de cuentas'], ['balance', 'Sumas y saldos'], ['periodos', 'Períodos']],
     'finanzas/impuestos': [['iva', 'Posición de IVA'], ['ventas', 'Libro IVA ventas'], ['compras', 'Libro IVA compras'], ['retenciones', 'Retenciones'], ['vencimientos', 'Vencimientos']],
   };
 
@@ -325,26 +325,29 @@ window.crearModulos = function (H) {
   function vTesoreria(cuerpo, e, sub) {
     const clave = 'finanzas/tesoreria', nav = subnav(clave, sub, SUBS[clave]);
     if (sub === 'cuentas') {
-      cuerpo.innerHTML = `${nav}<div class="grid">${e.tes.cuentas.map((c, i) => `<article class="card s4 rise" style="--d:${i}"><h3>${ic(c.tipo === 'Caja' ? 'coin' : 'bank')} ${esc(c.n)}</h3><div class="dep-v num">${pe(c.saldo)}</div><div class="mudo">${c.tipo === 'Caja' ? 'Efectivo disponible' : 'Saldo según libros'}</div></article>`).join('')}</div>
+      cuerpo.innerHTML = `${nav}<div class="filtros rise"><button class="btn sm" data-tr>Transferir entre cuentas</button></div><div class="grid">${e.tes.cuentas.map((c, i) => `<article class="card s4 rise" style="--d:${i}"><h3>${ic(c.tipo === 'Caja' ? 'coin' : 'bank')} ${esc(c.n)}</h3><div class="dep-v num">${pe(c.saldo)}</div><div class="mudo">${c.tipo === 'Caja' ? 'Efectivo disponible' : 'Saldo según libros'}</div></article>`).join('')}</div>
         <h5 class="sub-h rise">Últimos movimientos</h5><div class="card tb rise" style="--d:3" id="tb"></div>`;
       tabla($('#tb'), [
         { t: 'Fecha', w: '90px', f: (m) => `<span class="num">${fe(m.dias)}</span>` }, { t: 'Concepto', w: 'minmax(0,1.4fr)', f: (m) => ent(m.concepto) }, { t: 'Cuenta', w: '230px', sec: true, f: (m) => esc(m.cuenta) },
         { t: 'Tipo', w: '170px', sec: true, f: (m) => pill(m.tipo) }, { t: 'Importe', w: '140px', r: true, f: (m) => `<b class="num ${m.importe < 0 ? 'neg' : 'pos'}">${m.importe < 0 ? '−' : '+'} ${pe(Math.abs(m.importe))}</b>` },
       ], e.tes.movs);
+      $('[data-tr]', cuerpo).addEventListener('click', () => F.transferir());
     } else if (sub === 'cheques') {
       cuerpo.innerHTML = `${nav}<div class="card tb rise" style="--d:1" id="tb"></div>`;
       tabla($('#tb'), [
         { t: 'Cheque', w: '130px', f: (c) => `<b class="num">${c.nro}</b>` }, { t: 'Banco', w: '150px', sec: true, f: (c) => esc(c.banco) }, { t: 'Librador / beneficiario', w: 'minmax(0,1.3fr)', f: (c) => ent(c.tercero) },
         { t: 'Tipo', w: '110px', sec: true, f: (c) => pill(c.sentido) }, { t: 'Vence', w: '100px', sec: true, f: (c) => `<span class="num">${enDias(c.vence)}</span>` }, { t: 'Estado', w: '120px', f: (c) => pill(c.estado) },
         { t: 'Importe', w: '130px', r: true, f: (c) => `<b class="num">${pe(c.importe)}</b>` },
-      ], e.tes.cheques);
+      ], e.tes.cheques, (c) => F.abrirCheque(c));
+    } else if (sub === 'conciliacion') {
+      F.vConciliacion(cuerpo, e, nav);
     } else {
       let filtro = 'Todos';
       cuerpo.innerHTML = `${nav}<div class="filtros rise">${['Todos', 'Cobro', 'Pago'].map((f) => `<button class="f" data-f="${f}" aria-pressed="${f === 'Todos'}">${f === 'Cobro' ? 'Cobros' : f === 'Pago' ? 'Pagos' : f}</button>`).join('')}</div><div class="card tb rise" style="--d:1" id="tb"></div>`;
       const pintar = () => tabla($('#tb'), [
         { t: 'Comprobante', w: '190px', f: (p) => `<b class="num">${esc(p.nro)}</b>` }, { t: 'Tercero', w: 'minmax(0,1.3fr)', f: (p) => ent(p.tercero) }, fechaCol,
         { t: 'Medio', w: '130px', sec: true, f: (p) => esc(p.medio) }, { t: 'Estado', w: '130px', f: (p) => pill(p.estado) }, { t: 'Importe', w: '140px', r: true, f: (p) => `<b class="num ${p.tipo === 'Pago' ? 'neg' : 'pos'}">${p.tipo === 'Pago' ? '−' : '+'} ${pe(p.importe)}</b>` },
-      ], e.tes.cobrosPagos.filter((p) => filtro === 'Todos' || p.tipo === filtro));
+      ], e.tes.cobrosPagos.filter((p) => filtro === 'Todos' || p.tipo === filtro), (p) => F.abrirMovimiento(p));
       pintar();
       $$('[data-f]', cuerpo).forEach((b) => b.addEventListener('click', () => { filtro = b.dataset.f; $$('[data-f]', cuerpo).forEach((x) => x.setAttribute('aria-pressed', x === b)); pintar(); }));
     }
@@ -353,12 +356,13 @@ window.crearModulos = function (H) {
   /* ---------- contabilidad ---------- */
   function abrirAsiento(a) {
     const deb = a.lineas.reduce((s, l) => s + l[1], 0), hab = a.lineas.reduce((s, l) => s + l[2], 0);
-    dialogo(`<header class="det-h"><div><small>Asiento N° ${a.nro}</small><h4>${esc(a.concepto)}</h4></div>${pill(a.auto ? 'Automático' : 'Manual')}${cierra}</header>
+    dialogo(`<header class="det-h"><div><small>Asiento N° ${a.nro}</small><h4>${esc(a.concepto)}</h4></div>${pill(a.manual && a.manual.reversado ? 'Reversado' : a.auto ? 'Automático' : 'Manual')}${cierra}</header>
       <div class="partes">${dato('Fecha', fe(a.dias))}${dato('Origen', esc(a.origen))}${dato('Balance', deb === hab ? '<span class="pos">Debe = Haber ✓</span>' : '<span class="mal">No balancea</span>')}</div>
       <div class="tb-scroll"><table class="lineas"><thead><tr><th>Cuenta</th><th class="r">Debe</th><th class="r">Haber</th></tr></thead><tbody>${a.lineas.map((l) => `<tr><td>${esc(l[0])} · ${esc(cuentaNombre(l[0]))}</td><td class="num r">${l[1] ? centavos(l[1]) : ''}</td><td class="num r">${l[2] ? centavos(l[2]) : ''}</td></tr>`).join('')}</tbody></table></div>
       <div class="tots num"><div class="total"><span>Totales</span><span>${centavos(deb)} · ${centavos(hab)}</span></div></div>
       <p class="mudo" style="margin:0">Un asiento contabilizado no se edita: se corrige con un contraasiento.</p>
-      <footer class="det-f"><button class="btn" data-toast="Contraasiento: próximamente en el prototipo">Generar contraasiento</button><button class="btn" data-cerrar>Cerrar</button></footer>`);
+      <footer class="det-f"><button class="btn" data-contra>Generar contraasiento</button><button class="btn" data-cerrar>Cerrar</button></footer>`);
+    $('[data-contra]', $('#detalle')).addEventListener('click', () => F.contraasiento(a, empresa()));
   }
   function mayor(e) {
     const m = {}; D.plan.forEach((p) => { m[p.cod] = { ...p, debe: 0, haber: 0 }; });
@@ -367,11 +371,12 @@ window.crearModulos = function (H) {
   }
   function vContabilidad(cuerpo, e, sub) {
     const clave = 'finanzas/contabilidad', nav = subnav(clave, sub, SUBS[clave]);
+    if (sub === 'periodos') { F.vPeriodos(cuerpo, e, nav); return; }
     cuerpo.innerHTML = `${nav}<div class="card tb rise" style="--d:1" id="tb"></div>`;
     if (sub === 'diario') {
       tabla($('#tb'), [
         { t: 'N°', w: '70px', f: (a) => `<b class="num">${a.nro}</b>` }, { t: 'Fecha', w: '90px', sec: true, f: (a) => `<span class="num">${fe(a.dias)}</span>` },
-        { t: 'Concepto', w: 'minmax(0,1.5fr)', f: (a) => c2(esc(a.concepto), esc(a.origen)) }, { t: 'Origen', w: '120px', sec: true, f: (a) => pill(a.auto ? 'Automático' : 'Manual') },
+        { t: 'Concepto', w: 'minmax(0,1.5fr)', f: (a) => c2(esc(a.concepto), esc(a.origen)) }, { t: 'Origen', w: '120px', sec: true, f: (a) => pill(a.manual && a.manual.reversado ? 'Reversado' : a.auto ? 'Automático' : 'Manual') },
         { t: 'Importe', w: '150px', r: true, f: (a) => `<b class="num">${centavos(a.debe)}</b>` },
       ], asientos(e), abrirAsiento);
     } else if (sub === 'plan') {
@@ -409,7 +414,8 @@ window.crearModulos = function (H) {
         <article class="card s4 rise ${saldo > 0 ? 'resalta' : ''}" style="--d:3"><h3>${saldo >= 0 ? 'Saldo a pagar' : 'Saldo a favor'}</h3><div class="dep-v num">${pe(Math.abs(saldo))}</div><div class="mudo">${saldo >= 0 ? 'Débito menos crédito' : 'Se arrastra al período siguiente'}</div></article>
         <article class="card s6 rise" style="--d:4"><h3>Ventas por alícuota</h3><div class="mini mini3"><div class="cab"><span>Alícuota</span><span>Neto</span><span>IVA</span></div>${tabAl(v.g)}</div></article>
         <article class="card s6 rise" style="--d:5"><h3>Compras por alícuota</h3><div class="mini mini3"><div class="cab"><span>Alícuota</span><span>Neto</span><span>IVA</span></div>${tabAl(c.g)}</div></article></div>
-        <p class="pie-proto">Cálculo de ejemplo sobre los comprobantes de la empresa. La posición definitiva sale de los libros de IVA del período.</p>`;
+        <div id="ivaLiq"></div><p class="pie-proto">Cálculo de ejemplo sobre los comprobantes de la empresa. La posición definitiva sale de los libros de IVA del período.</p>`;
+      F.bloqueIva($('#ivaLiq', cuerpo), e, v, c);
     } else if (sub === 'ventas' || sub === 'compras') {
       if (!ri) { cuerpo.innerHTML = `${nav}<div class="vacio card">Una empresa monotributista no lleva libros de IVA.</div>`; return; }
       const venta = sub === 'ventas', docs = venta ? e.comp.filter((c) => c.estado === 'Autorizado') : e.factC.filter((c) => c.estado !== 'Anulada');
@@ -433,7 +439,7 @@ window.crearModulos = function (H) {
       tabla($('#tb'), [
         { t: 'Vencimiento', w: 'minmax(0,1.4fr)', f: (v) => `<b>${esc(v.nombre)}</b>` }, { t: 'Fecha', w: '110px', f: (v) => `<span class="num">${sumarDias(v.dias).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace('.', '')}</span>` },
         { t: 'Cuándo', w: '110px', sec: true, f: (v) => `<span class="num ${v.dias < 0 ? 'mal' : ''}">${enDias(v.dias)}</span>` }, { t: 'Tipo', w: '110px', sec: true, f: (v) => `<span class="pill mute">${TIPO[v.tipo]}</span>` },
-        { t: 'Estado', w: '130px', f: (v) => (v.dias < 0 ? pill('Vencida') : v.dias <= 5 ? '<span class="pill warn"><i></i>Vence pronto</span>' : pill('Normal').replace('Normal', 'Al día')) },
+        { t: 'Estado', w: '130px', f: (v) => (v.presentado ? pill('Presentado') : v.dias < 0 ? pill('Vencida') : v.dias <= 5 ? '<span class="pill warn"><i></i>Vence pronto</span>' : pill('Normal').replace('Normal', 'Al día')) },
       ], e.venc);
     }
   }
@@ -458,9 +464,9 @@ window.crearModulos = function (H) {
       const NUEVO = { 'compras/ordenes': ['Nueva orden de compra', 'ir:compras/nuevo/orden'], 'compras/remitos': ['Nueva recepción', 'ir:compras/nuevo/recepcion'], 'compras/facturas': ['Cargar factura de compra', 'ir:compras/nuevo/factura'], 'compras/proveedores': ['Nuevo proveedor', 'prov'] };
       return [['btn primary', ...NUEVO[clave]]];
     }
-    if (clave === 'finanzas/tesoreria') return [['btn primary', 'Registrar cobro', 'toast'], ['btn', 'Registrar pago', 'toast']];
-    if (clave === 'finanzas/contabilidad') return [['btn primary', 'Nuevo asiento manual', 'toast']];
-    return [['btn primary', 'Exportar libros', 'toast']];
+    if (clave === 'finanzas/tesoreria') return [['btn primary', 'Registrar cobro', 'fin:elegirCobro'], ['btn', 'Registrar pago', 'fin:elegirPago']];
+    if (clave === 'finanzas/contabilidad') return [['btn primary', 'Nuevo asiento manual', 'fin:nuevoAsiento']];
+    return [['btn primary', 'Exportar libros de IVA', 'fin:exportarLibros']];
   }
   function stats(nombre, e) {
     const sum = (a, f = (x) => x.total) => a.reduce((s, x) => s + f(x), 0), ri = e.cond === 'RI';
@@ -500,7 +506,7 @@ window.crearModulos = function (H) {
     $('#modAcc').innerHTML = accionesHero(clave).map(([c, t, a], i) => `<button class="${c}" data-ha="${i}">${t}</button>`).join('');
     $$('[data-ha]', $('#modAcc')).forEach((b) => b.addEventListener('click', () => {
       const [, t, a] = accionesHero(clave)[Number(b.dataset.ha)];
-      if (a === 'toast') toast(t + ': próximamente en el prototipo'); else if (a === 'cli') V.abrirCliente(null); else if (a === 'prov') C.abrirProveedor(null); else if (a === 'ajuste') abrirAjuste(); else if (a.startsWith('ir:')) { ir(a.slice(3)); }
+      if (a === 'toast') toast(t + ': próximamente en el prototipo'); else if (a === 'cli') V.abrirCliente(null); else if (a === 'prov') C.abrirProveedor(null); else if (a.startsWith('fin:')) F[a.slice(4)](); else if (a === 'ajuste') abrirAjuste(); else if (a.startsWith('ir:')) { ir(a.slice(3)); }
     }));
   }
   function pintarCuerpo() {
@@ -539,5 +545,6 @@ window.crearModulos = function (H) {
   const comun = { pe, pill, ent, c2, dato, cierra, dialogo, tabla, art, saldos, mover, siguiente, depNombre, copiar, unidades, hace, enDias, fe, abrirFactura, repintar, terminar, costoDe };
   Object.assign(V, window.crearVentas(H, comun));
   Object.assign(C, window.crearCompras(H, { ...comun, cuitValido: V.cuitValido, fmtDoc: V.fmtDoc, parseDoc: V.parseDoc }));
+  Object.assign(F, window.crearFinanzas(H, { ...comun, abrirCobro: V.abrirCobro, abrirPendientes: C.abrirPendientes, asientos, cuentaNombre, centavos }));
   return { montar, precio: V.precio, alFacturar: V.alFacturar, rutas, nombres: Object.keys(MODULOS), titulo: (n) => MODULOS[n].titulo };
 };

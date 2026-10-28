@@ -271,9 +271,9 @@ window.crearCompras = function (H, I) {
     $('#gMedio', dlg).addEventListener('change', cargar); $('#gCuenta', dlg).addEventListener('change', val); cargar();
     $('#gOk', dlg).addEventListener('click', () => {
       if (!val()) return; const medio = $('#gMedio', dlg).value, c = e.tes.cuentas.find((x) => x.id === $('#gCuenta', dlg).value);
-      const op = { nro: siguiente(e.tes.cobrosPagos.filter((x) => x.tipo === 'Pago'), 'OP 0001-'), tipo: 'Pago', tercero: f.tercero, dias: 0, medio: medio === 'Cheque propio' ? 'Cheque' : medio, importe: f.total, estado: 'Confirmado' };
+      const op = { nro: siguiente(e.tes.cobrosPagos.filter((x) => x.tipo === 'Pago'), 'OP 0001-'), tipo: 'Pago', tercero: f.tercero, dias: 0, medio: medio === 'Cheque propio' ? 'Cheque' : medio, importe: f.total, estado: 'Confirmado', factura: f.nro, cuenta: c.id };
       e.tes.cobrosPagos.unshift(op); f.estado = 'Pagada';
-      if (medio === 'Cheque propio') e.tes.cheques.unshift({ nro: String(30100000 + Math.floor(Math.random() * 99999)), banco: c.n.split(' · ')[0], tercero: f.tercero, sentido: 'Propio', importe: f.total, vence: 15, estado: 'Entregado' });
+      if (medio === 'Cheque propio') { op.cheque = String(30100000 + Math.floor(Math.random() * 99999)); e.tes.cheques.unshift({ nro: op.cheque, banco: c.n.split(' · ')[0], tercero: f.tercero, sentido: 'Propio', importe: f.total, vence: 15, estado: 'Entregado' }); }
       else { c.saldo -= f.total; e.caja -= f.total; e.tes.movs.unshift({ dias: 0, cuenta: c.n, tipo: 'Pago', concepto: f.tercero, importe: -f.total }); }
       if (prov) { prov.saldo = Math.max(0, Math.round((prov.saldo - f.total) * 100) / 100); prov.vencido = Math.max(0, Math.round((prov.vencido - f.total) * 100) / 100); }
       registrar('tesoreria', `Registró el pago ${op.nro} de la factura ${f.nro}`, `${f.tercero} · ${pe(f.total)} · ${medio.toLowerCase()}`);

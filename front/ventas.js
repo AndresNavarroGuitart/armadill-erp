@@ -233,8 +233,8 @@ window.crearVentas = function (H, I) {
       const rec = { nro: siguiente(e.tes.cobrosPagos.filter((p) => p.tipo === 'Cobro'), 'REC 0001-'), tipo: 'Cobro', tercero: c.n, dias: 0, medio, importe: x, estado: 'Confirmado' };
       e.tes.cobrosPagos.unshift(rec); c.saldo = Math.round((c.saldo - x) * 100) / 100; c.vencido = Math.max(0, Math.round((c.vencido - x) * 100) / 100);
       e.porCobrar = Math.max(0, e.porCobrar - x);
-      const cuenta = e.tes.cuentas[medio === 'Efectivo' ? 0 : 1]; if (medio !== 'Cheque') { cuenta.saldo += x; e.caja += x; e.tes.movs.unshift({ dias: 0, cuenta: cuenta.n, tipo: 'Cobro', concepto: c.n, importe: x }); }
-      else e.tes.cheques.unshift({ nro: String(20500000 + Math.floor(Math.random() * 99999)), banco: 'Banco Nación', tercero: c.n, sentido: 'Recibido', importe: x, vence: 30, estado: 'En cartera' });
+      const cuenta = e.tes.cuentas[medio === 'Efectivo' ? 0 : 1]; rec.cuenta = cuenta.id; if (medio !== 'Cheque') { cuenta.saldo += x; e.caja += x; e.tes.movs.unshift({ dias: 0, cuenta: cuenta.n, tipo: 'Cobro', concepto: c.n, importe: x }); }
+      else { rec.cheque = String(20500000 + Math.floor(Math.random() * 99999)); e.tes.cheques.unshift({ nro: rec.cheque, banco: 'Banco Nación', tercero: c.n, sentido: 'Recibido', importe: x, vence: 30, estado: 'En cartera' }); }
       registrar('tesoreria', `Registró el cobro ${rec.nro}`, `${c.n} · ${pe(x)} · ${medio.toLowerCase()}`);
       toast(`Cobro ${rec.nro} registrado`); dlg.close(); repintar();
     });

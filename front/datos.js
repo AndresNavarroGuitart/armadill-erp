@@ -89,7 +89,7 @@
     { cod: '3.1.1', n: 'Capital', tipo: 'patrimonio' }, { cod: '3.2.1', n: 'Resultados acumulados', tipo: 'patrimonio' },
     { cod: '4.1.1', n: 'Ventas de mercaderías', tipo: 'ingreso' }, { cod: '4.1.2', n: 'Prestación de servicios', tipo: 'ingreso' },
     { cod: '5.1.1', n: 'Costo de mercaderías vendidas', tipo: 'gasto' }, { cod: '5.2.1', n: 'Gastos de administración', tipo: 'gasto' },
-    { cod: '5.2.2', n: 'Sueldos y jornales', tipo: 'gasto' }, { cod: '5.2.3', n: 'Servicios contratados', tipo: 'gasto' },
+    { cod: '5.2.2', n: 'Sueldos y jornales', tipo: 'gasto' }, { cod: '5.2.3', n: 'Servicios contratados', tipo: 'gasto' }, { cod: '5.2.4', n: 'Gastos bancarios', tipo: 'gasto' },
   ];
 
   const base = [
