@@ -30,6 +30,7 @@
     arrow: 'M7 17L17 7M8 7h9v9',
     bolt: 'M13 2L4 14h7l-1 8 9-12h-7l1-8z',
     trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+    bell: 'M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0',
     x: 'M6 6l12 12M18 6L6 18',
     coin: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v10M9.5 9.5c0-1 1-1.7 2.5-1.7s2.5.7 2.5 1.7-1 1.5-2.5 1.8-2.5.8-2.5 1.8 1 1.7 2.5 1.7 2.5-.7 2.5-1.7',
     history: 'M12 7v5l3 2M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5',
@@ -91,6 +92,7 @@
     $('#periodo span').textContent = CAPITAL(mesAnio) + ' · abierto';
     $('#abrirPaleta').innerHTML = `${ic('search')}<span>Buscar o ejecutar…</span><kbd>Ctrl K</kbd>`;
     $('#tema').innerHTML = ic(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon');
+    pintarCampana();
   }
   function cambiarEmpresa(id) {
     estado.empresaId = id; estado.fac = null; guardar('proto_empresa', id);
@@ -104,9 +106,9 @@
     pop.innerHTML = `<h6>Empresas del estudio</h6>` + D.empresas.map((e) =>
       `<button class="op" data-emp="${e.id}" role="option" ${e.id === estado.empresaId ? 'aria-selected="true"' : ''}><span class="avatar t${e.tono}">${esc(e.ini)}</span><span class="t"><b>${esc(e.nombre)}</b><span>${esc(e.cuit)} · ${e.cond === 'RI' ? 'Resp. Inscripto' : 'Monotributo'}</span></span>${semaforo(e).punto}</button>`).join('') +
       `<h6>Vista global</h6><button class="op" data-ir="estudio">${ic('grid')}<span class="t"><b>Cartera del estudio</b><span>Semáforo de todas las empresas</span></span></button>`;
-    pop.hidden = false; $('#empresaBtn').setAttribute('aria-expanded', 'true');
+    $('#popNotif').hidden = true; pop.hidden = false; $('#empresaBtn').setAttribute('aria-expanded', 'true');
   }
-  function cerrarPop() { $('#popEmpresa').hidden = true; $('#empresaBtn').setAttribute('aria-expanded', 'false'); }
+  function cerrarPop() { $('#popEmpresa').hidden = true; $('#popNotif').hidden = true; $('#empresaBtn').setAttribute('aria-expanded', 'false'); $('#campana').setAttribute('aria-expanded', 'false'); }
 
   /* ---------- utilidades visuales ---------- */
   function semaforo(e) {
@@ -155,6 +157,80 @@
     };
   }
 
+  /* ---------- agenda: vencimientos del estudio y eventos propios ---------- */
+  const TIPOS_EV = { imp: 'Impuesto', lab: 'Laboral', est: 'Estudio', reu: 'Reunión', otro: 'Otro' };
+  const AVISOS = [[0, 'El mismo día'], [1, '1 día antes'], [3, '3 días antes'], [7, '7 días antes']];
+  const hoy0 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const isoLocal = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const diasDe = (isoF) => Math.round((new Date(isoF + 'T00:00:00') - hoy0) / 864e5);
+  const relDias = (d) => (d === 0 ? 'hoy' : d === 1 ? 'mañana' : d === -1 ? 'ayer' : d > 0 ? 'en ' + d + ' días' : 'hace ' + -d + ' días');
+  /* Los eventos propios se guardan solo en este navegador (comodidad del prototipo); nunca llevan datos reales. */
+  const cargarEventos = () => { try { const r = JSON.parse(leer('proto_eventos') || '[]'); return Array.isArray(r) ? r.filter((x) => x && typeof x.titulo === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.fecha) && D.empresas.some((e) => e.id === x.emp)).map((x) => ({ ...x, titulo: x.titulo.slice(0, 80), nota: String(x.nota || '').slice(0, 300) })) : []; } catch (err) { return []; } };
+  let eventosPropios = cargarEventos();
+  const guardarEventos = () => guardar('proto_eventos', JSON.stringify(eventosPropios));
+  function eventosDe(e) {
+    const std = e.venc.map((v, i) => ({ key: 's:' + e.id + ':' + i, emp: e.id, nombre: v.nombre, dias: v.dias, tipo: v.tipo, hecho: !!v.hecho, aviso: 7, hora: '', nota: '', propio: false, ref: v }));
+    const pro = eventosPropios.filter((x) => x.emp === e.id).map((x) => ({ key: 'p:' + x.id, emp: e.id, nombre: x.titulo, dias: diasDe(x.fecha), tipo: x.tipo, hecho: !!x.hecho, aviso: x.aviso, hora: x.hora || '', nota: x.nota || '', propio: true, ref: x }));
+    return [...std, ...pro].sort((a, b) => a.dias - b.dias || a.hora.localeCompare(b.hora));
+  }
+  const todosEventos = () => D.empresas.flatMap(eventosDe);
+  /* de lo más próximo a lo más antiguo: primero lo que viene (el más cercano arriba), después lo ya vencido (el más reciente arriba) */
+  const ordenNotif = (l) => [...l.filter((x) => x.dias >= 0).sort((a, b) => a.dias - b.dias || a.hora.localeCompare(b.hora)), ...l.filter((x) => x.dias < 0).sort((a, b) => b.dias - a.dias || b.hora.localeCompare(a.hora))];
+  const enAviso = (x) => !x.hecho && x.dias <= x.aviso;
+  function pintarCampana() {
+    const b = $('#campana'); if (!b) return; const alertas = todosEventos().filter(enAviso), n = alertas.length, urgente = alertas.some((x) => x.dias <= 0);
+    b.innerHTML = ic('bell') + (n ? `<i class="badge ${urgente ? 'bad' : ''}">${n > 9 ? '9+' : n}</i>` : ''); b.setAttribute('aria-label', n ? `Notificaciones: ${n} evento${n === 1 ? '' : 's'} para atender` : 'Notificaciones: sin eventos para atender');
+  }
+  function abrirNotif() {
+    const pop = $('#popNotif'), b = $('#campana').getBoundingClientRect(), ancho = Math.min(410, innerWidth - 24), solo = !!estado.notifSolo;
+    const lista = ordenNotif((solo ? eventosDe(empresa()) : todosEventos()).filter((x) => !x.hecho && x.dias >= -30 && x.dias <= 14)).slice(0, 40);
+    pop.style.width = ancho + 'px'; pop.style.left = Math.max(12, Math.min(b.right + scrollX - ancho, innerWidth - ancho - 12)) + 'px'; pop.style.top = b.bottom + scrollY + 8 + 'px';
+    let seccion = '';
+    const item = (x) => { const f = sumarDias(x.dias), emp = D.empresas.find((e) => e.id === x.emp), clase = x.dias < 0 ? 'ya' : x.dias <= 3 ? 'urg' : '';
+      return `<button class="op notif ${clase}" data-ev="${x.key}"><span class="nf-f"><small>${f.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')}</small><b>${f.getDate()}</b></span><span class="t"><b>${esc(x.nombre)}</b><span>${solo ? '' : esc(emp.nombre) + ' · '}${x.hora ? x.hora + ' · ' : ''}${relDias(x.dias)}${x.propio ? ' · propio' : ''}</span></span></button>`; };
+    pop.innerHTML = `<div class="notif-h"><h6>Próximas 2 semanas</h6><div class="seg" role="group" aria-label="Alcance"><button data-notif-alc="todas" aria-pressed="${!solo}">Todo el estudio</button><button data-notif-alc="una" aria-pressed="${solo}">Esta empresa</button></div></div>
+      <div class="notif-l">${lista.length ? lista.map((x) => { const sec = x.dias >= 0 ? 'Próximos' : 'Vencidos'; const h = sec !== seccion ? `<h6>${(seccion = sec)}</h6>` : ''; return h + item(x); }).join('') : '<div class="vacio" style="padding:22px">No hay eventos próximos ni vencidos.</div>'}</div>
+      <button class="op" data-nuevo-evento style="margin-top:4px;border-top:1px solid var(--line);border-radius:0 0 12px 12px">${ic('plus')}<span class="t"><b>Agregar evento</b></span></button>`;
+    $('#popEmpresa').hidden = true; pop.hidden = false; $('#campana').setAttribute('aria-expanded', 'true');
+  }
+  function abrirDlg(html) { const d = $('#detalle'); $('#detalleBody').innerHTML = html; if (!d.open) d.showModal(); $$('[data-cerrar]', d).forEach((b) => b.addEventListener('click', () => d.close())); return d; }
+  const XBTN = `<button class="icon-btn" data-cerrar aria-label="Cerrar" style="width:34px;height:34px">${ic('x')}</button>`;
+  const refrescarAgenda = () => { pintarCampana(); if ((location.hash.replace('#/', '') || 'inicio') === 'inicio') render(); };
+  function verEvento(key) {
+    const x = todosEventos().find((v) => v.key === key); if (!x) return;
+    const emp = D.empresas.find((e) => e.id === x.emp), f = sumarDias(x.dias), dlg = abrirDlg(`<header class="det-h"><div><small>${TIPOS_EV[x.tipo] || 'Vencimiento'}${x.propio ? ' · evento propio' : ' · vencimiento del estudio'}</small><h4>${esc(x.nombre)}</h4></div><span class="pill ${x.hecho ? '' : x.dias < 0 ? 'bad' : x.dias <= 3 ? 'warn' : 'blue'}"><i></i>${x.hecho ? 'Cumplido' : relDias(x.dias)}</span>${XBTN}</header>
+      <div class="partes"><div><small>Fecha</small><b>${esc(CAPITAL(f.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b></div><div><small>Hora</small><b>${x.hora || 'Todo el día'}</b></div><div><small>Empresa</small><b>${esc(emp.nombre)}</b></div><div><small>Aviso</small><b>${(AVISOS.find((a) => a[0] === x.aviso) || [0, x.aviso + ' días antes'])[1]}</b></div></div>
+      ${x.nota ? `<p style="margin:0;color:var(--ink-2)">${esc(x.nota)}</p>` : ''}
+      <footer class="det-f"><button class="btn primary" data-ev-hecho>${x.hecho ? 'Reabrir' : 'Marcar cumplido'}</button>${x.propio ? '<button class="btn" data-ev-edit>Editar</button><button class="btn" data-ev-del>Eliminar</button>' : ''}${x.emp !== estado.empresaId ? '<button class="btn" data-ev-ir>Ir a la empresa</button>' : ''}<button class="btn" data-cerrar>Cerrar</button></footer>`);
+    $('[data-ev-hecho]', dlg).addEventListener('click', () => { x.ref.hecho = !x.hecho; if (x.propio) guardarEventos(); registrar('maestros', (x.hecho ? 'Reabrió' : 'Marcó como cumplido') + ' el evento "' + x.nombre + '"', emp.nombre + ' · ' + f.toLocaleDateString('es-AR'), { emp: emp.id }); dlg.close(); toast(x.hecho ? 'Evento reabierto' : 'Marcado como cumplido'); refrescarAgenda(); });
+    const ed = $('[data-ev-edit]', dlg); if (ed) ed.addEventListener('click', () => formEvento(x.ref));
+    const del = $('[data-ev-del]', dlg); if (del) del.addEventListener('click', () => { eventosPropios = eventosPropios.filter((v) => v !== x.ref); guardarEventos(); registrar('maestros', 'Eliminó el evento "' + x.nombre + '"', emp.nombre + ' · ' + f.toLocaleDateString('es-AR'), { emp: emp.id }); dlg.close(); toast('Evento eliminado'); refrescarAgenda(); });
+    const ira = $('[data-ev-ir]', dlg); if (ira) ira.addEventListener('click', () => { dlg.close(); cambiarEmpresa(x.emp); ir('inicio'); });
+  }
+  function formEvento(previo) {
+    const e = previo ? D.empresas.find((v) => v.id === previo.emp) : empresa(), opt = (l, sel) => l.map(([v, t]) => `<option value="${v}" ${String(v) === String(sel) ? 'selected' : ''}>${t}</option>`).join('');
+    const dlg = abrirDlg(`<header class="det-h"><div><small>Calendario</small><h4>${previo ? 'Editar evento' : 'Agregar evento'}</h4></div>${XBTN}</header>
+      <div class="form-aj"><label class="ancho">Título<input class="in" id="evTit" maxlength="80" value="${esc(previo ? previo.titulo : '')}" placeholder="Por ejemplo: Reunión con el cliente" autocomplete="off"></label>
+        <label>Fecha<input class="in" type="date" id="evFecha" value="${previo ? previo.fecha : isoLocal(hoy0)}"></label><label>Hora (opcional)<input class="in" type="time" id="evHora" value="${previo ? previo.hora || '' : ''}"></label>
+        <label>Tipo<select class="in" id="evTipo">${opt(Object.entries(TIPOS_EV).filter(([k]) => k !== 'imp' || true), previo ? previo.tipo : 'reu')}</select></label>
+        <label>Avisarme<select class="in" id="evAviso">${opt(AVISOS, previo ? previo.aviso : 1)}</select></label>
+        <label class="ancho">Empresa<select class="in" id="evEmp">${opt(D.empresas.map((v) => [v.id, v.nombre]), e.id)}</select></label>
+        <label class="ancho">Nota (opcional)<input class="in" id="evNota" maxlength="300" value="${esc(previo ? previo.nota || '' : '')}" autocomplete="off"></label></div>
+      <div id="evErr"></div>
+      <footer class="det-f"><button class="btn primary" id="evOk">${previo ? 'Guardar cambios' : 'Agregar al calendario'}</button><button class="btn" data-cerrar>Cancelar</button></footer>`);
+    const val = () => { const t = $('#evTit', dlg).value.trim(), f = $('#evFecha', dlg).value, d = f ? diasDe(f) : null;
+      const m = t.length < 3 ? 'Escribí un título de al menos 3 letras' : !f ? 'Elegí la fecha' : d < -60 ? 'La fecha es demasiado antigua (más de 60 días atrás)' : d > 730 ? 'La fecha está a más de dos años' : '';
+      $('#evErr', dlg).innerHTML = m ? `<div class="chequeo no" style="margin:0">${ic('alert')}<span>${m}</span></div>` : d != null && d < 0 ? `<div class="chequeo ok" style="margin:0">${ic('alert')}<span>La fecha ya pasó: va a figurar como vencido.</span></div>` : ''; $('#evOk', dlg).disabled = !!m; return !m; };
+    ['evTit', 'evFecha'].forEach((id) => $('#' + id, dlg).addEventListener('input', val)); val();
+    $('#evOk', dlg).addEventListener('click', () => {
+      if (!val()) return; const datos = { emp: Number($('#evEmp', dlg).value), titulo: $('#evTit', dlg).value.trim(), fecha: $('#evFecha', dlg).value, hora: $('#evHora', dlg).value, tipo: $('#evTipo', dlg).value, aviso: Number($('#evAviso', dlg).value), nota: $('#evNota', dlg).value.trim() };
+      const emp = D.empresas.find((v) => v.id === datos.emp);
+      if (previo) { const cambios = []; [['Título', 'titulo'], ['Fecha', 'fecha'], ['Hora', 'hora'], ['Empresa', 'emp']].forEach(([t, k]) => { if (previo[k] !== datos[k]) cambios.push([t, String(k === 'emp' ? D.empresas.find((v) => v.id === previo.emp).nombre : previo[k] || '—'), String(k === 'emp' ? emp.nombre : datos[k] || '—')]); }); Object.assign(previo, datos); registrar('maestros', 'Modificó el evento "' + datos.titulo + '"', emp.nombre, { emp: emp.id, cambios }); toast('Evento actualizado'); }
+      else { eventosPropios.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), hecho: false, ...datos }); registrar('maestros', 'Agregó el evento "' + datos.titulo + '" al calendario', emp.nombre + ' · ' + new Date(datos.fecha + 'T12:00').toLocaleDateString('es-AR') + (datos.hora ? ' · ' + datos.hora : ''), { emp: emp.id }); toast('Evento agregado a ' + emp.nombre + ' · te avisa ' + (AVISOS.find((a) => a[0] === datos.aviso)[1]).toLowerCase() + ' en la campana'); }
+      guardarEventos(); dlg.close(); refrescarAgenda();
+    });
+  }
+
   /* ---------- vista: inicio ---------- */
   function vInicio(root) {
     const e = empresa(), ri = e.cond === 'RI';
@@ -165,6 +241,7 @@
       { t: 'Conciliar el banco', s: `${e.conciliar} movimientos sin conciliar`, p: Math.max(.1, 1 - e.conciliar / 40), c: 'var(--accent)', go: 'finanzas/tesoreria' },
       { t: 'Reclamar cobranzas', s: `${e.vencido} facturas vencidas`, p: Math.max(.1, 1 - e.vencido / 8), c: e.vencido > 3 ? 'var(--bad)' : 'var(--cyan)', go: 'ventas/clientes' },
     ];
+    const agenda = eventosDe(e).filter((x) => x.dias >= -7).slice(0, 8);
     const saludo = hoy.getHours() < 12 ? 'Buen día' : hoy.getHours() < 20 ? 'Buenas tardes' : 'Buenas noches';
     root.innerHTML = `
       <section class="hero rise">
@@ -187,8 +264,8 @@
           ${tareas.map((t) => `<button class="tarea" data-ir="${t.go}">${anillo(t.p, t.c)}<span class="t"><b>${t.t}</b><span>${t.s}</span></span>${ic('arrow')}</button>`).join('')}
         </article>
 
-        <article class="card s7 rise" style="--d:7"><h3>${ic('cal')} Próximos vencimientos</h3>
-          <div class="venc">${e.venc.map((v) => { const f = sumarDias(v.dias); return `<div class="v ${v.dias < 0 ? 'ya' : v.dias <= 5 ? 'urg' : ''}"><small>${f.toLocaleDateString('es-AR', { month: 'short' })}</small><span class="dia">${f.getDate()}</span><b>${esc(v.nombre)}</b><small style="text-transform:none">${v.dias < 0 ? 'vencido' : v.dias === 0 ? 'hoy' : 'en ' + v.dias + ' días'}</small></div>`; }).join('')}</div>
+        <article class="card s7 rise" style="--d:7"><div class="cabecera-chart"><div><h3>${ic('cal')} Próximos vencimientos</h3><div class="sub">Tocá uno para ver el detalle o marcarlo como cumplido</div></div><button class="btn sm" data-nuevo-evento>${ic('plus')} Agregar evento</button></div>
+          <div class="venc">${agenda.map((x) => { const f = sumarDias(x.dias); return `<button class="v ${x.hecho ? 'hecho' : x.dias < 0 ? 'ya' : x.dias <= 5 ? 'urg' : ''}" data-ev="${x.key}"><small>${f.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')}</small><span class="dia">${f.getDate()}</span><b>${esc(x.nombre)}</b><small style="text-transform:none">${x.hecho ? 'cumplido' : (x.hora ? x.hora + ' · ' : '') + (x.dias < 0 ? 'vencido' : relDias(x.dias))}</small>${x.propio ? '<i class="mio" title="Evento propio"></i>' : ''}</button>`; }).join('') || '<div class="vacio">No hay vencimientos próximos.</div>'}</div>
         </article>
         <article class="card s5 rise" style="--d:8"><h3>Actividad reciente</h3>
           <div style="margin-top:6px">${e.comp.slice(0, 4).map((c, i) => `<div class="act"><span class="pt ${i % 2 ? 'b' : ''}">${ic('receipt')}</span><span class="t"><b>Factura ${c.letra} ${c.nro}</b><span>${esc(c.cliente)} · ${c.dias === 0 ? 'hoy' : 'hace ' + c.dias + ' d'}</span></span><b class="num">${ARS.format(c.total)}</b></div>`).join('')}</div>
@@ -507,6 +584,7 @@
     const nav = [...Object.entries(VISTAS).filter(([k]) => k !== 'nueva').map(([k, v]) => ({ g: 'Ir a', t: v.titulo, ic: v.icono, f: () => ir(k) })),
       ...MOD.rutas.map((r) => ({ g: 'Ir a', t: r.t, ic: r.ruta.startsWith('ventas') ? 'trend' : r.ruta.startsWith('compras') ? (r.ruta.includes('stock') ? 'box' : 'cart') : 'wallet', f: () => ir(r.ruta) }))];
     const acc = [
+      { g: 'Acciones', t: 'Agregar evento al calendario', ic: 'cal', f: () => formEvento() },
       { g: 'Acciones', t: 'Emitir factura nueva', ic: 'plus', f: () => { estado.fac = null; ir('nueva'); } },
       { g: 'Acciones', t: document.documentElement.dataset.theme === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro', ic: 'sun', f: alternarTema },
     ];
@@ -540,13 +618,17 @@
   /* ---------- eventos globales ---------- */
   document.addEventListener('click', (ev) => {
     const ird = ev.target.closest('[data-ir]'); if (ird) { cerrarPop(); if ($('#detalle').open) $('#detalle').close(); ir(ird.dataset.ir); return; }
+    const nv = ev.target.closest('[data-nuevo-evento]'); if (nv) { cerrarPop(); formEvento(); return; }
+    const evb = ev.target.closest('[data-ev]'); if (evb) { cerrarPop(); verEvento(evb.dataset.ev); return; }
+    const alc = ev.target.closest('[data-notif-alc]'); if (alc) { estado.notifSolo = alc.dataset.notifAlc === 'una'; abrirNotif(); return; }
+    if (ev.target.closest('#campana')) { $('#popNotif').hidden ? abrirNotif() : cerrarPop(); return; }
     const emp = ev.target.closest('[data-emp]'); if (emp) { const id = Number(emp.dataset.emp); if (emp.dataset.entrar) { estado.empresaId = id; estado.fac = null; guardar('proto_empresa', id); registrar('acceso', 'Entró a la empresa ' + empresa().nombre, 'Desde la cartera del estudio'); pintarTopbar(); ir('inicio'); } else cambiarEmpresa(id); return; }
     const ts = ev.target.closest('[data-toast]'); if (ts) { toast(ts.dataset.toast); return; }
     const op = ev.target.closest('#paletaRes .op'); if (op) { $('#paleta').close(); paletaItems[Number(op.dataset.n)].f(); return; }
     if (ev.target.closest('#empresaBtn')) { $('#popEmpresa').hidden ? abrirPop() : cerrarPop(); return; }
     if (ev.target.closest('#abrirPaleta')) { abrirPaleta(); return; }
     if (ev.target.closest('#tema')) { alternarTema(); return; }
-    if (!ev.target.closest('#popEmpresa')) cerrarPop();
+    if (!ev.target.closest('#popEmpresa, #popNotif')) cerrarPop();
     if (ev.target === $('#paleta') || ev.target === $('#emitir') || ev.target === $('#detalle')) ev.target.close();
   });
   document.addEventListener('keydown', (ev) => {

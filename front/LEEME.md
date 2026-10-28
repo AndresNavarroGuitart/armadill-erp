@@ -31,6 +31,12 @@ Sirve para conciliar cualquier par de listados (extracto contra libro, ventas co
 
 Cada conciliación, deshacer y descarga queda en la trazabilidad (con nombres de archivo y cantidades, nunca con el contenido). El lector de Excel (SheetJS 0.18.5) se carga **solo cuando se sube un Excel**, desde cdnjs y con control de integridad (SRI); sin conexión sirve el CSV. En el producto, el procesamiento de archivos grandes pasaría al servidor, con el mismo motor.
 
+## Calendario y notificaciones
+
+- **Inicio → Próximos vencimientos:** cada vencimiento se abre con su detalle (fecha, hora, empresa, aviso, nota) y se puede **marcar como cumplido** o reabrir. **Agregar evento** crea uno propio (título, fecha, hora opcional, tipo, cuánto antes avisar, empresa y nota); los propios también se editan y se eliminan, y se reconocen por un punto azul. También está en la paleta (`Ctrl K`).
+- **Campana (arriba, entre el buscador y el tema):** el número es lo que hay que atender (eventos dentro de su plazo de aviso, o vencidos); en rojo si algo vence hoy o ya venció. Al abrirla lista los eventos **de lo más próximo a lo más antiguo**: primero lo que viene en las próximas 2 semanas (el más cercano arriba) y después lo vencido, del más reciente al más viejo. Se puede ver todo el estudio o solo la empresa actual; tocar uno abre su detalle.
+- Los eventos propios se guardan solo en este navegador (`localStorage`, clave `proto_eventos`) y quedan en la trazabilidad. Son datos de prueba: no cargar nada real. Los vencimientos del estudio (IVA, SIRE, F.931…) siguen siendo de ejemplo.
+
 ## Cómo está organizado el menú
 
 `Inicio` · `Ventas` · `Compras` (con Stock) · `Finanzas` (con Tesorería, Contabilidad e Impuestos). Cada módulo tiene sus solapas y números clave arriba (se puede entrar a cada uno con un clic). Todo se alcanza también con `Ctrl K` ("Compras · Stock · Movimientos").
