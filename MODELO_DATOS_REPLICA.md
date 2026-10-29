@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (26 archivos SQL)
+## 2. Módulos (27 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -46,7 +46,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 22 anulaciones y notas | permiso `ventas.anular`; constancia de la anulación (motivo, quién y cuándo; el comprobante **conserva su número**); `comprobante_item.item_origen_id` (qué renglón de la factura acredita cada renglón de una nota); la base impone que **una nota nunca acredite más de lo facturado** en cada renglón y que **no se anule lo que tiene cobros imputados o notas aplicadas**. Ver [api/LEEME.md](api/LEEME.md) |
 | 23 compras | permisos `compras.ver`, `compras.cargar` y `compras.anular` (las reglas de fondo —número del proveedor único, verificación de importes, asiento automático, período abierto, anulación con contraasiento— ya las imponían 06, 15 y 22). Ver [api/LEEME.md](api/LEEME.md) |
 | 24 tesorería | permisos `tesoreria.ver`, `cobros.registrar`, `pagos.registrar`, `tesoreria.anular` y `tesoreria.administrar`; constancia de anulación en `pago` (motivo, quién y cuándo; conserva su número); `api_idempotencia` pasa a poder referir a un cobro o pago (exactamente uno de comprobante o pago); el alta de empresa crea la cuenta **1.1.4 Bancos** y la **Caja general** (y se completaron las empresas existentes). Los movimientos de tesorería los genera la base al confirmar y los contrarresta al anular |
-| 25 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 25 informes | permiso `informes.ver` (lo tienen los cuatro roles base). Los informes no guardan nada: se derivan de `v_libro_iva`, `v_posicion_iva`, `v_saldo_comprobante`, `v_saldo_tercero`, `retencion`, `asiento` y `asiento_linea` |
+| 26 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

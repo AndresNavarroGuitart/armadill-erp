@@ -14,6 +14,7 @@ import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from 
 import { listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
 import { calcularCompra, cargarCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
+import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
 const json = (res, estado, cuerpo, cabeceras = {}) => { const t = JSON.stringify(cuerpo); res.writeHead(estado, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(t), ...cabeceras }); res.end(t); };
@@ -208,6 +209,14 @@ const RUTAS = [
     const r = await emitirNota(c, ctx, cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
     return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.comprobante, avisos: r.avisos, repetido: r.repetido } };
   }],
+  // --- Informes contables (solo lectura; con ?formato=csv se descargan y queda constancia) ---
+  ['GET', '/api/informes/cuentas', 'informes.ver', ({ c, q }) => listarCuentas(c, q)],
+  ...Object.keys(INFORMES).map((clave) => ['GET', `/api/informes/${clave}`, 'informes.ver', async ({ c, ctx, q, origen }) => {
+    if (q.formato !== 'csv') return generarInforme(c, clave, q);
+    const r = aCsv(clave, await generarInforme(c, clave, q, { csv: true }));
+    await registrarEvento(c, ctx, { categoria: 'contabilidad', accion: `Exportó el informe ${INFORMES[clave].titulo} a CSV`, detalle: `${r.nombre} · ${r.filas} filas`, origen });
+    return { csv: r.csv, nombre: r.nombre };
+  }]),
   // --- Trazabilidad del estudio (solo administradores). Las rutas fijas van ANTES de /:id ---
   ['GET', '/api/estudio/trazabilidad', '@estudio', ({ c, q }) => listarEventos(c, q)],
   ['GET', '/api/estudio/trazabilidad/exportar', '@estudio', async ({ c, ctx, q, origen }) => {
