@@ -76,3 +76,20 @@ export type PreviaCompra = {
 };
 export type Cuenta = { id: number; codigo: string; nombre: string; tipo: string };
 export type Jurisdiccion = { codigo: number; nombre: string };
+
+/* ---------- tesorería ---------- */
+export type Caja = { id: number; nombre: string; tipo: 'efectivo' | 'tarjetas' | 'otra'; activa: boolean; cuenta_contable_id: number | null; cuenta_codigo: string | null; cuenta_nombre: string | null; saldo: string };
+export type Banco = { id: number; banco: string; numero_cuenta: string | null; cbu: string | null; alias: string | null; activa: boolean; cuenta_contable_id: number | null; cuenta_codigo: string | null; saldo: string };
+export type MovimientoTesoreria = { id: number; fecha: string; importe: string; concepto: string | null; caja: string | null; banco: string | null; caja_id: number | null; cuenta_bancaria_id: number | null; pago_id: number | null };
+export type PagoResumen = { id: number; numero_formateado: string; fecha: string; tercero_id: number; tercero: string; total_documento: string; total_imputado: string; a_cuenta: string; estado: 'confirmado' | 'anulado' };
+export type Pendiente = { id: number; tipo: string; numero_formateado: string; fecha: string; vencimiento: string | null; total: string; saldo: string };
+export type PreviaPago = {
+  tercero: { id: number; razon_social: string }; fecha: string; total_medios: string; total_retenciones: string; total_descuentos: string; total_documento: string; total_imputado: string; a_cuenta: string;
+  imputaciones: { comprobante_id: number; comprobante: string; importe: string; saldo_antes: string; saldo_despues: string }[]; avisos: string[];
+};
+export type PagoDetalle = PagoResumen & {
+  clase: 'cobro' | 'pago'; etiqueta: string; total_medios: string; total_retenciones: string; total_descuentos: string; observaciones: string | null; asiento: { id: number; numero: number; estado: string } | null;
+  medios: { medio: string; importe: string; destino: string }[]; retenciones: { tipo: string; origen: string; jurisdiccion_codigo: number | null; importe: string; certificado_numero: string; certificado_fecha: string }[];
+  imputaciones: { comprobante_id: number; comprobante: string; importe: string }[]; anulacion: { motivo: string; en: string; por: string | null } | null;
+};
+export type CuentaCorriente = { tercero: { id: number; razon_social: string }; saldo: string; movimientos: { fecha: string; clase: 'comprobante' | 'pago'; id: number; detalle: string; importe: string; saldo: string }[] };

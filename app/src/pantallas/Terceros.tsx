@@ -2,8 +2,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, obtener } from '../api';
 import { useSesion } from '../sesion';
-import { aDecimal, cuitConGuiones, moneda, nombreCondicion, CONDICIONES_IVA } from '../formato';
-import type { Pagina, Tercero, TipoDocumento } from '../tipos';
+import { aDecimal, cuitConGuiones, fecha, moneda, nombreCondicion, CONDICIONES_IVA } from '../formato';
+import type { CuentaCorriente, Pagina, Tercero, TipoDocumento } from '../tipos';
 import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 
 const POR_PAGINA = 25;
@@ -20,6 +20,7 @@ export function Terceros({ rol }: { rol: Rol }) {
   const [datos, setDatos] = useState<Pagina<Tercero> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [formulario, setFormulario] = useState<Tercero | 'nuevo' | null>(null);
+  const [cuenta, setCuenta] = useState<Tercero | null>(null);
   const [recarga, setRecarga] = useState(0);
   const busqueda = useRetraso(q);
 
@@ -56,7 +57,7 @@ export function Terceros({ rol }: { rol: Rol }) {
                   <td className="num">{t.tipo_documento === 'SIN_IDENTIFICAR' ? 'Sin identificar' : `${t.tipo_documento} ${t.tipo_documento === 'CUIT' ? cuitConGuiones(t.nro_documento) : t.nro_documento}`}</td>
                   <td>{nombreCondicion(t.condicion_iva_codigo)}</td>
                   <td className="num">{moneda(t.saldo ?? '0')}</td>
-                  <td>{t.es_cliente && t.es_proveedor && <Etiqueta tono="info">{rol === 'cliente' ? 'También proveedor' : 'También cliente'}</Etiqueta>} {!t.activo && <Etiqueta tono="aviso">De baja</Etiqueta>}</td>
+                  <td>{t.es_cliente && t.es_proveedor && <Etiqueta tono="info">{rol === 'cliente' ? 'También proveedor' : 'También cliente'}</Etiqueta>} {!t.activo && <Etiqueta tono="aviso">De baja</Etiqueta>} <button className="btn chico" onClick={(e) => { e.stopPropagation(); setCuenta(t); }}>Cuenta corriente</button></td>
                 </tr>
               ))}
             </tbody>
@@ -69,6 +70,7 @@ export function Terceros({ rol }: { rol: Rol }) {
           <span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span>
         </div>
       )}
+      {cuenta && <CuentaCorrienteModal rol={rol} tercero={cuenta} onCerrar={() => setCuenta(null)} />}
       {formulario && <Formulario rol={rol} tercero={formulario === 'nuevo' ? null : formulario} puedeEditar={editar} onCerrar={() => setFormulario(null)} onGuardado={() => { setFormulario(null); setRecarga((n) => n + 1); }} />}
     </>
   );
@@ -145,6 +147,30 @@ function Formulario({ rol, tercero, puedeEditar, onCerrar, onGuardado }: { rol: 
           {!bloqueado && <button type="submit" className="btn primario" disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>}
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/** Todo lo que se facturó y se cobró (o compró y pagó) con la persona, con el saldo después de cada movimiento. */
+function CuentaCorrienteModal({ rol, tercero, onCerrar }: { rol: Rol; tercero: Tercero; onCerrar: () => void }) {
+  const [d, setD] = useState<CuentaCorriente | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { obtener<CuentaCorriente>(`${RUTA[rol]}/${tercero.id}/cuenta-corriente`).then(setD).catch((e) => setError(e.message)); }, [rol, tercero.id]);
+  return (
+    <Modal titulo={`Cuenta corriente · ${tercero.razon_social}`} onCerrar={onCerrar} ancho={720}>
+      {error && <Alerta>{error}</Alerta>}
+      {!d && !error && <Cargando />}
+      {d && (
+        <>
+          <p style={{ marginTop: 0 }}>{Number(d.saldo) >= 0 ? (rol === 'cliente' ? 'Nos debe' : 'Le debemos') : (rol === 'cliente' ? 'Le debemos (saldo a favor)' : 'Nos debe (saldo a favor)')}: <strong className="num">{moneda(String(Math.abs(Number(d.saldo))))}</strong></p>
+          {d.movimientos.length === 0 ? <Vacio titulo="Sin movimientos" /> : (
+            <div className="tabla-caja"><table>
+              <thead><tr><th>Fecha</th><th>Detalle</th><th className="num">Importe</th><th className="num">Saldo</th></tr></thead>
+              <tbody>{d.movimientos.map((m) => <tr key={`${m.clase}-${m.id}`}><td>{fecha(m.fecha)}</td><td>{m.detalle}</td><td className="num">{moneda(m.importe)}</td><td className="num">{moneda(m.saldo)}</td></tr>)}</tbody>
+            </table></div>
+          )}
+        </>
+      )}
     </Modal>
   );
 }

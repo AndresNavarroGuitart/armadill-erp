@@ -11,6 +11,7 @@ import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } f
 import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
 import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from './anulaciones.mjs';
+import { listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
 import { calcularCompra, cargarCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
@@ -128,6 +129,60 @@ const RUTAS = [
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, { ...q, sentido: 'venta' })],      // las compras tienen su propio permiso y su propia ruta
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'venta' })],
+  // --- Tesorería: cajas y bancos ---
+  ['GET', '/api/tesoreria/cajas', 'tesoreria.ver', ({ c }) => listarCajas(c)],
+  ['POST', '/api/tesoreria/cajas', 'tesoreria.administrar', async ({ c, ctx, cuerpo, origen }) => {
+    const x = await crearCaja(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Creó la caja ${x.nombre}`, entidad: 'caja', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: x };
+  }],
+  ['PATCH', '/api/tesoreria/cajas/:id', 'tesoreria.administrar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarCaja(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Modificó la caja ${r.caja.nombre}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'caja', entidadId: p.id, cambios: r.cambios, origen });
+    return r.caja;
+  }],
+  ['GET', '/api/tesoreria/bancos', 'tesoreria.ver', ({ c }) => listarBancos(c)],
+  ['POST', '/api/tesoreria/bancos', 'tesoreria.administrar', async ({ c, ctx, cuerpo, origen }) => {
+    const x = await crearBanco(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Dio de alta la cuenta bancaria ${x.banco}`, detalle: x.numero_cuenta ?? undefined, entidad: 'cuenta_bancaria', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: x };
+  }],
+  ['PATCH', '/api/tesoreria/bancos/:id', 'tesoreria.administrar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarBanco(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Modificó la cuenta bancaria ${r.banco.banco}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'cuenta_bancaria', entidadId: p.id, cambios: r.cambios, origen });
+    return r.banco;
+  }],
+  ['GET', '/api/tesoreria/movimientos', 'tesoreria.ver', ({ c, q }) => listarMovimientosTesoreria(c, q)],
+  // --- Cobros ---
+  ['GET', '/api/cobros', 'tesoreria.ver', ({ c, q }) => listarPagos(c, 'cobro', q)],
+  ['GET', '/api/cobros/pendientes', 'tesoreria.ver', ({ c, q }) => listarPendientes(c, 'cobro', q)],
+  ['POST', '/api/cobros/calcular', 'cobros.registrar', ({ c, ctx, cuerpo }) => calcularPago(c, ctx, 'cobro', cuerpo)],
+  ['POST', '/api/cobros', 'cobros.registrar', async ({ c, ctx, cuerpo, req }) => {
+    const r = await registrarPago(c, ctx, 'cobro', cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
+    return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.pago, avisos: r.avisos, repetido: r.repetido } };
+  }],
+  ['GET', '/api/cobros/:id', 'tesoreria.ver', ({ c, p }) => detallePago(c, p.id, 'cobro')],
+  ['POST', '/api/cobros/:id/anular', 'tesoreria.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularPago(c, ctx, p.id, 'cobro', cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Anuló ${r.etiqueta}`, detalle: `${r.tercero} · $ ${r.total} · motivo: ${r.motivo}`, entidad: 'pago', entidadId: p.id, origen });
+    return r.pago;
+  }],
+  // --- Pagos ---
+  ['GET', '/api/pagos', 'tesoreria.ver', ({ c, q }) => listarPagos(c, 'pago', q)],
+  ['GET', '/api/pagos/pendientes', 'tesoreria.ver', ({ c, q }) => listarPendientes(c, 'pago', q)],
+  ['POST', '/api/pagos/calcular', 'pagos.registrar', ({ c, ctx, cuerpo }) => calcularPago(c, ctx, 'pago', cuerpo)],
+  ['POST', '/api/pagos', 'pagos.registrar', async ({ c, ctx, cuerpo, req }) => {
+    const r = await registrarPago(c, ctx, 'pago', cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
+    return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.pago, avisos: r.avisos, repetido: r.repetido } };
+  }],
+  ['GET', '/api/pagos/:id', 'tesoreria.ver', ({ c, p }) => detallePago(c, p.id, 'pago')],
+  ['POST', '/api/pagos/:id/anular', 'tesoreria.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularPago(c, ctx, p.id, 'pago', cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Anuló ${r.etiqueta}`, detalle: `${r.tercero} · $ ${r.total} · motivo: ${r.motivo}`, entidad: 'pago', entidadId: p.id, origen });
+    return r.pago;
+  }],
+  ['GET', '/api/clientes/:id/cuenta-corriente', 'clientes.ver', ({ c, p }) => cuentaCorriente(c, p.id, 'cliente')],
+  ['GET', '/api/proveedores/:id/cuenta-corriente', 'proveedores.ver', ({ c, p }) => cuentaCorriente(c, p.id, 'proveedor')],
   // --- Compras ---
   ['GET', '/api/compras/facturas', 'compras.ver', ({ c, q }) => listarCompras(c, q)],
   ['POST', '/api/compras/facturas/calcular', 'compras.cargar', ({ c, ctx, cuerpo }) => calcularCompra(c, ctx, cuerpo)],
