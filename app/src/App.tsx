@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { useSesion } from './sesion';
 import { Cargando } from './ui';
-import { Ingreso } from './pantallas/Ingreso';
+import { Ingreso, NuevaClave } from './pantallas/Ingreso';
 import { ElegirEmpresa } from './pantallas/ElegirEmpresa';
 import { Terceros } from './pantallas/Terceros';
 import { Articulos } from './pantallas/Articulos';
@@ -21,12 +21,13 @@ const RUTAS: Ruta[] = [
 const rutaActual = () => location.hash.replace(/^#\/?/, '').split('/')[0];
 
 export function App() {
-  const { estado, yo, error, puede, salir, elegirEmpresa } = useSesion();
+  const { estado, yo, error, puede, salir, elegirEmpresa, recuperando, terminarRecuperacion } = useSesion();
   const [clave, setClave] = useState(rutaActual());
   const [tema, setTema] = useState(document.documentElement.dataset.theme ?? 'light');
   useEffect(() => { const f = () => setClave(rutaActual()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   useEffect(() => { document.documentElement.dataset.theme = tema; try { localStorage.setItem('tema', tema); } catch { /* sin almacenamiento */ } }, [tema]);
 
+  if (recuperando) return <NuevaClave onListo={terminarRecuperacion} />;
   if (estado === 'cargando') return <div className="ingreso"><Cargando texto="Entrando…" /></div>;
   if (estado === 'sin_sesion' || !yo) return <Ingreso mensaje={error} />;
   const activa = yo.empresa_activa;
@@ -53,7 +54,7 @@ export function App() {
           {yo.empresas.length > 1 && <button className="btn chico" onClick={() => elegirEmpresa(null)}>Cambiar de empresa</button>}
           <div className="sp" />
           <button className="icono" onClick={() => setTema(tema === 'dark' ? 'light' : 'dark')} aria-label={tema === 'dark' ? 'Usar tema claro' : 'Usar tema oscuro'}>{tema === 'dark' ? '☀' : '☾'}</button>
-          <button className="btn chico" onClick={salir}>Salir</button>
+          <button className="btn chico" onClick={() => void salir()}>Salir</button>
           <div className="avatar" title={yo.usuario.nombre}>{iniciales}</div>
         </header>
         <main className="vista" key={`${activa.id}-${actual?.clave}`}>

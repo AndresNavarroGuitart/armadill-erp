@@ -8,19 +8,25 @@
     "test:modelo": "node modelo/probar_modelo.mjs",
     "test:arca": "node arca/probar_payload.mjs",
     "test:migracion": "node migracion/probar_migracion.mjs",
-    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs && node api/probar_api.mjs",
+    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs && node api/probar_api.mjs && node api/probar_api.mjs --pg && node api/probar_produccion.mjs",
     "test:asistente": "node asistente/probar_asistente.mjs",
     "asistente:dev": "node asistente/servidor_dev.mjs",
     "asistente:humo": "node asistente/probar_claude.mjs",
     "test:api": "node api/probar_api.mjs",
     "api:dev": "node api/servidor_dev.mjs",
     "app:dev": "npm --prefix app run dev",
-    "app:test": "npm --prefix app test"
+    "app:test": "npm --prefix app test",
+    "test:api:pg": "node api/probar_api.mjs --pg",
+    "test:produccion": "node api/probar_produccion.mjs",
+    "api:servidor": "node api/servidor.mjs",
+    "db:migrar": "node modelo/migrar_pg.mjs"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.13"
+    "@electric-sql/pglite": "0.5.13",
+    "@electric-sql/pglite-socket": "0.2.16"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.3.0"
+    "@anthropic-ai/sdk": "^1.3.0",
+    "pg": "8.23.1"
   }
 }

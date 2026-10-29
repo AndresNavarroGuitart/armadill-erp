@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (20 archivos SQL)
+## 2. Módulos (21 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -41,6 +41,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 16 migración | `migracion_mapa` (correspondencia id original → nuevo; hace la carga repetible sin duplicar) y `migracion_incidencia` (todo lo cambiado, omitido o no migrable, con el valor original; nada se descarta en silencio). Ver [MIGRACION_DESDE_ORIGINAL.md](MIGRACION_DESDE_ORIGINAL.md) |
 | 17 seguridad | RLS en todas las tablas con `empresa_id` y política propia por estudio para `evento`; la aplicación no puede modificar ni borrar `evento` ni `auditoria` (se carga **última**, para cubrir las tablas de los archivos anteriores), rol `app_usuario`, auditoría |
 | 19 API | `usuario.auth_sub` (vínculo con el proveedor de identidad), permisos de maestros y ventas, `fn_roles_base` (Administrador, Contador, Auxiliar, Consulta), funciones `SECURITY DEFINER` para identificar a la persona **antes** de tener contexto (`fn_autenticar`, `fn_empresas_de`, `fn_contexto_empresa`; el primer ingreso se vincula por email **verificado** y una sola vez) y `api_idempotencia` (una emisión repetida devuelve el mismo comprobante). Se carga después de 17 y 18. Ver [api/LEEME.md](api/LEEME.md) |
+| 20 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

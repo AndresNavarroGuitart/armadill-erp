@@ -2,8 +2,8 @@
 export class ErrorApi extends Error {
   constructor(public estado: number, public codigo: string, mensaje: string, public campos: Record<string, string> = {}) { super(mensaje); }
 }
-type Sesion = { token: string | null; empresaId: number | null; alVencer: () => void };
-const sesion: Sesion = { token: null, empresaId: null, alVencer: () => {} };
+type Sesion = { obtenerToken: () => Promise<string | null>; empresaId: number | null; alVencer: () => void };
+const sesion: Sesion = { obtenerToken: async () => null, empresaId: null, alVencer: () => {} };
 export const configurarSesion = (cambios: Partial<Sesion>) => Object.assign(sesion, cambios);
 
 type Consulta = Record<string, string | number | boolean | undefined | null>;
@@ -14,7 +14,8 @@ export async function llamar<T>(metodo: string, ruta: string, op: Opciones = {})
     ? Object.entries(op.consulta).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&')
     : '';
   const cabeceras: Record<string, string> = {};
-  if (sesion.token) cabeceras.Authorization = `Bearer ${sesion.token}`;
+  const token = await sesion.obtenerToken();                                       // el proveedor de identidad lo renueva solo cuando hace falta
+  if (token) cabeceras.Authorization = `Bearer ${token}`;
   if (sesion.empresaId && !op.sinEmpresa) cabeceras['X-Empresa-Id'] = String(sesion.empresaId);
   if (op.cuerpo !== undefined) cabeceras['Content-Type'] = 'application/json';
   if (op.claveIdempotencia) cabeceras['Idempotency-Key'] = op.claveIdempotencia;

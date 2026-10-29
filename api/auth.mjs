@@ -1,10 +1,11 @@
 // Autenticación: verifica el token de la sesión y arma el contexto de trabajo (persona, estudio, empresa, permisos).
 //   - Verificación de JWT con firma HS256 (secreto compartido, como el "JWT secret" de Supabase). Comprueba firma, vencimiento,
 //     "no antes de", audiencia y emisor. NO acepta tokens sin firma ni con otro algoritmo.
-//     [A verificar] Si el proyecto de Supabase usa claves de firma asimétricas (ES256/RS256 con JWKS), hay que agregar esa verificación acá.
+//     Las claves asimétricas del proveedor (ES256/RS256 por JWKS) se verifican en jwt.mjs; este archivo conserva el HS256 síncrono para las pruebas.
 //   - La persona se identifica con fn_autenticar (por el "sub" del token; el primer ingreso se vincula por email VERIFICADO).
 //   - La empresa llega en el encabezado X-Empresa-Id y se valida contra lo que esa persona puede abrir.
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { crearVerificador } from './jwt.mjs';
 
 const b64u = (b) => Buffer.from(b).toString('base64url');
 const desdeB64u = (s) => Buffer.from(s, 'base64url');
@@ -34,13 +35,15 @@ export function verificarJwtHS256(token, { secreto, audiencia, emisor, ahora = (
 
 const CONDICION_TEXTO = { 1: 'responsable inscripto', 4: 'exento', 6: 'monotributista', 13: 'monotributista social', 16: 'monotributista' };
 
-export function crearAutenticador({ bd, secreto, audiencia = 'authenticated', emisor, ahora, registrarError = () => {} }) {
+/* `verificador` (async, de jwt.mjs: HS256 y/o claves públicas por JWKS) es la forma de producción. Con solo `secreto` se arma uno HS256. */
+export function crearAutenticador({ bd, secreto, verificador, audiencia = 'authenticated', emisor, ahora, registrarError = () => {} }) {
+  verificador = verificador ?? crearVerificador({ secretoHS256: secreto, audiencia, emisor, ahora });
   /* Devuelve { ctx } si la sesión es válida; { error: 'sin_sesion' | 'sin_acceso' | 'empresa_invalida' } si no. */
   return async function autenticar(req) {
     const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
     if (!m) return { error: 'sin_sesion' };
     let payload;
-    try { payload = verificarJwtHS256(m[1], { secreto, audiencia, emisor, ahora }); } catch (e) { registrarError(e); return { error: 'sin_sesion' }; }
+    try { payload = await verificador(m[1]); } catch (e) { registrarError(e); return { error: 'sin_sesion' }; }
     const verificado = payload.email_verified === true || (payload.user_metadata && payload.user_metadata.email_verified === true);
     const persona = await bd.sinContexto((c) => c.uno('select * from fn_autenticar($1, $2, $3)', [payload.sub, payload.email || null, !!verificado]));
     if (!persona) return { error: 'sin_acceso' };

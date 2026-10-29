@@ -17,7 +17,13 @@ async function leerCuerpo(req, maxBytes) {
   try { return t ? JSON.parse(t) : {}; } catch (e) { throw new ErrorApi(400, 'json_invalido', 'El pedido no es un JSON válido.'); }
 }
 const id = (s) => (/^\d{1,15}$/.test(s) ? Number(s) : null);
-const origenDe = (req) => ({ ip: (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress, dispositivo: req.headers['user-agent'] });
+/* La IP queda en la trazabilidad: no puede ser lo que la persona escriba en un encabezado. Sin proxies de confianza (saltos = 0) es la de la
+   conexión; con N proxies propios delante, es la que ESE último proxy anotó (el N-ésimo desde el final de X-Forwarded-For). */
+const crearOrigenDe = (saltos) => (req) => {
+  const cadena = String(req.headers['x-forwarded-for'] || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const ip = saltos > 0 && cadena.length >= saltos ? cadena[cadena.length - saltos] : req.socket.remoteAddress;
+  return { ip, dispositivo: req.headers['user-agent'] };
+};
 
 /* Tabla de rutas: método, ruta, permiso, y qué hace. `c` es la conexión ya ubicada en la empresa. */
 const RUTAS = [
@@ -77,7 +83,8 @@ const RUTAS = [
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => leerComprobante(c, p.id)],
 ].map(([metodo, ruta, permiso, hacer]) => ({ metodo, permiso, hacer, patron: new RegExp('^' + ruta.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$') }));
 
-export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = crearLimitador(240, 60_000), maxBytes = 64 * 1024, registrarError = () => {} }) {
+export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = crearLimitador(240, 60_000), maxBytes = 64 * 1024, saltosDeProxy = 0, registrarError = () => {} }) {
+  const origenDe = crearOrigenDe(saltosDeProxy);
   return async function manejador(req, res) {
     const base = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
     const origen = req.headers.origin, permitido = origen && origenesPermitidos.includes(origen);

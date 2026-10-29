@@ -5,6 +5,8 @@ import http from 'node:http';
 import { crearBase } from '../modelo/cargar.mjs';
 import { sembrarDemo } from './semilla.mjs';
 import { crearBd } from './bd.mjs';
+import { crearBdPg } from './bd_pg.mjs';
+import { crearEntornoPg } from './entorno_pg_prueba.mjs';
 import { crearAutenticador, firmarJwtHS256, verificarJwtHS256 } from './auth.mjs';
 import { crearApi } from './app.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
@@ -22,9 +24,12 @@ const verdad = (c, que) => { if (!c) throw new Error(que); };
 
 /* ---------- entorno ---------- */
 const SECRETO = 'secreto-de-prueba-de-32-caracteres-minimo!!', EMISOR = 'https://demo.supabase.test/auth/v1';
-const { db } = await crearBase();
+// ADAPTADOR=pg corre las mismas pruebas pasando por el adaptador de producción (`pg` + migrador) contra PGlite expuesto por socket.
+const MODO_PG = process.env.ADAPTADOR === 'pg' || process.argv.includes('--pg');
+let db, bd, cerrarBase = async () => {};
+if (MODO_PG) { const e = await crearEntornoPg(); db = e.pool; bd = crearBdPg(e.pool); cerrarBase = e.cerrar; }
+else { db = (await crearBase()).db; bd = crearBd(db); }
 const S = await sembrarDemo(db);
-const bd = crearBd(db);
 const autenticar = crearAutenticador({ bd, secreto: SECRETO, emisor: EMISOR });
 const q = async (sql, p = []) => (await db.query(sql, p)).rows;
 const uno = async (sql, p = []) => (await q(sql, p))[0];
@@ -371,6 +376,17 @@ await prueba('Trazabilidad: toda escritura de la API quedó registrada, con la p
   verdad((await uno(`select count(*)::int n from evento where categoria = 'comprobantes'`)).n >= 8, 'emisiones registradas');
 });
 
+await prueba('Trazabilidad: la IP registrada no es la que la persona escribe en un encabezado; con un proxy propio delante es la que anotó ese proxy', async () => {
+  const ultimaIp = async () => (await uno(`select host(ip) ip from evento where categoria = 'maestros' order by id desc limit 1`)).ip;
+  const nuevo = (n) => ({ tipo_documento: 'DNI', nro_documento: String(30000000 + n), razon_social: `Persona IP ${n}`, condicion_iva_codigo: 5 });
+  await api('admin', 'POST', '/api/clientes', { empresa: RI, cuerpo: nuevo(1), cabeceras: { 'X-Forwarded-For': '6.6.6.6' } });
+  verdad(['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(await ultimaIp()), `sin proxy de confianza se usa la conexión, no el encabezado (quedó ${await ultimaIp()})`);
+  const trasProxy = await iniciarServidor({ saltosDeProxy: 1 });
+  try { await api('admin', 'POST', '/api/clientes', { empresa: RI, cuerpo: nuevo(2), cabeceras: { 'X-Forwarded-For': '6.6.6.6, 203.0.113.9' }, servidor: trasProxy }); } finally { await trasProxy.cerrar(); }
+  igual(await ultimaIp(), '203.0.113.9', 'con un proxy propio se toma lo que anotó ese proxy y no lo que mandó la persona');
+});
+
 await srv.cerrar();
-console.log(`\n${correctas} pruebas correctas, ${fallas} con falla`);
+await cerrarBase();
+console.log(`\n${correctas} pruebas correctas, ${fallas} con falla${MODO_PG ? ' (adaptador pg)' : ''}`);
 process.exit(fallas ? 1 : 0);

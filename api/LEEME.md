@@ -47,9 +47,45 @@ Roles base (`fn_roles_base`): Administrador, Contador, Auxiliar, Consulta.
 - **Aislamiento**: pedir un id de otra empresa o de otro estudio da 404 (no 403), para no confirmar que existe.
 - **Navegador**: CORS solo para los orígenes permitidos; límite de pedidos (429 con `Retry-After`); tope de tamaño (413); `Cache-Control: no-store`.
 
+## Puesta en producción (Supabase)
+
+Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por socket, con el mismo migrador y el mismo adaptador):
+
+| Pieza | Qué hace |
+|---|---|
+| `modelo/migrar_pg.mjs` | Aplica el modelo a la base, un archivo por transacción, con constancia y huella en `schema_migracion`. Repetible; frena si un archivo ya aplicado fue modificado. Sin `--aplicar` solo muestra qué falta |
+| `modelo/20_endurecimiento_supabase.sql` | Cierra el acceso de `anon` y `authenticated` (la API REST de Supabase no se usa) |
+| `api/bd_pg.mjs` | Pool de `pg`; cada pedido es una transacción con límites de tiempo, contexto local y `SET LOCAL ROLE app_usuario` (seguro detrás del pooler en modo transacción) |
+| `api/jwt.mjs` | Verifica ES256/RS256 con las claves públicas del proyecto (JWKS, con caché y sin recargas por `kid` inventadas) y, si se configura, HS256 |
+| `api/servidor.mjs` + `api/configuracion.mjs` | Servidor de producción; no arranca si falta algo y lista todos los problemas juntos |
+
+### Variables de entorno del servidor
+
+| Variable | Obligatoria | Para qué |
+|---|---|---|
+| `DATABASE_URL` | sí | Conexión con el usuario **dueño** (`postgres`): necesita saltear la RLS solo para las funciones de identidad; el trabajo siempre baja a `app_usuario` |
+| `SUPABASE_URL` | sí* | De acá salen el emisor (`…/auth/v1`) y las claves públicas (`…/.well-known/jwks.json`). *O `SUPABASE_JWT_SECRET` (secreto heredado, mín. 32 caracteres) |
+| `ORIGENES` | sí | Direcciones del front, separadas por coma, solo origen y con https (http solo localhost). No admite `*` |
+| `DATABASE_CA` | según el caso | Certificado PEM de la autoridad de la base si la conexión TLS no valida con las de Node (el de Supabase se descarga desde su panel). Con `
+` escritos como texto sirve |
+| `TRUST_PROXY_HOPS` | no (0) | Cuántos proxies propios hay delante; define qué IP queda en la trazabilidad. **Con 0 se ignora `X-Forwarded-For`** |
+| `PORT`, `HOST`, `POOL_MAX`, `LIMITE_POR_MINUTO`, `JWT_AUDIENCIA` | no | 8080, 0.0.0.0, 10, 240 por persona, `authenticated` |
+
+### Orden para la primera vez
+
+1. **Supabase → Authentication:** desactivar el alta libre ("Allow new users to sign up"), exigir confirmación de email, fijar la lista de URLs de retorno (la del front) y usar claves de firma asimétricas (JWT Signing Keys). Subir el largo mínimo de contraseña a 12 y activar la protección de contraseñas filtradas.
+2. **Supabase → API:** quitar `public` de los esquemas expuestos o desactivar la Data API (el sistema no la usa; `20_endurecimiento_supabase.sql` es la segunda barrera, no la única).
+3. `DATABASE_URL=… npm run db:migrar` (muestra qué falta) y luego `DATABASE_URL=… npm run db:migrar -- --aplicar`. Usar la conexión **directa** (puerto 5432) para migrar.
+4. Dar de alta el estudio, sus personas y empresas (hoy a mano o con un script; falta la pantalla de administración). Cada persona se crea en `usuario` con su email; en Supabase se la **invita** con ese mismo email: el primer ingreso se vincula por email verificado.
+5. Levantar `npm run api:servidor` con las variables de arriba (para la base conviene la conexión del pooler en modo transacción, puerto 6543).
+6. Front: `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` (ver `app/.env.example`).
+
+### Qué no se pudo probar acá
+Todo esto se verificó contra PGlite y un proveedor de identidad simulado, **no contra un proyecto real de Supabase**: no hay credenciales en esta máquina. Quedan por confirmar en el primer despliegue: que `btree_gist` se cree bien en su esquema de extensiones, que el pooler en modo transacción acepte el patrón (debería: todo es `SET LOCAL`), que el certificado TLS valide y que los correos de invitación y recuperación lleguen con las URLs de retorno correctas.
+
 ## Lo que falta
 
-- Adaptador de producción para `crearBd` con `pg` (hoy está el de PGlite) y la carga de `19_api.sql` en Supabase.
-- Si el proyecto de Supabase firma con clave asimétrica (ES256), hay que sumar la verificación por JWKS.
+- Probarlo contra un proyecto real de Supabase (ver arriba) y decidir dónde corre el servidor (hoy es un proceso Node: sirve en cualquier hosting de contenedores o de Node).
+- Doble factor de autenticación (MFA) y registro de intentos fallidos de ingreso en la trazabilidad.
 - Anular y notas de crédito, compras, cobros y pagos, y la conexión con ARCA (CAE).
 - El front real (`app/`, React) ya usa esta API para ingreso, clientes, proveedores, artículos y factura de venta; ver [app/LEEME.md](../app/LEEME.md).
