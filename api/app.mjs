@@ -15,6 +15,7 @@ import { listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modifi
 import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, aplicarNotaCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
+import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio } from './ejercicios.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -223,6 +224,19 @@ const RUTAS = [
   ['POST', '/api/ventas/notas-credito', 'ventas.emitir', async ({ c, ctx, cuerpo, req }) => {
     const r = await emitirNota(c, ctx, cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
     return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.comprobante, avisos: r.avisos, repetido: r.repetido } };
+  }],
+  // --- Ejercicios contables: previa, cierre (con su asiento) y reapertura ---
+  ['GET', '/api/ejercicios', 'ejercicios.ver', ({ c }) => listarEjercicios(c)],
+  ['GET', '/api/ejercicios/:id/cierre', 'ejercicios.ver', ({ c, p }) => previaCierre(c, p.id)],
+  ['POST', '/api/ejercicios/:id/cerrar', 'ejercicios.cerrar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await cerrarEjercicio(c, ctx, p.id, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'contabilidad', accion: `Cerró el ejercicio ${r.rotulo}`, detalle: `resultado $ ${r.resultado}${r.asiento_id ? ' · asiento de cierre generado' : ' · sin asiento (no tenía ingresos ni egresos)'}`, entidad: 'ejercicio', entidadId: p.id, origen });
+    return r.ejercicio;
+  }],
+  ['POST', '/api/ejercicios/:id/reabrir', 'ejercicios.cerrar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await reabrirEjercicio(c, ctx, p.id, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'contabilidad', accion: `Reabrió el ejercicio ${r.rotulo}`, detalle: `motivo: ${r.motivo}`, entidad: 'ejercicio', entidadId: p.id, origen });
+    return r.ejercicio;
   }],
   // --- Informes contables (solo lectura; con ?formato=csv se descargan y queda constancia) ---
   ['GET', '/api/informes/cuentas', 'informes.ver', ({ c, q }) => listarCuentas(c, q)],

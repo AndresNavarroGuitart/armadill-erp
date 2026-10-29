@@ -1,6 +1,6 @@
 -- Facturas de compra desde la aplicación: permisos propios. Las reglas de fondo (número único por proveedor, verificación de importes, asiento
 -- automático, período abierto, anulación con contraasiento y sin pagos imputados) ya las imponen 06, 15 y 22.
--- Va DESPUÉS de 22 y ANTES de 27 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 22 y ANTES de 28 (el endurecimiento de Supabase, que siempre es el último).
 
 insert into permiso (clave, modulo, descripcion) values
   ('compras.ver',    'compras', 'Ver facturas de compra y el plan de cuentas'),

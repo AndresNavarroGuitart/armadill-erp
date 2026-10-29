@@ -15,6 +15,7 @@ import { Trazabilidad } from './pantallas/Trazabilidad';
 import { Compras } from './pantallas/Compras';
 import { Tesoreria } from './pantallas/Tesoreria';
 import { Informes } from './pantallas/Informes';
+import { Ejercicios } from './pantallas/Ejercicios';
 import { cuitConGuiones, nombreCondicion } from './formato';
 
 type Ruta = { clave: string; titulo: string; permiso: string; icono: string; pantalla: () => ReactElement };
@@ -24,6 +25,7 @@ const RUTAS: Ruta[] = [
   { clave: 'compras', titulo: 'Compras', permiso: 'compras.ver', icono: 'M6 6h15l-1.5 9h-12z M6 6L5 3H2 M9 20a1 1 0 100-2 1 1 0 000 2z M18 20a1 1 0 100-2 1 1 0 000 2z', pantalla: () => <Compras /> },
   { clave: 'tesoreria', titulo: 'Tesorería', permiso: 'tesoreria.ver', icono: 'M3 7h18v12H3z M3 11h18 M16 15h2', pantalla: () => <Tesoreria /> },
   { clave: 'informes', titulo: 'Informes', permiso: 'informes.ver', icono: 'M4 20V10 M10 20V4 M16 20v-8 M22 20H2', pantalla: () => <Informes /> },
+  { clave: 'ejercicios', titulo: 'Ejercicios', permiso: 'ejercicios.ver', icono: 'M4 5h16v15H4z M4 10h16 M9 3v4 M15 3v4', pantalla: () => <Ejercicios /> },
   { clave: 'clientes', titulo: 'Clientes', permiso: 'clientes.ver', icono: 'M12 12a4 4 0 100-8 4 4 0 000 8z M4 21a8 8 0 0116 0', pantalla: () => <Terceros rol="cliente" /> },
   { clave: 'proveedores', titulo: 'Proveedores', permiso: 'proveedores.ver', icono: 'M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10', pantalla: () => <Terceros rol="proveedor" /> },
   { clave: 'articulos', titulo: 'Artículos', permiso: 'articulos.ver', icono: 'M21 8l-9-5-9 5v8l9 5 9-5z M3 8l9 5 9-5', pantalla: () => <Articulos /> },

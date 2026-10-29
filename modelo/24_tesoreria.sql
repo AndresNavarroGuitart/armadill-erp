@@ -1,7 +1,7 @@
 -- Cobros y pagos desde la aplicación: permisos propios, constancia de la anulación, idempotencia también para pagos y la caja y el banco con los
 -- que nace una empresa. Las reglas de fondo (identidad contable del pago, imputación sin pasarse del saldo, asiento automático, movimientos de
 -- tesorería generados solo al confirmar o anular, retenciones con certificado) ya las imponen 07, 08 y 15.
--- Va DESPUÉS de 23 y ANTES de 27 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 23 y ANTES de 28 (el endurecimiento de Supabase, que siempre es el último).
 
 insert into permiso (clave, modulo, descripcion) values
   ('tesoreria.ver',          'tesoreria', 'Ver cobros, pagos, cajas, bancos y sus movimientos'),

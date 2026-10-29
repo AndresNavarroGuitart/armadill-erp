@@ -59,8 +59,8 @@ async function balance(c, q) {
   const filas = await c.consultar(`select * from (
       select pc.id as cuenta_id, pc.codigo, pc.nombre, pc.tipo,
              coalesce(sum(l.debe - l.haber) filter (where a.fecha < $1 and (pc.tipo not in ('ingreso','egreso') or a.fecha >= $3)), 0)::text as saldo_anterior,
-             coalesce(sum(l.debe) filter (where a.fecha between $1 and $2), 0)::text as debe,
-             coalesce(sum(l.haber) filter (where a.fecha between $1 and $2), 0)::text as haber
+             coalesce(sum(l.debe) filter (where a.fecha between $1 and $2 and a.origen_tipo is distinct from 'cierre'), 0)::text as debe,
+             coalesce(sum(l.haber) filter (where a.fecha between $1 and $2 and a.origen_tipo is distinct from 'cierre'), 0)::text as haber
         from plan_cuenta pc left join asiento_linea l on l.cuenta_id = pc.id left join asiento a on a.id = l.asiento_id and a.estado = 'contabilizado'
        group by pc.id) x
     where saldo_anterior::numeric <> 0 or debe::numeric <> 0 or haber::numeric <> 0 order by codigo`, [desde, hasta, ini]);
@@ -112,7 +112,7 @@ const filasDiario = (r) => r.filas.flatMap((a) => a.lineas.map((l) => ({ fecha: 
 async function estadosContables(c, q) {
   const { desde, hasta } = rango(q, { inicio: `${hoyISO().slice(0, 4)}-01-01` });
   const res = await c.consultar(`select pc.codigo, pc.nombre, pc.tipo, sum(l.debe - l.haber)::text as neto from asiento_linea l join asiento a on a.id = l.asiento_id and a.estado = 'contabilizado'
-    join plan_cuenta pc on pc.id = l.cuenta_id where pc.tipo in ('ingreso','egreso') and a.fecha between $1 and $2 group by pc.id order by pc.codigo`, [desde, hasta]);
+    join plan_cuenta pc on pc.id = l.cuenta_id where pc.tipo in ('ingreso','egreso') and a.fecha between $1 and $2 and a.origen_tipo is distinct from 'cierre' group by pc.id order by pc.codigo`, [desde, hasta]);
   const sit = await c.consultar(`select pc.codigo, pc.nombre, pc.tipo, sum(l.debe - l.haber)::text as neto from asiento_linea l join asiento a on a.id = l.asiento_id and a.estado = 'contabilizado'
     join plan_cuenta pc on pc.id = l.cuenta_id where a.fecha <= $1 group by pc.id order by pc.codigo`, [hasta]);
   const monto = (f, signo) => ({ codigo: f.codigo, nombre: f.nombre, importe: texto(BigInt(signo) * dec(f.neto)) });
@@ -127,7 +127,7 @@ async function estadosContables(c, q) {
     desde, hasta,
     resultados: { ingresos, total_ingresos: total(ingresos), egresos, total_egresos: total(egresos), resultado: texto(dec(total(ingresos)) - dec(total(egresos))) },
     situacion: { al: hasta, activo, total_activo: total(activo), pasivo, total_pasivo: total(pasivo), patrimonio_neto: patrimonio, total_patrimonio_neto: total(patrimonio), resultados_acumulados: acumulado, total_pasivo_y_patrimonio: pasivoMasPn, diferencia },
-    avisos: [...(diferencia !== '0.00' ? [`Atención: el activo y el pasivo más el patrimonio no coinciden (diferencia $ ${diferencia}).`] : []), 'Los resultados acumulados suman todos los ingresos y egresos hasta la fecha: el sistema todavía no hace el cierre de ejercicio.'],
+    avisos: [...(diferencia !== '0.00' ? [`Atención: el activo y el pasivo más el patrimonio no coinciden (diferencia $ ${diferencia}).`] : []), 'Los resultados acumulados suman los ingresos y egresos de los ejercicios que todavía no se cerraron; el de uno cerrado ya está en Resultados no asignados. Los informes del año muestran sus resultados sin el asiento de cierre.'],
   };
 }
 const columnasEstados = [['seccion', 'Sección'], ['codigo', 'Código'], ['nombre', 'Cuenta'], ['importe', 'Importe']];

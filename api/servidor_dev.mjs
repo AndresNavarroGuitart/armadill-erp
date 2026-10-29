@@ -18,6 +18,16 @@ const SECRETO = 'secreto-solo-para-desarrollo-no-usar-en-produccion', EMISOR = '
 const { db } = await crearBase();
 const S = await sembrarDemo(db);
 const bd = crearBd(db);
+// Un ejercicio anterior con movimientos, para poder recorrer el cierre desde la pantalla de Ejercicios.
+{
+  const E = S.empresas.ri.id, Y = new Date().getFullYear() - 1, cuenta = async (c) => (await db.query('select id from plan_cuenta where empresa_id = $1 and codigo = $2', [E, c])).rows[0].id;
+  await db.query('select fn_crear_ejercicio($1, $2, $3)', [E, `${Y}-01-01`, `${Y}-12-31`]);
+  for (const [fecha, descripcion, lineas] of [[`${Y}-04-10`, 'Ventas de abril', [['1.1.1', 8000, 0], ['4.1.1', 0, 8000]]], [`${Y}-09-05`, 'Gastos de septiembre', [['5.1.1', 3000, 0], ['1.1.1', 0, 3000]]]]) {
+    const as = (await db.query(`insert into asiento (empresa_id, ejercicio_id, fecha, descripcion, origen_tipo) values ($1, fn_ejercicio_de($1, $2::date), $2, $3, 'manual') returning id`, [E, fecha, descripcion])).rows[0].id;
+    for (const [codigo, debe, haber] of lineas) await db.query('insert into asiento_linea (empresa_id, asiento_id, cuenta_id, debe, haber) values ($1,$2,$3,$4,$5)', [E, as, await cuenta(codigo), debe, haber]);
+    await db.query(`update asiento set estado = 'contabilizado' where id = $1`, [as]);
+  }
+}
 // Invitaciones SIMULADAS: no se envía ningún correo; sirve para recorrer la pantalla. 'ya.tiene.cuenta@…' prueba el otro resultado y 'falla@…' un error del proveedor.
 const invitador = { async invitar(email) {
   if (/^falla@/.test(email)) throw new ErrorApi(502, 'proveedor_identidad', 'El servicio de ingreso no pudo enviar la invitación (simulado). Probá de nuevo en unos minutos.');

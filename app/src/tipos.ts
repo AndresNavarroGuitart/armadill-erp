@@ -98,3 +98,7 @@ export type CuentaCorriente = { tercero: { id: number; razon_social: string }; s
 export type Cheque = { id: number; origen: 'propio' | 'tercero'; numero: string; banco: string | null; cuit_librador: string | null; importe: string; fecha_emision: string | null; fecha_pago: string | null; estado: string; tercero_id: number | null; tercero: string | null; cuenta_bancaria_id: number | null; cuenta_banco: string | null; cuenta_numero: string | null; acciones: string[]; diferido: boolean };
 export type ChequeDetalle = Cheque & { eventos: { id: number; fecha: string; estado_anterior: string | null; estado_nuevo: string; nota: string | null; pago_id: number | null; comprobante: string | null }[] };
 export type ResumenCheque = { origen: string; estado: string; cantidad: number; importe: string };
+
+/* ---------- ejercicios ---------- */
+export type Ejercicio = { id: number; desde: string; hasta: string; cerrado: boolean; cerrado_en: string | null; cerrado_por: string | null; asiento_cierre_id: number | null; periodos: number; periodos_abiertos: number; asientos: number; borradores: number; resultado: string };
+export type PreviaCierre = { ejercicio: Ejercicio; ingresos: string; egresos: string; resultado: string; cuentas_a_saldar: number; destino: string; bloqueos: string[]; avisos: string[]; puede_cerrar: boolean };

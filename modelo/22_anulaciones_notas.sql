@@ -1,6 +1,6 @@
 -- Anulaciones y notas de crédito desde la aplicación: permiso propio, constancia de la anulación, renglón de origen de cada renglón de una
 -- nota y las reglas que la base impone (no la API): no se anula lo que tiene cobros o notas aplicadas, y una nota nunca acredita más de lo facturado.
--- Va DESPUÉS de 21 y ANTES de 27 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 21 y ANTES de 28 (el endurecimiento de Supabase, que siempre es el último).
 
 insert into permiso (clave, modulo, descripcion) values ('ventas.anular', 'ventas', 'Anular facturas y notas de crédito');
 insert into rol_permiso (rol_id, permiso_clave)
