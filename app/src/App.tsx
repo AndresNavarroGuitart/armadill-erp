@@ -9,6 +9,8 @@ import { Articulos } from './pantallas/Articulos';
 import { NuevaFactura } from './pantallas/NuevaFactura';
 import { Comprobantes } from './pantallas/Comprobantes';
 import { Estudio } from './pantallas/Estudio';
+import { Stock } from './pantallas/Stock';
+import { Listas } from './pantallas/Listas';
 import { cuitConGuiones, nombreCondicion } from './formato';
 
 type Ruta = { clave: string; titulo: string; permiso: string; icono: string; pantalla: () => ReactElement };
@@ -18,6 +20,8 @@ const RUTAS: Ruta[] = [
   { clave: 'clientes', titulo: 'Clientes', permiso: 'clientes.ver', icono: 'M12 12a4 4 0 100-8 4 4 0 000 8z M4 21a8 8 0 0116 0', pantalla: () => <Terceros rol="cliente" /> },
   { clave: 'proveedores', titulo: 'Proveedores', permiso: 'proveedores.ver', icono: 'M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10', pantalla: () => <Terceros rol="proveedor" /> },
   { clave: 'articulos', titulo: 'Artículos', permiso: 'articulos.ver', icono: 'M21 8l-9-5-9 5v8l9 5 9-5z M3 8l9 5 9-5', pantalla: () => <Articulos /> },
+  { clave: 'listas', titulo: 'Listas', permiso: 'articulos.ver', icono: 'M4 6h16 M4 12h16 M4 18h16 M7 3v6 M15 9v6 M10 15v6', pantalla: () => <Listas /> },
+  { clave: 'stock', titulo: 'Stock', permiso: 'stock.ver', icono: 'M3 9l9-6 9 6v11H3z M9 20v-7h6v7', pantalla: () => <Stock /> },
 ];
 /** Administración del estudio: no depende de una empresa ni de un permiso de rol; la habilita la marca de administrador del estudio. */
 const RUTA_ESTUDIO: Ruta = { clave: 'estudio', titulo: 'Estudio', permiso: '@estudio', icono: 'M3 21h18 M5 21V7l7-4 7 4v14 M9 21v-6h6v6 M9 10h.01 M15 10h.01', pantalla: () => <Estudio /> };

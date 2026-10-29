@@ -13,7 +13,7 @@ export type Tercero = {
 export type Lista = { id: number; nombre: string; orden: number };
 export type Articulo = {
   id: number; codigo: string; nombre: string; tipo: 'bien' | 'servicio' | 'gasto' | 'bien_de_uso'; tratamiento_iva_venta: 'gravado' | 'exento' | 'no_gravado';
-  alicuota_venta: string | null; controla_stock: boolean; activo: boolean; precio_neto?: string | null; costo?: string | null;
+  alicuota_venta: string | null; controla_stock: boolean; stock_minimo?: string | null; activo: boolean; precio_neto?: string | null; costo?: string | null;
 };
 export type ItemFactura = { articulo_id: number; descripcion?: string; cantidad: string; precio_unitario?: string; desc_pct?: string };
 export type PedidoFactura = { tercero_id: number; punto_venta?: number; fecha?: string; concepto?: number; fecha_servicio_desde?: string; fecha_servicio_hasta?: string; fecha_vto_pago?: string; desc_pie_pct?: string; observaciones?: string; items: ItemFactura[] };
@@ -38,3 +38,11 @@ export type EmpresaAdmin = { id: number; cuit: string; razon_social: string; con
 export type Rol = { id: number; nombre: string; sistema: boolean; accesos: number; permisos: string[] };
 export type Permiso = { clave: string; modulo: string; descripcion: string };
 export type EstudioDatos = { id: number; nombre: string; cuit: string | null; personas: number; empresas: number; invitaciones: boolean };
+
+/* ---------- stock y listas ---------- */
+export type Deposito = { id: number; nombre: string; activo: boolean; articulos_con_stock: number };
+export type Existencia = { articulo_id: number; codigo: string; nombre: string; stock_minimo: string | null; total: string; bajo_minimo: boolean; por_deposito: { deposito_id: number; saldo: string }[] };
+export type Movimiento = { id: number; fecha: string; articulo_id: number; codigo: string; articulo: string; deposito_id: number; deposito: string; cantidad: string; tipo: string; motivo: string | null; costo_unitario: string | null; comprobante: string | null };
+export type ListaPrecio = { id: number; nombre: string; orden: number; articulos: number; clientes: number };
+export type FilaAjuste = { articulo_id: number; codigo: string; nombre: string; base: string; actual: string | null; nuevo: string; bajo_costo: boolean; costo: string | null };
+export type ResultadoAjuste = { aplicado: boolean; lista: string; base_lista_id: number; porcentaje: string; vigente_desde: string; redondeo: string; total: number; cambian: number; sin_cambio: number; sin_precio_base: number; bajo_costo: number; datos?: FilaAjuste[] };

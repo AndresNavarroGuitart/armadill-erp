@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (22 archivos SQL)
+## 2. Módulos (23 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -42,7 +42,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 17 seguridad | RLS en todas las tablas con `empresa_id` y política propia por estudio para `evento`; la aplicación no puede modificar ni borrar `evento` ni `auditoria` (se carga **última**, para cubrir las tablas de los archivos anteriores), rol `app_usuario`, auditoría |
 | 19 API | `usuario.auth_sub` (vínculo con el proveedor de identidad), permisos de maestros y ventas, `fn_roles_base` (Administrador, Contador, Auxiliar, Consulta), funciones `SECURITY DEFINER` para identificar a la persona **antes** de tener contexto (`fn_autenticar`, `fn_empresas_de`, `fn_contexto_empresa`; el primer ingreso se vincula por email **verificado** y una sola vez) y `api_idempotencia` (una emisión repetida devuelve el mismo comprobante). Se carga después de 17 y 18. Ver [api/LEEME.md](api/LEEME.md) |
 | 20 administración | `usuario.admin_estudio` (marca de quien administra el estudio completo, sin depender de una empresa); la base impone que **el estudio nunca se quede sin administrador activo**, que persona, empresa y rol de un acceso sean **del mismo estudio** y que el email se guarde en minúsculas; RLS para `estudio` y `rol_permiso` (que no tenían aislamiento) y política por estudio sobre `usuario_empresa`; `fn_provisionar_empresa` (plan de cuentas básico, cuentas automáticas, ejercicio, períodos, punto de venta 1, depósito y lista: una empresa nace **lista para facturar**), `fn_alta_empresa` (definer, exige administrador activo del estudio del contexto) y `fn_alta_estudio` (solo el dueño de la base). Ver [api/LEEME.md](api/LEEME.md) |
-| 21 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 21 stock y listas | permisos `stock.ver`, `stock.ajustar` y `listas.editar` (con su alta en los roles de base que ya existen), `articulo.stock_minimo`, `movimiento_stock.motivo` y la regla (en la base) de que **un depósito con existencias no se da de baja y la empresa conserva al menos uno activo**. Ver [api/LEEME.md](api/LEEME.md) |
+| 22 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

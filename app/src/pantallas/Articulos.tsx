@@ -77,12 +77,12 @@ export function Articulos() {
   );
 }
 
-type Valores = { codigo: string; nombre: string; tipo: Articulo['tipo']; tratamiento: Articulo['tratamiento_iva_venta']; alicuota: string; controla_stock: boolean; activo: boolean; lista_id: string; precio_neto: string; costo: string };
+type Valores = { codigo: string; nombre: string; tipo: Articulo['tipo']; tratamiento: Articulo['tratamiento_iva_venta']; alicuota: string; controla_stock: boolean; stock_minimo: string; activo: boolean; lista_id: string; precio_neto: string; costo: string };
 
 function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: number | null; listas: Lista[]; puedeEditar: boolean; onCerrar: () => void; onGuardado: (cerrar: boolean) => void }) {
   const avisar = useAviso();
   const [original, setOriginal] = useState<Detalle | null>(null);
-  const [v, setV] = useState<Valores>({ codigo: '', nombre: '', tipo: 'bien', tratamiento: 'gravado', alicuota: '21', controla_stock: true, activo: true, lista_id: String(listas[0]?.id ?? ''), precio_neto: '', costo: '' });
+  const [v, setV] = useState<Valores>({ codigo: '', nombre: '', tipo: 'bien', tratamiento: 'gravado', alicuota: '21', controla_stock: true, stock_minimo: '', activo: true, lista_id: String(listas[0]?.id ?? ''), precio_neto: '', costo: '' });
   const [cargando, setCargando] = useState(id !== null);
   const [error, setError] = useState<unknown>(null);
   const [guardando, setGuardando] = useState(false);
@@ -95,16 +95,16 @@ function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: num
   useEffect(() => {
     if (id === null) return;
     obtener<Detalle>(`/api/articulos/${id}`).then((a) => {
-      setOriginal(a); setV((x) => ({ ...x, codigo: a.codigo, nombre: a.nombre, tipo: a.tipo, tratamiento: a.tratamiento_iva_venta, alicuota: a.alicuota_venta ?? '21', controla_stock: a.controla_stock, activo: a.activo }));
+      setOriginal(a); setV((x) => ({ ...x, codigo: a.codigo, nombre: a.nombre, tipo: a.tipo, tratamiento: a.tratamiento_iva_venta, alicuota: a.alicuota_venta ?? '21', controla_stock: a.controla_stock, stock_minimo: a.stock_minimo && Number(a.stock_minimo) > 0 ? a.stock_minimo.replace(/\.?0+$/, '') : '', activo: a.activo }));
     }).catch((e) => setError(e)).finally(() => setCargando(false));
   }, [id]);
 
   async function guardar(ev: FormEvent) {
     ev.preventDefault(); setGuardando(true); setError(null);
-    const base = { nombre: v.nombre.trim(), tratamiento_iva_venta: v.tratamiento, ...(v.tratamiento === 'gravado' ? { alicuota_venta: v.alicuota } : {}), controla_stock: v.controla_stock };
+    const base = { nombre: v.nombre.trim(), tratamiento_iva_venta: v.tratamiento, ...(v.tratamiento === 'gravado' ? { alicuota_venta: v.alicuota } : {}), controla_stock: v.controla_stock, ...(v.controla_stock ? { stock_minimo: v.stock_minimo.trim() ? aDecimal(v.stock_minimo) : null } : {}) };
     try {
       if (original) {
-        const antes: Record<string, unknown> = { nombre: original.nombre, tratamiento_iva_venta: original.tratamiento_iva_venta, alicuota_venta: original.alicuota_venta ?? undefined, controla_stock: original.controla_stock, activo: original.activo };
+        const antes: Record<string, unknown> = { nombre: original.nombre, tratamiento_iva_venta: original.tratamiento_iva_venta, alicuota_venta: original.alicuota_venta ?? undefined, controla_stock: original.controla_stock, stock_minimo: original.stock_minimo && Number(original.stock_minimo) > 0 ? original.stock_minimo.replace(/\.?0+$/, '') : null, activo: original.activo };
         const cambios = Object.fromEntries(Object.entries({ ...base, activo: v.activo }).filter(([k, valor]) => antes[k] !== valor));
         if (Object.keys(cambios).length) { await enviar('PATCH', `/api/articulos/${original.id}`, cambios); avisar('Cambios guardados.'); }
         onGuardado(true);
@@ -126,7 +126,7 @@ function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: num
     } catch (e) { setErrorPrecio(e); }
   }
 
-  const visibles = ['codigo', 'nombre', 'tipo', 'tratamiento_iva_venta', 'alicuota_venta', 'lista_id', 'precio_neto', 'costo', 'controla_stock'];
+  const visibles = ['codigo', 'nombre', 'tipo', 'tratamiento_iva_venta', 'alicuota_venta', 'lista_id', 'precio_neto', 'costo', 'controla_stock', 'stock_minimo'];
   const general = resumenErrores(error, visibles), generalPrecio = resumenErrores(errorPrecio, ['lista_id', 'precio_neto', 'vigente_desde']);
   const camposPrecio = errorPrecio instanceof ErrorApi ? errorPrecio.campos : {};
   return (
@@ -146,6 +146,7 @@ function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: num
               </Selector>
               {v.tratamiento === 'gravado' && <Selector etiqueta="Alícuota" value={v.alicuota} disabled={bloqueado} error={campos.alicuota_venta} onChange={(e) => set('alicuota', e.target.value)}>{ALICUOTAS.map((a) => <option key={a} value={a}>{a.replace('.', ',')} %</option>)}</Selector>}
               <label className="btn"><input type="checkbox" checked={v.controla_stock} disabled={bloqueado} onChange={(e) => set('controla_stock', e.target.checked)} /> Controla stock</label>
+              {v.controla_stock && <Campo etiqueta="Stock mínimo" inputMode="decimal" value={v.stock_minimo} disabled={bloqueado} error={campos.stock_minimo} ayuda="Opcional: avisa en Stock cuando hay menos." onChange={(e) => set('stock_minimo', e.target.value)} />}
               {original && <label className="btn"><input type="checkbox" checked={v.activo} disabled={bloqueado} onChange={(e) => set('activo', e.target.checked)} /> Activo</label>}
               {!original && !bloqueado && (
                 <>

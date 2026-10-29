@@ -16,9 +16,10 @@ const CAMPOS = {
   tratamiento_iva_compra: { tipo: 'enum', valores: TRATAMIENTOS },
   alicuota_compra: { tipo: 'enum', valores: ALICUOTAS },
   controla_stock: { tipo: 'booleano' },
+  stock_minimo: { tipo: 'importe', min: 0, max: 999999999999, nulo: true },
 };
 const SELECT = `a.id, a.codigo, a.nombre, a.tipo, a.rubro_id, a.unidad_id, a.tratamiento_iva_venta, av.tasa * 100 as alicuota_venta_pct, a.alicuota_venta_codigo,
-  a.tratamiento_iva_compra, ac.tasa * 100 as alicuota_compra_pct, a.alicuota_compra_codigo, a.controla_stock, a.activo, a.creado_en`;
+  a.tratamiento_iva_compra, ac.tasa * 100 as alicuota_compra_pct, a.alicuota_compra_codigo, a.controla_stock, a.stock_minimo::text as stock_minimo, a.activo, a.creado_en`;
 const DESDE = `from articulo a left join arca_alicuota_iva av on av.codigo = a.alicuota_venta_codigo left join arca_alicuota_iva ac on ac.codigo = a.alicuota_compra_codigo`;
 const pct = (x) => (x == null ? null : String(Number(x)));
 const presentar = (f) => f && ({ ...f, alicuota_venta: pct(f.alicuota_venta_pct), alicuota_compra: pct(f.alicuota_compra_pct), alicuota_venta_pct: undefined, alicuota_compra_pct: undefined });
@@ -34,13 +35,6 @@ function tratamientos(d, previo = {}) {
     salida[`tratamiento_iva_${lado}`] = trat;
   }
   return { e, salida };
-}
-
-export async function listarListas(c) { return c.consultar('select id, nombre, orden from lista_precio order by orden, nombre'); }
-export async function crearLista(c, ctx, cuerpo) {
-  const { valor } = validar({ nombre: { tipo: 'texto', min: 2, max: 60, requerido: true }, orden: { tipo: 'entero', min: 1, max: 99 } }, cuerpo);
-  if (await c.uno('select 1 x from lista_precio where lower(nombre) = lower($1)', [valor.nombre])) throw new ErrorApi(409, 'duplicado', 'Ya existe una lista con ese nombre.');
-  return c.uno('insert into lista_precio (empresa_id, nombre, orden) values ($1,$2,$3) returning id, nombre, orden', [ctx.empresaId, valor.nombre, valor.orden ?? 1]);
 }
 
 export async function precioVigente(c, articuloId, listaId, fecha) {
@@ -69,9 +63,9 @@ export async function crearArticulo(c, ctx, cuerpo) {
   if (Object.keys(errores).length) throw invalido(errores);
   if (await c.uno('select 1 x from articulo where codigo = $1', [d.codigo])) throw new ErrorApi(409, 'duplicado', `Ya existe un artículo con el código ${d.codigo}.`);
   const tipo = d.tipo ?? 'bien';
-  const r = await c.uno(`insert into articulo (empresa_id, codigo, nombre, tipo, rubro_id, unidad_id, tratamiento_iva_venta, alicuota_venta_codigo, tratamiento_iva_compra, alicuota_compra_codigo, controla_stock)
-    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id`,
-    [ctx.empresaId, d.codigo, d.nombre, tipo, d.rubro_id ?? null, d.unidad_id ?? null, salida.tratamiento_iva_venta, salida.alicuota_venta_codigo, salida.tratamiento_iva_compra, salida.alicuota_compra_codigo, d.controla_stock ?? tipo === 'bien']);
+  const r = await c.uno(`insert into articulo (empresa_id, codigo, nombre, tipo, rubro_id, unidad_id, tratamiento_iva_venta, alicuota_venta_codigo, tratamiento_iva_compra, alicuota_compra_codigo, controla_stock, stock_minimo)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id`,
+    [ctx.empresaId, d.codigo, d.nombre, tipo, d.rubro_id ?? null, d.unidad_id ?? null, salida.tratamiento_iva_venta, salida.alicuota_venta_codigo, salida.tratamiento_iva_compra, salida.alicuota_compra_codigo, d.controla_stock ?? tipo === 'bien', d.stock_minimo ?? null]);
   if (d.precio_neto !== undefined) await c.consultar('insert into articulo_precio (empresa_id, articulo_id, lista_id, vigente_desde, precio_neto) values ($1,$2,$3,current_date,$4)', [ctx.empresaId, r.id, d.lista_id, d.precio_neto]);
   if (d.costo !== undefined) await c.consultar(`insert into articulo_costo (empresa_id, articulo_id, fecha, costo, origen) values ($1,$2,current_date,$3,'manual')`, [ctx.empresaId, r.id, d.costo]);
   return leerArticulo(c, r.id);
@@ -100,7 +94,7 @@ export async function modificarArticulo(c, ctx, id, cuerpo) {
   const claves = Object.keys(cambios);
   await c.consultar(`update articulo set ${claves.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1`, [id, ...claves.map((k) => cambios[k])]);
   const despues = await leerArticulo(c, id);
-  const nombres = ['nombre', 'rubro_id', 'unidad_id', 'tratamiento_iva_venta', 'alicuota_venta', 'tratamiento_iva_compra', 'alicuota_compra', 'controla_stock', 'activo'];
+  const nombres = ['nombre', 'rubro_id', 'unidad_id', 'tratamiento_iva_venta', 'alicuota_venta', 'tratamiento_iva_compra', 'alicuota_compra', 'controla_stock', 'stock_minimo', 'activo'];
   return { articulo: despues, cambios: nombres.filter((k) => String(antes[k] ?? '') !== String(despues[k] ?? '')).map((k) => [k, String(antes[k] ?? '—'), String(despues[k] ?? '—')]) };
 }
 

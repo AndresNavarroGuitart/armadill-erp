@@ -74,22 +74,24 @@ export function Terceros({ rol }: { rol: Rol }) {
   );
 }
 
-type Valores = { tipo_documento: TipoDocumento; nro_documento: string; razon_social: string; condicion_iva_codigo: string; email: string; telefono: string; condicion_pago_dias: string; limite_credito: string; activo: boolean };
-const vacio = (): Valores => ({ tipo_documento: 'CUIT', nro_documento: '', razon_social: '', condicion_iva_codigo: '1', email: '', telefono: '', condicion_pago_dias: '0', limite_credito: '', activo: true });
+type Valores = { tipo_documento: TipoDocumento; nro_documento: string; razon_social: string; condicion_iva_codigo: string; email: string; telefono: string; condicion_pago_dias: string; limite_credito: string; lista: string; activo: boolean };
+const vacio = (): Valores => ({ tipo_documento: 'CUIT', nro_documento: '', razon_social: '', condicion_iva_codigo: '1', email: '', telefono: '', condicion_pago_dias: '0', limite_credito: '', lista: '', activo: true });
 /** Lo que se envía a la API a partir de lo escrito: texto vacío → null, importes en decimal. */
 const datosComunes = (v: Valores, esCliente: boolean) => ({
   razon_social: v.razon_social.trim(), condicion_iva_codigo: Number(v.condicion_iva_codigo), email: v.email.trim() || null, telefono: v.telefono.trim() || null,
-  condicion_pago_dias: v.condicion_pago_dias === '' ? 0 : Number(v.condicion_pago_dias), ...(esCliente ? { limite_credito: aDecimal(v.limite_credito) || '0' } : {}),
+  condicion_pago_dias: v.condicion_pago_dias === '' ? 0 : Number(v.condicion_pago_dias), ...(esCliente ? { limite_credito: aDecimal(v.limite_credito) || '0', lista_precio_id: v.lista ? Number(v.lista) : null } : {}),
 });
 const sinCeros = (n: string) => (n.includes('.') ? n.replace(/\.?0+$/, '') : n);
 const desde = (t: Tercero): Valores => ({ tipo_documento: t.tipo_documento, nro_documento: t.nro_documento, razon_social: t.razon_social, condicion_iva_codigo: String(t.condicion_iva_codigo), email: t.email ?? '', telefono: t.telefono ?? '',
-  condicion_pago_dias: String(t.condicion_pago_dias), limite_credito: t.limite_credito && Number(t.limite_credito) > 0 ? sinCeros(t.limite_credito) : '', activo: t.activo });
+  condicion_pago_dias: String(t.condicion_pago_dias), limite_credito: t.limite_credito && Number(t.limite_credito) > 0 ? sinCeros(t.limite_credito) : '', lista: t.lista_precio_id ? String(t.lista_precio_id) : '', activo: t.activo });
 
 function Formulario({ rol, tercero, puedeEditar, onCerrar, onGuardado }: { rol: Rol; tercero: Tercero | null; puedeEditar: boolean; onCerrar: () => void; onGuardado: () => void }) {
   const avisar = useAviso();
   const [v, setV] = useState<Valores>(tercero ? desde(tercero) : vacio());
   const [error, setError] = useState<unknown>(null);
   const [guardando, setGuardando] = useState(false);
+  const [listas, setListas] = useState<{ id: number; nombre: string }[]>([]);
+  useEffect(() => { if (rol === 'cliente') obtener<{ datos: { id: number; nombre: string }[] }>('/api/listas-precio').then((r) => setListas(r.datos)).catch(() => setListas([])); }, [rol]);   // sin permiso para verlas, el campo simplemente no se ofrece
   const campos = error instanceof ErrorApi ? error.campos : {};
   const cambiar = useCallback(<K extends keyof Valores>(k: K, valor: Valores[K]) => setV((a) => ({ ...a, [k]: valor })), []);
   const bloqueado = !puedeEditar;
@@ -113,7 +115,7 @@ function Formulario({ rol, tercero, puedeEditar, onCerrar, onGuardado }: { rol: 
     } catch (e) { setError(e); } finally { setGuardando(false); }
   }
 
-  const visibles = ['tipo_documento', 'nro_documento', 'razon_social', 'condicion_iva_codigo', 'email', 'telefono', 'condicion_pago_dias', 'limite_credito'];
+  const visibles = ['tipo_documento', 'nro_documento', 'razon_social', 'condicion_iva_codigo', 'email', 'telefono', 'condicion_pago_dias', 'limite_credito', 'lista_precio_id'];
   const general = resumenErrores(error, visibles);
   return (
     <Modal titulo={tercero ? tercero.razon_social : `Nuevo ${NOMBRE[rol].uno}`} onCerrar={onCerrar}>
@@ -133,6 +135,7 @@ function Formulario({ rol, tercero, puedeEditar, onCerrar, onGuardado }: { rol: 
           <Campo etiqueta="Correo electrónico" type="email" value={v.email} disabled={bloqueado} error={campos.email} onChange={(e) => cambiar('email', e.target.value)} />
           <Campo etiqueta="Teléfono" value={v.telefono} disabled={bloqueado} error={campos.telefono} onChange={(e) => cambiar('telefono', e.target.value)} />
           <Campo etiqueta="Plazo de pago (días)" type="number" min={0} max={365} value={v.condicion_pago_dias} disabled={bloqueado} error={campos.condicion_pago_dias} onChange={(e) => cambiar('condicion_pago_dias', e.target.value)} />
+          {esCliente && listas.length > 0 && <Selector etiqueta="Lista de precios" value={v.lista} disabled={bloqueado} error={campos.lista_precio_id} onChange={(e) => cambiar('lista', e.target.value)}><option value="">La general (la de menor orden)</option>{listas.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}</Selector>}
           {esCliente && <Campo etiqueta="Límite de crédito" inputMode="decimal" value={v.limite_credito} disabled={bloqueado} error={campos.limite_credito} ayuda="Vacío o 0 = sin límite. Solo avisa, no bloquea." onChange={(e) => cambiar('limite_credito', e.target.value)} />}
           {tercero && <label className="btn"><input type="checkbox" checked={v.activo} disabled={bloqueado} onChange={(e) => cambiar('activo', e.target.checked)} /> Activo (si lo desmarcás, no aparece al facturar)</label>}
         </div>

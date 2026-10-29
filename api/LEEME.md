@@ -30,7 +30,11 @@ Roles base (`fn_roles_base`): Administrador, Contador, Auxiliar, Consulta.
 | `GET/POST /api/clientes`, `GET/PATCH /api/clientes/:id` | `clientes.ver` / `clientes.editar` | `q`, `activo`, `limite`, `desplazamiento`; trae el saldo |
 | `GET/POST /api/proveedores`, `GET/PATCH /api/proveedores/:id` | `proveedores.ver` / `.editar` | igual; dar de alta como proveedor a un cliente existente le suma el rol |
 | `GET/POST /api/articulos`, `GET/PATCH /api/articulos/:id`, `PUT /api/articulos/:id/precios` | `articulos.ver` / `.editar` | precio vigente por lista y fecha (`lista_id`, `fecha`) |
-| `GET/POST /api/listas-precio` | `articulos.ver` / `.editar` | listas de precios |
+| `GET/POST /api/listas-precio`, `PATCH/DELETE /api/listas-precio/:id` | `articulos.ver` / `listas.editar` | listas con el conteo de artículos y clientes que las usan; solo se borra una sin uso, y queda siempre al menos una |
+| `POST /api/listas-precio/:id/ajuste` | `listas.editar` | ajuste de precios en bloque por porcentaje, con `simular: true` para ver antes de aplicar |
+| `GET/POST /api/depositos`, `PATCH /api/depositos/:id`, `GET /api/ventas/depositos` | `stock.ver` / `stock.ajustar` (y `ventas.emitir` para elegir el depósito al facturar) | depósitos |
+| `GET /api/stock`, `GET /api/stock/movimientos` | `stock.ver` | existencias por depósito (con aviso de mínimo) y libro de movimientos con filtros |
+| `POST /api/stock/ajustes`, `POST /api/stock/transferencias` | `stock.ajustar` | ingreso, egreso o conteo físico con motivo obligatorio; transferencia entre depósitos en un solo paso |
 | `POST /api/ventas/facturas/calcular` | `ventas.emitir` | cálculo previo; no guarda nada |
 | `POST /api/ventas/facturas` | `ventas.emitir` | emite la factura; `Idempotency-Key` opcional |
 | `GET /api/comprobantes`, `GET /api/comprobantes/:id` | `ventas.ver` | filtros `estado`, `tercero_id`, `desde`, `hasta` |
@@ -42,6 +46,8 @@ Roles base (`fn_roles_base`): Administrador, Contador, Auxiliar, Consulta.
 
 ## Reglas que conviene recordar
 
+- **Stock**: el libro es de solo agregar; un error se corrige con el movimiento contrario. El conteo físico recibe lo CONTADO y registra la diferencia contra el saldo. El saldo negativo se impide con un mensaje con nombres y cantidades (salvo que la empresa lo permita). Con más de un depósito, la factura exige decir de cuál sale cada bien. Todo queda en la trazabilidad (categoría `stock`).
+- **Ajuste de precios**: nuevo = precio de la lista base vigente a la fecha × (1 + porcentaje / 100), redondeado al centavo, al peso o a la decena, con aritmética exacta. Rige desde la fecha elegida (no pisa el historial ni lo ya facturado), avisa los que quedan bajo el último costo y se puede simular antes de aplicar. Máximo 5000 artículos por vez.
 - **Administración del estudio** (`/api/estudio/*`): la habilita la marca `usuario.admin_estudio`, no un rol; no necesita empresa activa. Nadie se da de baja a sí misma, el estudio nunca se queda sin administrador activo (lo impone la base), el email de quien ya ingresó no se cambia, y dar de baja a una persona le corta el acceso **en el acto** (cada pedido se vuelve a verificar contra la base). Todo cambio queda en la trazabilidad (categoría `seguridad` o `maestros`) con el antes y el después.
 - **Invitaciones**: `POST /api/estudio/personas/:id/invitacion`. No corre dentro de una transacción de la base (hay una llamada de red): comprueba, invita y recién después deja constancia (`Invitó a …`, o `Intentó invitar a …` con resultado `fallo`). Solo a personas activas que todavía no ingresaron; **tope de 3 por persona por hora y 50 por estudio por día**, contados en la trazabilidad (valen aunque haya varias copias del servidor). Si el email ya tiene cuenta, responde `ya_tiene_cuenta` en vez de fallar. Los errores del proveedor se traducen: la respuesta de Supabase no se reenvía y el registro interno guarda solo el estado.
 - **Alta de un estudio nuevo**: no la hace la aplicación sino quien opera la plataforma: `DATABASE_URL=… npm run estudio:alta -- --nombre … --admin-email … --admin-nombre … --aplicar` (sin `--aplicar` solo verifica los datos).
@@ -63,7 +69,7 @@ Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por soc
 | Pieza | Qué hace |
 |---|---|
 | `modelo/migrar_pg.mjs` | Aplica el modelo a la base, un archivo por transacción, con constancia y huella en `schema_migracion`. Repetible; frena si un archivo ya aplicado fue modificado. Sin `--aplicar` solo muestra qué falta |
-| `modelo/21_endurecimiento_supabase.sql` | Cierra el acceso de `anon` y `authenticated` (la API REST de Supabase no se usa) |
+| `modelo/22_endurecimiento_supabase.sql` | Cierra el acceso de `anon` y `authenticated` (la API REST de Supabase no se usa) |
 | `api/bd_pg.mjs` | Pool de `pg`; cada pedido es una transacción con límites de tiempo, contexto local y `SET LOCAL ROLE app_usuario` (seguro detrás del pooler en modo transacción) |
 | `api/jwt.mjs` | Verifica ES256/RS256 con las claves públicas del proyecto (JWKS, con caché y sin recargas por `kid` inventadas) y, si se configura, HS256 |
 | `api/servidor.mjs` + `api/configuracion.mjs` | Servidor de producción; no arranca si falta algo y lista todos los problemas juntos |
@@ -85,7 +91,7 @@ Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por soc
 ### Orden para la primera vez
 
 1. **Supabase → Authentication:** desactivar el alta libre ("Allow new users to sign up"), exigir confirmación de email, fijar la lista de URLs de retorno (la del front) y usar claves de firma asimétricas (JWT Signing Keys). Subir el largo mínimo de contraseña a 12 y activar la protección de contraseñas filtradas.
-2. **Supabase → API:** quitar `public` de los esquemas expuestos o desactivar la Data API (el sistema no la usa; `21_endurecimiento_supabase.sql` es la segunda barrera, no la única).
+2. **Supabase → API:** quitar `public` de los esquemas expuestos o desactivar la Data API (el sistema no la usa; `22_endurecimiento_supabase.sql` es la segunda barrera, no la única).
 3. `DATABASE_URL=… npm run db:migrar` (muestra qué falta) y luego `DATABASE_URL=… npm run db:migrar -- --aplicar`. Usar la conexión **directa** (puerto 5432) para migrar.
 4. Dar de alta el estudio con `npm run estudio:alta` (crea el estudio, sus cuatro roles y la primera persona administradora). Esa persona se **invita** en Supabase (Authentication → Users → Invite) con el mismo email; al ingresar por primera vez queda vinculada y desde la pantalla **Estudio** da de alta sus empresas y personas. Cada persona nueva también necesita su cuenta en Supabase con el mismo email (con `SUPABASE_SERVICE_KEY` configurada la invitación se envía desde la pantalla de personas; sin ella, se invita desde el panel de Supabase).
 5. Supabase → Authentication → URL Configuration: agregar `URL_APP` a las URLs permitidas y revisar la plantilla del correo de invitación (la dirección del enlace tiene que llevar a la aplicación). La clave de servicio se copia de Project Settings → API Keys ("secret") y va **solo** en el entorno del servidor.

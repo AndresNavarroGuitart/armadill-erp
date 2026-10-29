@@ -80,3 +80,32 @@ export function useRetraso<T>(valor: T, ms = 250): T {
   useEffect(() => { const t = setTimeout(() => setV(valor), ms); return () => clearTimeout(t); }, [valor, ms]);
   return v;
 }
+
+/** Campo de búsqueda con lista de resultados (flechas, Enter y Escape). */
+export function Buscador<T extends { id: number }>({ etiqueta, texto, onTexto, buscar, mostrar, onElegir, error, placeholder, autoFocus }: {
+  etiqueta: string; texto: string; onTexto: (t: string) => void; buscar: (q: string) => Promise<T[]>; mostrar: (t: T) => ReactNode; onElegir: (t: T) => void; error?: string; placeholder?: string; autoFocus?: boolean;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [res, setRes] = useState<T[]>([]);
+  const [cursor, setCursor] = useState(0);
+  const q = useRetraso(texto, 200);
+  const buscarRef = useRef(buscar); buscarRef.current = buscar;
+  useEffect(() => { if (!abierto) return; let vivo = true; buscarRef.current(q.trim()).then((r) => { if (vivo) { setRes(r); setCursor(0); } }).catch(() => { if (vivo) setRes([]); }); return () => { vivo = false; }; }, [q, abierto]);
+  const elegir = (t: T) => { onElegir(t); setAbierto(false); };
+  return (
+    <div className="sugerencias" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setAbierto(false); }}>
+      <Campo etiqueta={etiqueta} value={texto} error={error} placeholder={placeholder} autoFocus={autoFocus} autoComplete="off" role="combobox" aria-expanded={abierto} aria-autocomplete="list"
+        onChange={(e) => { onTexto(e.target.value); setAbierto(true); }} onFocus={() => setAbierto(true)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setAbierto(true); setCursor((c) => Math.min(c + 1, res.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
+          else if (e.key === 'Enter' && abierto && res[cursor]) { e.preventDefault(); elegir(res[cursor]); }
+          else if (e.key === 'Escape') setAbierto(false);
+        }} />
+      {abierto && res.length > 0 && (
+        <ul role="listbox">{res.map((t, i) => <li key={t.id}><button type="button" role="option" aria-selected={i === cursor} onMouseDown={(e) => e.preventDefault()} onClick={() => elegir(t)}>{mostrar(t)}</button></li>)}</ul>
+      )}
+    </div>
+  );
+}
+

@@ -4,7 +4,9 @@
 //   Lo que cambia algo deja su rastro en la trazabilidad dentro de la misma transacción.
 import { traducir, ErrorApi, noEncontrado, invalido } from './errores.mjs';
 import { crearTercero, listarTerceros, obtenerTercero, modificarTercero } from './terceros.mjs';
-import { crearArticulo, listarArticulos, leerArticulo, modificarArticulo, fijarPrecio, listarListas, crearLista } from './articulos.mjs';
+import { crearArticulo, listarArticulos, leerArticulo, modificarArticulo, fijarPrecio } from './articulos.mjs';
+import { listarListas, crearLista, modificarLista, eliminarLista, ajustarPrecios } from './listas.mjs';
+import { listarDepositos, crearDeposito, modificarDeposito, listarExistencias, listarMovimientos, ajustarStock, transferirStock } from './stock.mjs';
 import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } from './ventas.mjs';
 import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
@@ -70,10 +72,51 @@ const RUTAS = [
     return { precios: r.precios };
   }],
   ['GET', '/api/listas-precio', 'articulos.ver', async ({ c }) => ({ datos: await listarListas(c) })],
-  ['POST', '/api/listas-precio', 'articulos.editar', async ({ c, ctx, cuerpo, origen }) => {
+  ['POST', '/api/listas-precio', 'listas.editar', async ({ c, ctx, cuerpo, origen }) => {
     const l = await crearLista(c, ctx, cuerpo);
     await registrarEvento(c, ctx, { categoria: 'maestros', accion: `Creó la lista de precios ${l.nombre}`, entidad: 'lista_precio', entidadId: l.id, origen });
     return { estado: 201, cuerpo: l };
+  }],
+  ['PATCH', '/api/listas-precio/:id', 'listas.editar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarLista(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'maestros', accion: `Modificó la lista de precios ${r.lista.nombre}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'lista_precio', entidadId: p.id, cambios: r.cambios, origen });
+    return r.lista;
+  }],
+  ['DELETE', '/api/listas-precio/:id', 'listas.editar', async ({ c, ctx, p, origen }) => {
+    const l = await eliminarLista(c, p.id);
+    await registrarEvento(c, ctx, { categoria: 'maestros', accion: `Borró la lista de precios ${l.nombre}`, entidad: 'lista_precio', entidadId: p.id, origen });
+    return { estado: 200, cuerpo: { borrada: true, nombre: l.nombre } };
+  }],
+  ['POST', '/api/listas-precio/:id/ajuste', 'listas.editar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await ajustarPrecios(c, ctx, p.id, cuerpo);
+    if (r.aplicado) await registrarEvento(c, ctx, { categoria: 'maestros', accion: `Ajustó los precios de la lista ${r.lista}`, detalle: `${r.porcentaje} % desde ${r.vigente_desde} · ${r.cambian} artículos${r.bajo_costo ? ` · ${r.bajo_costo} quedaron bajo el costo` : ''}`, entidad: 'lista_precio', entidadId: p.id, origen });
+    return r;
+  }],
+  // --- Stock ---
+  ['GET', '/api/depositos', 'stock.ver', ({ c }) => listarDepositos(c)],
+  ['GET', '/api/ventas/depositos', 'ventas.emitir', ({ c }) => listarDepositos(c)],        // para elegir de dónde sale la mercadería al facturar
+  ['POST', '/api/depositos', 'stock.ajustar', async ({ c, ctx, cuerpo, origen }) => {
+    const d = await crearDeposito(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Creó el depósito ${d.nombre}`, entidad: 'deposito', entidadId: d.id, origen });
+    return { estado: 201, cuerpo: d };
+  }],
+  ['PATCH', '/api/depositos/:id', 'stock.ajustar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarDeposito(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'stock', accion: r.cambios.some((x) => x[0] === 'activo') ? `${r.deposito.activo ? 'Reactivó' : 'Dio de baja'} el depósito ${r.deposito.nombre}` : `Modificó el depósito ${r.deposito.nombre}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'deposito', entidadId: p.id, cambios: r.cambios, origen });
+    return r.deposito;
+  }],
+  ['GET', '/api/stock', 'stock.ver', ({ c, q }) => listarExistencias(c, q)],
+  ['GET', '/api/stock/movimientos', 'stock.ver', ({ c, q }) => listarMovimientos(c, q)],
+  ['POST', '/api/stock/ajustes', 'stock.ajustar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await ajustarStock(c, ctx, cuerpo);
+    const signo = Number(r.cantidad) > 0 ? '+' : '';
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Ajustó el stock de ${r.articulo.nombre}`, detalle: `${r.deposito}: ${signo}${r.cantidad} (${r.tipo === 'conteo' ? 'conteo' : r.tipo}) · ${r.saldo_antes} → ${r.saldo_despues}`, entidad: 'articulo', entidadId: r.articulo.id, origen });
+    return { estado: 201, cuerpo: r };
+  }],
+  ['POST', '/api/stock/transferencias', 'stock.ajustar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await transferirStock(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Transfirió stock de ${r.articulo.nombre}`, detalle: `${r.cantidad} de ${r.origen} a ${r.destino}`, entidad: 'articulo', entidadId: r.articulo.id, origen });
+    return { estado: 201, cuerpo: r };
   }],
   ['POST', '/api/ventas/facturas/calcular', 'ventas.emitir', ({ c, ctx, cuerpo }) => calcularFactura(c, ctx, cuerpo)],
   ['POST', '/api/ventas/facturas', 'ventas.emitir', async ({ c, ctx, cuerpo, req }) => {
@@ -160,7 +203,7 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
       const url = new URL(req.url, 'http://local'), ruta = url.pathname;
       if (req.method === 'OPTIONS') {
         if (!permitido) return responder(403, { error: { codigo: 'origen', mensaje: 'Origen no permitido.' } });
-        res.writeHead(204, { ...base, 'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Empresa-Id, Idempotency-Key', 'Access-Control-Max-Age': '600' }); return res.end();
+        res.writeHead(204, { ...base, 'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Empresa-Id, Idempotency-Key', 'Access-Control-Max-Age': '600' }); return res.end();
       }
       if (ruta === '/api/salud' && req.method === 'GET') return responder(200, { ok: true });
       if (origen && !permitido) return responder(403, { error: { codigo: 'origen', mensaje: 'Origen no permitido.' } });

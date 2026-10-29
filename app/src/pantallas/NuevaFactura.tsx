@@ -1,47 +1,20 @@
 // Nueva factura de venta. El front NO calcula importes: manda los renglones y muestra lo que devuelve el servidor
 // (vista previa en vivo con /calcular; al emitir, el servidor vuelve a calcular y verifica). La letra A/B/C también la decide el servidor.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { enviar, ErrorApi, nuevaClave, obtener } from '../api';
 import { aDecimal, cantidad as fmtCantidad, fecha, hoyISO, moneda, nombreCondicion } from '../formato';
-import type { Articulo, Comprobante, Lista, Pagina, PedidoFactura, PreviaFactura, Tercero } from '../tipos';
-import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useRetraso } from '../ui';
+import type { Articulo, Comprobante, Deposito, Lista, Pagina, PedidoFactura, PreviaFactura, Tercero } from '../tipos';
+import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useRetraso } from '../ui';
 
-type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string };
+type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; deposito: string };
 let contador = 0;
-const nuevaLinea = (): Linea => ({ uid: ++contador, articulo: null, texto: '', cantidad: '1', precio: '', desc: '' });
-
-/** Campo de búsqueda con lista de resultados (flechas, Enter y Escape). */
-function Buscador<T extends { id: number }>({ etiqueta, texto, onTexto, buscar, mostrar, onElegir, error, placeholder, autoFocus }: {
-  etiqueta: string; texto: string; onTexto: (t: string) => void; buscar: (q: string) => Promise<T[]>; mostrar: (t: T) => ReactNode; onElegir: (t: T) => void; error?: string; placeholder?: string; autoFocus?: boolean;
-}) {
-  const [abierto, setAbierto] = useState(false);
-  const [res, setRes] = useState<T[]>([]);
-  const [cursor, setCursor] = useState(0);
-  const q = useRetraso(texto, 200);
-  const buscarRef = useRef(buscar); buscarRef.current = buscar;
-  useEffect(() => { if (!abierto) return; let vivo = true; buscarRef.current(q.trim()).then((r) => { if (vivo) { setRes(r); setCursor(0); } }).catch(() => { if (vivo) setRes([]); }); return () => { vivo = false; }; }, [q, abierto]);
-  const elegir = (t: T) => { onElegir(t); setAbierto(false); };
-  return (
-    <div className="sugerencias" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setAbierto(false); }}>
-      <Campo etiqueta={etiqueta} value={texto} error={error} placeholder={placeholder} autoFocus={autoFocus} autoComplete="off" role="combobox" aria-expanded={abierto} aria-autocomplete="list"
-        onChange={(e) => { onTexto(e.target.value); setAbierto(true); }} onFocus={() => setAbierto(true)}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown') { e.preventDefault(); setAbierto(true); setCursor((c) => Math.min(c + 1, res.length - 1)); }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
-          else if (e.key === 'Enter' && abierto && res[cursor]) { e.preventDefault(); elegir(res[cursor]); }
-          else if (e.key === 'Escape') setAbierto(false);
-        }} />
-      {abierto && res.length > 0 && (
-        <ul role="listbox">{res.map((t, i) => <li key={t.id}><button type="button" role="option" aria-selected={i === cursor} onMouseDown={(e) => e.preventDefault()} onClick={() => elegir(t)}>{mostrar(t)}</button></li>)}</ul>
-      )}
-    </div>
-  );
-}
+const nuevaLinea = (): Linea => ({ uid: ++contador, articulo: null, texto: '', cantidad: '1', precio: '', desc: '', deposito: '' });
 
 export function NuevaFactura() {
   const [clienteTexto, setClienteTexto] = useState('');
   const [cliente, setCliente] = useState<Tercero | null>(null);
   const [listas, setListas] = useState<Lista[]>([]);
+  const [depositos, setDepositos] = useState<Deposito[]>([]);
   const [lineas, setLineas] = useState<Linea[]>([nuevaLinea()]);
   const [fechaEmision, setFechaEmision] = useState(hoyISO());
   const [concepto, setConcepto] = useState('1');
@@ -57,20 +30,22 @@ export function NuevaFactura() {
   const intento = useRef<{ huella: string; clave: string } | null>(null);
 
   useEffect(() => { obtener<{ datos: Lista[] }>('/api/listas-precio').then((r) => setListas(r.datos)).catch(() => setListas([])); }, []);
+  useEffect(() => { obtener<{ datos: Deposito[] }>('/api/ventas/depositos').then((r) => setDepositos(r.datos.filter((d) => d.activo))).catch(() => setDepositos([])); }, []);
+  const variosDepositos = depositos.length > 1;   // con uno solo, el servidor lo elige; con varios hay que decir de cuál sale cada bien
   const listaId = cliente?.lista_precio_id ?? listas[0]?.id;
 
   /* Lo que se manda a la API: solo lo que la persona escribió. Sin precio escrito, el servidor usa el de la lista. */
   const pedido: PedidoFactura | null = useMemo(() => {
     if (!cliente) return null;
     const items = lineas.filter((l) => l.articulo && l.cantidad.trim()).map((l) => ({
-      articulo_id: l.articulo!.id, cantidad: aDecimal(l.cantidad), ...(l.precio.trim() ? { precio_unitario: aDecimal(l.precio) } : {}), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
+      articulo_id: l.articulo!.id, cantidad: aDecimal(l.cantidad), ...(variosDepositos && l.articulo!.controla_stock ? { deposito_id: Number(l.deposito || depositos[0].id) } : {}), ...(l.precio.trim() ? { precio_unitario: aDecimal(l.precio) } : {}), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
     }));
     if (items.length === 0) return null;
     return {
       tercero_id: cliente.id, fecha: fechaEmision || undefined, concepto: Number(concepto), ...(concepto !== '1' ? { fecha_servicio_desde: servicio.desde, fecha_servicio_hasta: servicio.hasta, fecha_vto_pago: servicio.vto } : {}),
       ...(descPie.trim() ? { desc_pie_pct: aDecimal(descPie) } : {}), ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}), items,
     };
-  }, [cliente, lineas, fechaEmision, concepto, servicio, descPie, observaciones]);
+  }, [cliente, lineas, fechaEmision, concepto, servicio, descPie, observaciones, variosDepositos, depositos]);
   const huella = JSON.stringify(pedido);
   const huellaRetrasada = useRetraso(huella, 350);
 
@@ -101,7 +76,7 @@ export function NuevaFactura() {
     setEmitida(null); setCliente(null); setClienteTexto(''); setLineas([nuevaLinea()]); setPrevia(null); setErrorPrevia(null); setError(null); setDescPie(''); setObservaciones(''); setFechaEmision(hoyISO()); setConcepto('1'); intento.current = null;
   }
 
-  const visibles = ['tercero_id', 'fecha', 'fecha_servicio_desde', 'fecha_servicio_hasta', 'fecha_vto_pago', 'desc_pie_pct', 'observaciones', ...lineas.flatMap((_, i) => ['articulo_id', 'cantidad', 'precio_unitario', 'desc_pct'].map((c) => `items[${i}].${c}`))];
+  const visibles = ['tercero_id', 'fecha', 'fecha_servicio_desde', 'fecha_servicio_hasta', 'fecha_vto_pago', 'desc_pie_pct', 'observaciones', ...lineas.flatMap((_, i) => ['articulo_id', 'cantidad', 'precio_unitario', 'desc_pct', 'deposito_id'].map((c) => `items[${i}].${c}`))];
   const general = resumenErrores(error, visibles);
   const indiceDeLinea = (uid: number) => lineas.filter((l) => l.articulo && l.cantidad.trim()).findIndex((l) => l.uid === uid);   // la API numera solo los renglones completos
   const errLinea = (uid: number, c: string) => { const i = indiceDeLinea(uid); return i >= 0 ? campos[`items[${i}].${c}`] : undefined; };
@@ -134,7 +109,7 @@ export function NuevaFactura() {
           <div className="tarjeta">
             <h2 style={{ marginBottom: 6 }}>Renglones</h2>
             {lineas.map((l, i) => (
-              <div className="renglon" key={l.uid}>
+              <div className={`renglon${variosDepositos ? ' con-deposito' : ''}`} key={l.uid}>
                 <Buscador<Articulo> etiqueta={i === 0 ? 'Artículo' : `Artículo ${i + 1}`} texto={l.texto} error={errLinea(l.uid, 'articulo_id')}
                   placeholder="Código o nombre" onTexto={(t) => cambiarLinea(l.uid, { articulo: null, texto: t })}
                   buscar={(q) => obtener<Pagina<Articulo>>('/api/articulos', { q: q || undefined, activo: 'true', lista_id: listaId, limite: 8 }).then((r) => r.datos.filter((a) => a.tipo !== 'gasto'))}
@@ -142,6 +117,7 @@ export function NuevaFactura() {
                   onElegir={(a) => cambiarLinea(l.uid, { articulo: a, texto: `${a.codigo} · ${a.nombre}` })} />
                 <Campo etiqueta="Cantidad" inputMode="decimal" value={l.cantidad} error={errLinea(l.uid, 'cantidad')} onChange={(e) => cambiarLinea(l.uid, { cantidad: e.target.value })} />
                 <Campo etiqueta="Precio neto" inputMode="decimal" value={l.precio} placeholder={l.articulo?.precio_neto ? fmtCantidad(l.articulo.precio_neto) : 'de la lista'} error={errLinea(l.uid, 'precio_unitario')} onChange={(e) => cambiarLinea(l.uid, { precio: e.target.value })} />
+                {variosDepositos && <Selector etiqueta="Sale de" value={l.articulo?.controla_stock ? (l.deposito || String(depositos[0].id)) : ''} disabled={!l.articulo?.controla_stock} error={errLinea(l.uid, 'deposito_id')} onChange={(e) => cambiarLinea(l.uid, { deposito: e.target.value })}>{l.articulo?.controla_stock ? depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>) : <option value="">—</option>}</Selector>}
                 <Campo etiqueta="Desc. %" inputMode="decimal" value={l.desc} error={errLinea(l.uid, 'desc_pct')} onChange={(e) => cambiarLinea(l.uid, { desc: e.target.value })} />
                 <button type="button" className="icono" style={{ marginTop: 22 }} aria-label={`Quitar renglón ${i + 1}`} disabled={lineas.length === 1} onClick={() => setLineas((ls) => ls.filter((x) => x.uid !== l.uid))}>×</button>
               </div>

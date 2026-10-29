@@ -123,3 +123,6 @@ tbody tr.clic { cursor: pointer; } tbody tr.clic:hover { background: var(--surfa
 .grupo-permisos legend { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 6px; }
 .grupo-permisos label { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-size: 13.5px; }
 @media (max-width: 900px) { .fila-acceso { grid-template-columns: 1fr 1fr; } .fila-acceso > :first-child { grid-column: 1 / -1; } }
+
+.renglon.con-deposito { grid-template-columns: minmax(170px, 3fr) minmax(64px, .9fr) minmax(86px, 1.3fr) minmax(110px, 1.4fr) minmax(56px, .8fr) auto; }
+@media (max-width: 900px) { .renglon.con-deposito { grid-template-columns: 1fr 1fr; } }
