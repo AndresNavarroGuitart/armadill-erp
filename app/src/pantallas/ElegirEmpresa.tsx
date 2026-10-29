@@ -23,7 +23,7 @@ export function ElegirEmpresa() {
             </button>
           ))}
         </div>
-        <div className="pie-form"><button className="btn" onClick={() => void salir()}>Salir</button></div>
+        <div className="pie-form">{yo.admin_estudio && <a className="btn" href="#/estudio">Administrar el estudio</a>}<button className="btn" onClick={() => void salir()}>Salir</button></div>
       </div>
     </div>
   );

@@ -113,3 +113,13 @@ tbody tr.clic { cursor: pointer; } tbody tr.clic:hover { background: var(--surfa
   .vista { padding: 16px 14px 90px; } .topbar { padding: 10px 14px; } .factura { grid-template-columns: 1fr; } .previa { position: static; }
   .renglon { grid-template-columns: 1fr 1fr; } .renglon > :first-child { grid-column: 1 / -1; }
 }
+
+/* ---- administración del estudio ---- */
+.pestanas { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.pestana { background: none; border: 0; padding: 10px 14px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--ink-2); font-weight: 500; margin-bottom: -1px; }
+.pestana:hover { color: var(--ink); } .pestana[aria-selected="true"] { color: var(--brand-ink); border-bottom-color: var(--brand); }
+.fila-acceso { display: grid; grid-template-columns: 1.6fr 1fr auto; gap: 8px; align-items: start; margin-bottom: 8px; }
+.grupo-permisos { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0; min-width: 0; }
+.grupo-permisos legend { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 0 6px; }
+.grupo-permisos label { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-size: 13.5px; }
+@media (max-width: 900px) { .fila-acceso { grid-template-columns: 1fr 1fr; } .fila-acceso > :first-child { grid-column: 1 / -1; } }

@@ -12,6 +12,7 @@ React + TypeScript + Vite sobre la API de `../api` (ver [api/LEEME.md](../api/LE
 | Comprobantes | Listado con filtros por fecha y estado, y detalle con renglones, IVA y asiento |
 | Clientes y proveedores | Alta, edición con cambios mínimos, baja lógica, búsqueda, saldo del cliente; errores del servidor campo por campo |
 | Artículos | Alta con precio y costo iniciales, IVA, precios por lista con fecha de vigencia |
+| Estudio (solo administradores del estudio) | Personas (alta, baja, marca de administrador y accesos por empresa con su rol), empresas (alta lista para facturar, edición, baja, abrir), roles y permisos, y datos del estudio. Funciona sin empresa activa: quien administra un estudio recién creado entra directo acá |
 
 El menú y los botones siguen los permisos del rol en la empresa activa (Consulta no ve “Facturar” ni “Nuevo cliente”); la API vuelve a controlar todo, el front solo evita ofrecer lo que no se puede hacer.
 
@@ -45,6 +46,7 @@ npm run build       # tipos + build de producción en dist/
 
 - Probar el ingreso contra un proyecto real de Supabase y desplegar (ver [api/LEEME.md](../api/LEEME.md#puesta-en-producción-supabase)). La configuración va en `app/.env.local` (modelo en `.env.example`): solo la URL y la clave *publishable*, que son públicas por diseño.
 - MFA y pantalla de administración de personas y empresas.
+- Enviar las invitaciones de Supabase desde la pantalla de personas (hoy se invita desde el panel de Supabase), trazabilidad en pantalla y asignación de empresas por lote.
 - Gestión de listas de precios y de stock desde la pantalla (hoy un bien con stock necesita movimientos que todavía no tienen pantalla; para facturar servicios o bienes sin control de stock ya alcanza).
 - Anular y notas de crédito, compras, cobros y pagos, asistente con Claude y emisión electrónica con CAE.
 - Pruebas automáticas de pantallas (hoy la verificación fue manual contra la API real; no se pudieron tomar capturas por estar la vista previa en segundo plano).

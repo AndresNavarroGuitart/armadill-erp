@@ -8,6 +8,7 @@ import { Terceros } from './pantallas/Terceros';
 import { Articulos } from './pantallas/Articulos';
 import { NuevaFactura } from './pantallas/NuevaFactura';
 import { Comprobantes } from './pantallas/Comprobantes';
+import { Estudio } from './pantallas/Estudio';
 import { cuitConGuiones, nombreCondicion } from './formato';
 
 type Ruta = { clave: string; titulo: string; permiso: string; icono: string; pantalla: () => ReactElement };
@@ -18,6 +19,8 @@ const RUTAS: Ruta[] = [
   { clave: 'proveedores', titulo: 'Proveedores', permiso: 'proveedores.ver', icono: 'M3 7l9-4 9 4v10l-9 4-9-4z M3 7l9 4 9-4 M12 11v10', pantalla: () => <Terceros rol="proveedor" /> },
   { clave: 'articulos', titulo: 'Artículos', permiso: 'articulos.ver', icono: 'M21 8l-9-5-9 5v8l9 5 9-5z M3 8l9 5 9-5', pantalla: () => <Articulos /> },
 ];
+/** Administración del estudio: no depende de una empresa ni de un permiso de rol; la habilita la marca de administrador del estudio. */
+const RUTA_ESTUDIO: Ruta = { clave: 'estudio', titulo: 'Estudio', permiso: '@estudio', icono: 'M3 21h18 M5 21V7l7-4 7 4v14 M9 21v-6h6v6 M9 10h.01 M15 10h.01', pantalla: () => <Estudio /> };
 const rutaActual = () => location.hash.replace(/^#\/?/, '').split('/')[0];
 
 export function App() {
@@ -31,12 +34,14 @@ export function App() {
   if (estado === 'cargando') return <div className="ingreso"><Cargando texto="Entrando…" /></div>;
   if (estado === 'sin_sesion' || !yo) return <Ingreso mensaje={error} />;
   const activa = yo.empresa_activa;
-  if (!activa) return <ElegirEmpresa />;
+  // Una persona que administra el estudio puede trabajar sin empresa activa (por ejemplo, para dar de alta la primera).
+  const enEstudio = yo.admin_estudio && (clave === 'estudio' || (!activa && yo.empresas.length === 0));
+  if (!activa && !enEstudio) return <ElegirEmpresa />;
 
-  const disponibles = RUTAS.filter((r) => puede(r.permiso));
+  const disponibles = [...(activa ? RUTAS.filter((r) => puede(r.permiso)) : []), ...(yo.admin_estudio ? [RUTA_ESTUDIO] : [])];
   const actual = disponibles.find((r) => r.clave === clave) ?? disponibles[0];
   const iniciales = yo.usuario.nombre.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
-  document.title = `${actual ? actual.titulo + ' · ' : ''}${activa.razon_social} · administraNET`;
+  document.title = [actual?.titulo, activa?.razon_social, 'administraNET'].filter(Boolean).join(' · ');
 
   return (
     <div className="app">
@@ -50,14 +55,17 @@ export function App() {
       </nav>
       <div className="main">
         <header className="topbar">
-          <div className="empresa"><strong>{activa.razon_social}</strong><span>CUIT {cuitConGuiones(activa.cuit)} · {nombreCondicion(activa.condicion_iva_codigo)} · {activa.rol}</span></div>
-          {yo.empresas.length > 1 && <button className="btn chico" onClick={() => elegirEmpresa(null)}>Cambiar de empresa</button>}
+          {activa
+            ? <div className="empresa"><strong>{activa.razon_social}</strong><span>CUIT {cuitConGuiones(activa.cuit)} · {nombreCondicion(activa.condicion_iva_codigo)} · {activa.rol}</span></div>
+            : <div className="empresa"><strong>Administración del estudio</strong><span>Sin empresa activa</span></div>}
+          {activa && yo.empresas.length > 1 && <button className="btn chico" onClick={() => elegirEmpresa(null)}>Cambiar de empresa</button>}
+          {!activa && yo.empresas.length > 0 && <button className="btn chico" onClick={() => { location.hash = ''; }}>Trabajar en una empresa</button>}
           <div className="sp" />
           <button className="icono" onClick={() => setTema(tema === 'dark' ? 'light' : 'dark')} aria-label={tema === 'dark' ? 'Usar tema claro' : 'Usar tema oscuro'}>{tema === 'dark' ? '☀' : '☾'}</button>
           <button className="btn chico" onClick={() => void salir()}>Salir</button>
           <div className="avatar" title={yo.usuario.nombre}>{iniciales}</div>
         </header>
-        <main className="vista" key={`${activa.id}-${actual?.clave}`}>
+        <main className="vista" key={`${activa?.id ?? 0}-${actual?.clave}`}>
           {actual ? actual.pantalla() : <div className="tarjeta">Tu rol en esta empresa no tiene pantallas habilitadas. Pedile acceso al administrador del estudio.</div>}
         </main>
       </div>

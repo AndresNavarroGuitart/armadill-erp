@@ -1,7 +1,7 @@
 // Formas de las respuestas de la API (api/LEEME.md). Los importes llegan como texto decimal: el front los muestra, no los calcula.
 export type EmpresaResumen = { id: number; razon_social: string; cuit: string; condicion_iva_codigo: number; rol: string };
 export type EmpresaActiva = { id: number; razon_social: string; cuit: string; condicion_iva_codigo: number; rol: string; permisos: string[] };
-export type Yo = { usuario: { id: number; nombre: string }; estudio_id: number; empresas: EmpresaResumen[]; empresa_activa: EmpresaActiva | null };
+export type Yo = { usuario: { id: number; nombre: string }; estudio_id: number; admin_estudio: boolean; empresas: EmpresaResumen[]; empresa_activa: EmpresaActiva | null };
 
 export type Pagina<T> = { datos: T[]; total: number; limite: number; desplazamiento: number };
 export type TipoDocumento = 'CUIT' | 'CUIL' | 'DNI' | 'SIN_IDENTIFICAR';
@@ -29,3 +29,11 @@ export type Comprobante = ComprobanteResumen & {
   items: { descripcion: string; cantidad: string; precio_unitario: string; desc_pct?: string; importe_renglon?: string }[];
   ivas: { alicuota: string; base_imponible: string; importe_iva: string }[]; asiento?: { id: number; estado: string } | null;
 };
+
+/* ---------- administración del estudio ---------- */
+export type Acceso = { empresa_id: number; empresa: string; rol_id: number; rol: string };
+export type Persona = { id: number; email: string; nombre: string; activo: boolean; admin_estudio: boolean; vinculada: boolean; accesos: Acceso[] };
+export type EmpresaAdmin = { id: number; cuit: string; razon_social: string; condicion_iva_codigo: number; inicio_actividades: string | null; nro_iibb: string | null; domicilio_fiscal: string | null; convenio_multilateral: boolean; activa: boolean; personas: number };
+export type Rol = { id: number; nombre: string; sistema: boolean; accesos: number; permisos: string[] };
+export type Permiso = { clave: string; modulo: string; descripcion: string };
+export type EstudioDatos = { id: number; nombre: string; cuit: string | null; personas: number; empresas: number };

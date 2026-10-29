@@ -34,8 +34,15 @@ Roles base (`fn_roles_base`): Administrador, Contador, Auxiliar, Consulta.
 | `POST /api/ventas/facturas/calcular` | `ventas.emitir` | cálculo previo; no guarda nada |
 | `POST /api/ventas/facturas` | `ventas.emitir` | emite la factura; `Idempotency-Key` opcional |
 | `GET /api/comprobantes`, `GET /api/comprobantes/:id` | `ventas.ver` | filtros `estado`, `tercero_id`, `desde`, `hasta` |
+| `GET/PATCH /api/estudio` | administrador del estudio | nombre y CUIT del estudio |
+| `GET/POST /api/estudio/personas`, `GET/PATCH /api/estudio/personas/:id`, `PUT /api/estudio/personas/:id/accesos` | administrador del estudio | alta, baja, marca de administrador y reemplazo de accesos (empresa + rol) |
+| `GET/POST /api/estudio/empresas`, `GET/PATCH /api/estudio/empresas/:id` | administrador del estudio | el alta deja la empresa lista para facturar; el CUIT no se modifica; la baja es lógica |
+| `GET /api/estudio/permisos`, `GET/POST /api/estudio/roles`, `PUT /api/estudio/roles/:id/permisos` | administrador del estudio | roles propios del estudio; `Administrador` es de sistema y no se edita |
 
 ## Reglas que conviene recordar
+
+- **Administración del estudio** (`/api/estudio/*`): la habilita la marca `usuario.admin_estudio`, no un rol; no necesita empresa activa. Nadie se da de baja a sí misma, el estudio nunca se queda sin administrador activo (lo impone la base), el email de quien ya ingresó no se cambia, y dar de baja a una persona le corta el acceso **en el acto** (cada pedido se vuelve a verificar contra la base). Todo cambio queda en la trazabilidad (categoría `seguridad` o `maestros`) con el antes y el después.
+- **Alta de un estudio nuevo**: no la hace la aplicación sino quien opera la plataforma: `DATABASE_URL=… npm run estudio:alta -- --nombre … --admin-email … --admin-nombre … --aplicar` (sin `--aplicar` solo verifica los datos).
 
 - **El total nunca viene del cliente**: se calcula en el servidor con la misma aritmética exacta (decimales, sin punto flotante) que `reglas/calculo.mjs`; un campo desconocido en el cuerpo se rechaza.
 - **Letra automática**: la elige la condición frente al IVA de la empresa y del cliente (A, B o C); en la C no se discrimina IVA. El cliente se guarda con su condición (RG 5616).
@@ -54,7 +61,7 @@ Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por soc
 | Pieza | Qué hace |
 |---|---|
 | `modelo/migrar_pg.mjs` | Aplica el modelo a la base, un archivo por transacción, con constancia y huella en `schema_migracion`. Repetible; frena si un archivo ya aplicado fue modificado. Sin `--aplicar` solo muestra qué falta |
-| `modelo/20_endurecimiento_supabase.sql` | Cierra el acceso de `anon` y `authenticated` (la API REST de Supabase no se usa) |
+| `modelo/21_endurecimiento_supabase.sql` | Cierra el acceso de `anon` y `authenticated` (la API REST de Supabase no se usa) |
 | `api/bd_pg.mjs` | Pool de `pg`; cada pedido es una transacción con límites de tiempo, contexto local y `SET LOCAL ROLE app_usuario` (seguro detrás del pooler en modo transacción) |
 | `api/jwt.mjs` | Verifica ES256/RS256 con las claves públicas del proyecto (JWKS, con caché y sin recargas por `kid` inventadas) y, si se configura, HS256 |
 | `api/servidor.mjs` + `api/configuracion.mjs` | Servidor de producción; no arranca si falta algo y lista todos los problemas juntos |
@@ -74,9 +81,9 @@ Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por soc
 ### Orden para la primera vez
 
 1. **Supabase → Authentication:** desactivar el alta libre ("Allow new users to sign up"), exigir confirmación de email, fijar la lista de URLs de retorno (la del front) y usar claves de firma asimétricas (JWT Signing Keys). Subir el largo mínimo de contraseña a 12 y activar la protección de contraseñas filtradas.
-2. **Supabase → API:** quitar `public` de los esquemas expuestos o desactivar la Data API (el sistema no la usa; `20_endurecimiento_supabase.sql` es la segunda barrera, no la única).
+2. **Supabase → API:** quitar `public` de los esquemas expuestos o desactivar la Data API (el sistema no la usa; `21_endurecimiento_supabase.sql` es la segunda barrera, no la única).
 3. `DATABASE_URL=… npm run db:migrar` (muestra qué falta) y luego `DATABASE_URL=… npm run db:migrar -- --aplicar`. Usar la conexión **directa** (puerto 5432) para migrar.
-4. Dar de alta el estudio, sus personas y empresas (hoy a mano o con un script; falta la pantalla de administración). Cada persona se crea en `usuario` con su email; en Supabase se la **invita** con ese mismo email: el primer ingreso se vincula por email verificado.
+4. Dar de alta el estudio con `npm run estudio:alta` (crea el estudio, sus cuatro roles y la primera persona administradora). Esa persona se **invita** en Supabase (Authentication → Users → Invite) con el mismo email; al ingresar por primera vez queda vinculada y desde la pantalla **Estudio** da de alta sus empresas y personas. Cada persona nueva también necesita su cuenta en Supabase con el mismo email (hoy se invita desde el panel de Supabase: falta enviar la invitación desde la aplicación, que requiere una clave de servicio en el servidor).
 5. Levantar `npm run api:servidor` con las variables de arriba (para la base conviene la conexión del pooler en modo transacción, puerto 6543).
 6. Front: `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` (ver `app/.env.example`).
 

@@ -7,6 +7,7 @@ import { crearTercero, listarTerceros, obtenerTercero, modificarTercero } from '
 import { crearArticulo, listarArticulos, leerArticulo, modificarArticulo, fijarPrecio, listarListas, crearLista } from './articulos.mjs';
 import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } from './ventas.mjs';
 import { registrarEvento } from './eventos.mjs';
+import { leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
 const json = (res, estado, cuerpo, cabeceras = {}) => { const t = JSON.stringify(cuerpo); res.writeHead(estado, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(t), ...cabeceras }); res.end(t); };
@@ -81,7 +82,57 @@ const RUTAS = [
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, q)],
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => leerComprobante(c, p.id)],
+  // --- Administración del estudio (solo administradores del estudio; sin empresa activa) ---
+  ['GET', '/api/estudio', '@estudio', ({ c }) => leerEstudio(c)],
+  ['PATCH', '/api/estudio', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await modificarEstudio(c, ctx, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'maestros', accion: 'Modificó los datos del estudio', detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'estudio', entidadId: ctx.estudioId, cambios: r.cambios, origen });
+    return r.estudio;
+  }],
+  ['GET', '/api/estudio/permisos', '@estudio', ({ c }) => listarPermisos(c)],
+  ['GET', '/api/estudio/roles', '@estudio', ({ c }) => listarRoles(c)],
+  ['POST', '/api/estudio/roles', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
+    const { rol } = await crearRol(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Creó el rol ${rol.nombre}`, detalle: `${rol.permisos.length} permisos`, entidad: 'rol', entidadId: rol.id, origen });
+    return { estado: 201, cuerpo: rol };
+  }],
+  ['PUT', '/api/estudio/roles/:id/permisos', '@estudio', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await fijarPermisosRol(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Cambió los permisos del rol ${r.rol.nombre}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'rol', entidadId: p.id, cambios: r.cambios, origen });
+    return r.rol;
+  }],
+  ['GET', '/api/estudio/personas', '@estudio', ({ c, q }) => listarPersonas(c, q)],
+  ['POST', '/api/estudio/personas', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
+    const persona = await crearPersona(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Dio de alta a la persona ${persona.nombre}`, detalle: `${persona.email} · ${persona.accesos.length} empresas${persona.admin_estudio ? ' · administradora del estudio' : ''}`, entidad: 'usuario', entidadId: persona.id, origen });
+    return { estado: 201, cuerpo: persona };
+  }],
+  ['GET', '/api/estudio/personas/:id', '@estudio', ({ c, p }) => leerPersona(c, p.id)],
+  ['PATCH', '/api/estudio/personas/:id', '@estudio', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarPersona(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Modificó a la persona ${r.persona.nombre}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'usuario', entidadId: p.id, cambios: r.cambios, origen });
+    return r.persona;
+  }],
+  ['PUT', '/api/estudio/personas/:id/accesos', '@estudio', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await fijarAccesos(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Cambió los accesos de ${r.persona.nombre}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'usuario', entidadId: p.id, cambios: r.cambios, origen });
+    return r.persona;
+  }],
+  ['GET', '/api/estudio/empresas', '@estudio', ({ c, q }) => listarEmpresas(c, q)],
+  ['POST', '/api/estudio/empresas', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
+    const e = await crearEmpresa(c, ctx, cuerpo);
+    await registrarEvento(c, { ...ctx, empresaId: e.id }, { categoria: 'maestros', accion: `Dio de alta la empresa ${e.razon_social}`, detalle: `CUIT ${e.cuit}`, entidad: 'empresa', entidadId: e.id, origen });
+    return { estado: 201, cuerpo: e };
+  }],
+  ['GET', '/api/estudio/empresas/:id', '@estudio', ({ c, p }) => leerEmpresa(c, p.id)],
+  ['PATCH', '/api/estudio/empresas/:id', '@estudio', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarEmpresa(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, { ...ctx, empresaId: p.id }, { categoria: 'maestros', accion: r.cambios.some((x) => x[0] === 'activa') ? `${r.empresa.activa ? 'Reactivó' : 'Dio de baja'} la empresa ${r.empresa.razon_social}` : `Modificó la empresa ${r.empresa.razon_social}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'empresa', entidadId: p.id, cambios: r.cambios, origen });
+    return r.empresa;
+  }],
 ].map(([metodo, ruta, permiso, hacer]) => ({ metodo, permiso, hacer, patron: new RegExp('^' + ruta.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$') }));
+
+const esAdminEstudio = async (bd, ctx) => !!(await bd.conContexto({ ...ctx, empresaId: null }, (c) => c.uno('select 1 x from usuario where id = fn_usuario_actual() and admin_estudio and activo')));
 
 export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = crearLimitador(240, 60_000), maxBytes = 64 * 1024, saltosDeProxy = 0, registrarError = () => {} }) {
   const origenDe = crearOrigenDe(saltosDeProxy);
@@ -110,7 +161,7 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
 
       if (ruta === '/api/yo' && req.method === 'GET') {
         const empresas = await bd.sinContexto((c) => c.consultar('select * from fn_empresas_de($1)', [ctx.usuarioId]));
-        return responder(200, { usuario: { id: ctx.usuarioId, nombre: ctx.nombre }, estudio_id: ctx.estudioId, empresa_activa: ctx.empresaId ? { id: ctx.empresaId, razon_social: ctx.empresa.razonSocial, cuit: ctx.empresa.cuit, condicion_iva_codigo: Number(ctx.empresa.condicionIvaCodigo), rol: ctx.rol, permisos: [...ctx.permisos] } : null,
+        return responder(200, { usuario: { id: ctx.usuarioId, nombre: ctx.nombre }, estudio_id: ctx.estudioId, admin_estudio: await esAdminEstudio(bd, ctx), empresa_activa: ctx.empresaId ? { id: ctx.empresaId, razon_social: ctx.empresa.razonSocial, cuit: ctx.empresa.cuit, condicion_iva_codigo: Number(ctx.empresa.condicionIvaCodigo), rol: ctx.rol, permisos: [...ctx.permisos] } : null,
           empresas: empresas.map((e) => ({ id: e.empresa_id, razon_social: e.razon_social, cuit: e.cuit, condicion_iva_codigo: Number(e.condicion_iva_codigo), rol: e.rol })) });
       }
 
@@ -118,8 +169,9 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
       const coincidentes = RUTAS.filter((x) => x.patron.test(ruta));
       for (const x of coincidentes) if (x.metodo === req.method) { r = x; p = x.patron.exec(ruta).groups || {}; break; }
       if (!r) return coincidentes.length ? responder(405, { error: { codigo: 'metodo', mensaje: 'Método no permitido.' } }, { Allow: [...new Set(coincidentes.map((x) => x.metodo))].join(', ') }) : responder(404, { error: { codigo: 'no_existe', mensaje: 'No existe.' } });
-      if (!ctx.empresaId) return responder(400, { error: { codigo: 'falta_empresa', mensaje: 'Indicá la empresa con el encabezado X-Empresa-Id.' } });
-      if (!ctx.permisos.has(r.permiso)) return responder(403, { error: { codigo: 'sin_permiso', mensaje: 'No tenés permiso para hacer eso.' } });
+      const delEstudio = r.permiso === '@estudio', ctxTrabajo = delEstudio ? { ...ctx, empresaId: null } : ctx;          // la administración del estudio no depende de una empresa
+      if (!delEstudio && !ctx.empresaId) return responder(400, { error: { codigo: 'falta_empresa', mensaje: 'Indicá la empresa con el encabezado X-Empresa-Id.' } });
+      if (delEstudio ? !(await esAdminEstudio(bd, ctxTrabajo)) : !ctx.permisos.has(r.permiso)) return responder(403, { error: { codigo: 'sin_permiso', mensaje: delEstudio ? 'Solo los administradores del estudio pueden hacer eso.' : 'No tenés permiso para hacer eso.' } });
       if ('id' in p) { p.id = id(p.id); if (p.id === null) throw noEncontrado(); }
 
       let cuerpo;
@@ -128,7 +180,7 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
         cuerpo = await leerCuerpo(req, maxBytes);
       }
       const q = Object.fromEntries(url.searchParams);
-      const salida = await bd.conContexto(ctx, (c) => r.hacer({ c, ctx, p, q, cuerpo, req, origen: origenDe(req) }));
+      const salida = await bd.conContexto(ctxTrabajo, (c) => r.hacer({ c, ctx: ctxTrabajo, p, q, cuerpo, req, origen: origenDe(req) }));
       if (salida && salida.estado && salida.cuerpo !== undefined && Object.keys(salida).length === 2) return responder(salida.estado, salida.cuerpo);
       return responder(200, salida);
     } catch (e) { return fallar(e); }

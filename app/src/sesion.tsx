@@ -14,6 +14,8 @@ type Valor = {
   recuperando: boolean; terminarRecuperacion: () => void;
   /** Se llama después de que la identidad ya tiene sesión (ingreso con clave, enlace o persona de prueba). */
   alIngresar: () => Promise<void>; salir: () => Promise<void>; elegirEmpresa: (id: number | null) => Promise<void>;
+  /** Vuelve a leer quién es la persona y a qué empresas accede (después de crear o dar de baja una empresa, por ejemplo). */
+  refrescarYo: () => Promise<void>;
 };
 const Contexto = createContext<Valor | null>(null);
 
@@ -68,11 +70,12 @@ export function ProveedorSesion({ children, identidad = identidadGlobal }: { chi
   }, [cargarYo, limpiar, identidad]);
 
   const elegirEmpresa = useCallback(async (id: number | null) => { guardar('empresa', id ? String(id) : null); await cargarYo(id); }, [cargarYo]);
+  const refrescarYo = useCallback(() => cargarYo(yo?.empresa_activa?.id ?? null), [cargarYo, yo]);
   const salir = useCallback(async () => { await identidad.salir(); limpiar(null); }, [identidad, limpiar]);
 
   const permisos = useMemo(() => new Set(yo?.empresa_activa?.permisos ?? []), [yo]);
-  const valor = useMemo<Valor>(() => ({ estado, yo, error, permisos, puede: (p) => permisos.has(p), identidad, recuperando, terminarRecuperacion: () => setRecuperando(false), alIngresar, salir, elegirEmpresa }),
-    [estado, yo, error, permisos, identidad, recuperando, alIngresar, salir, elegirEmpresa]);
+  const valor = useMemo<Valor>(() => ({ estado, yo, error, permisos, puede: (p) => permisos.has(p), identidad, recuperando, terminarRecuperacion: () => setRecuperando(false), alIngresar, salir, elegirEmpresa, refrescarYo }),
+    [estado, yo, error, permisos, identidad, recuperando, alIngresar, salir, elegirEmpresa, refrescarYo]);
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
 }
 
