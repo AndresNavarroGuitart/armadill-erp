@@ -89,7 +89,7 @@ export type PreviaPago = {
 };
 export type PagoDetalle = PagoResumen & {
   clase: 'cobro' | 'pago'; etiqueta: string; total_medios: string; total_retenciones: string; total_descuentos: string; observaciones: string | null; asiento: { id: number; numero: number; estado: string } | null;
-  medios: { medio: string; importe: string; destino: string }[]; retenciones: { tipo: string; origen: string; jurisdiccion_codigo: number | null; importe: string; certificado_numero: string; certificado_fecha: string }[];
+  medios: { medio: string; importe: string; destino: string }[]; retenciones: { tipo: string; origen: string; jurisdiccion_codigo: number | null; regimen?: string | null; importe: string; certificado_numero: string; certificado_fecha: string }[];
   imputaciones: { comprobante_id: number; comprobante: string; importe: string }[]; anulacion: { motivo: string; en: string; por: string | null } | null;
 };
 export type CuentaCorriente = { tercero: { id: number; razon_social: string }; saldo: string; movimientos: { fecha: string; clase: 'comprobante' | 'pago'; id: number; detalle: string; importe: string; saldo: string }[] };
@@ -102,3 +102,5 @@ export type ResumenCheque = { origen: string; estado: string; cantidad: number; 
 /* ---------- ejercicios ---------- */
 export type Ejercicio = { id: number; desde: string; hasta: string; cerrado: boolean; cerrado_en: string | null; cerrado_por: string | null; asiento_cierre_id: number | null; periodos: number; periodos_abiertos: number; asientos: number; borradores: number; resultado: string };
 export type PreviaCierre = { ejercicio: Ejercicio; ingresos: string; egresos: string; resultado: string; cuentas_a_saldar: number; destino: string; bloqueos: string[]; avisos: string[]; puede_cerrar: boolean };
+
+export type Regimen = { id: number; tipo: 'iva' | 'ganancias' | 'iibb' | 'suss'; jurisdiccion_codigo: number | null; jurisdiccion: string | null; codigo_arca: string | null; descripcion: string; alicuota: string; activo: boolean };

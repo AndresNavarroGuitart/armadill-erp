@@ -88,7 +88,7 @@ const ESQUEMA = {
     cheque: { tipo: 'objeto', campos: { numero: { tipo: 'texto', min: 1, max: 20, requerido: true }, banco: { tipo: 'texto', min: 2, max: 60 }, cuit_librador: { tipo: 'texto', max: 11 }, fecha_emision: { tipo: 'fecha' }, fecha_pago: { tipo: 'fecha' } } },
     importe: { tipo: 'importe', min: 0.01, max: 999999999999 } } },
   retenciones: { tipo: 'lista', max: 20, elemento: {
-    tipo: { tipo: 'enum', valores: ['iva', 'ganancias', 'iibb', 'suss'], requerido: true }, jurisdiccion_codigo: { tipo: 'entero', min: 1, max: 32767 }, base_imponible: { tipo: 'importe', min: 0, max: 999999999999 },
+    tipo: { tipo: 'enum', valores: ['iva', 'ganancias', 'iibb', 'suss'], requerido: true }, regimen_id: { tipo: 'entero', min: 1 }, jurisdiccion_codigo: { tipo: 'entero', min: 1, max: 32767 }, base_imponible: { tipo: 'importe', min: 0, max: 999999999999 },
     alicuota: { tipo: 'porcentaje' }, importe: { tipo: 'importe', min: 0.01, max: 999999999999, requerido: true }, certificado_numero: { tipo: 'texto', min: 1, max: 30, requerido: true }, certificado_fecha: { tipo: 'fecha', requerido: true },
   } },
 };
@@ -185,6 +185,17 @@ async function prepararPago(c, ctx, tipoPago, cuerpo) {
   const rets = [];
   for (const [i, r] of (d.retenciones ?? []).entries()) {
     const k = `retenciones[${i}].`;
+    if (r.regimen_id) {                                                              // el régimen manda: tipo, jurisdicción y, si no se indicó otra, la alícuota
+      const reg = await c.uno('select id, tipo, jurisdiccion_codigo, alicuota::text as alicuota, activo from regimen_retencion where id = $1', [r.regimen_id]);
+      if (!reg) errores[k + 'regimen_id'] = 'el régimen no existe';
+      else if (!reg.activo) errores[k + 'regimen_id'] = 'el régimen está dado de baja';
+      else if (reg.tipo !== r.tipo) errores[k + 'regimen_id'] = `el régimen es de ${TIPO_RETENCION[reg.tipo]}, no de ${TIPO_RETENCION[r.tipo]}`;
+      else {
+        if (reg.jurisdiccion_codigo && !r.jurisdiccion_codigo) r.jurisdiccion_codigo = reg.jurisdiccion_codigo;
+        else if (reg.jurisdiccion_codigo && r.jurisdiccion_codigo !== reg.jurisdiccion_codigo) errores[k + 'jurisdiccion_codigo'] = 'no coincide con la jurisdicción del régimen';
+        if (!r.alicuota && dec(reg.alicuota) > 0n) r.alicuota = texto(mul(dec(reg.alicuota), dec('100')), 2);
+      }
+    }
     if (r.tipo === 'iibb' && !r.jurisdiccion_codigo) errores[k + 'jurisdiccion_codigo'] = 'una retención de ingresos brutos necesita su jurisdicción';
     else if (r.jurisdiccion_codigo && !(await c.uno('select 1 x from arca_jurisdiccion where codigo = $1', [r.jurisdiccion_codigo]))) errores[k + 'jurisdiccion_codigo'] = 'la jurisdicción no existe';
     if (r.certificado_fecha > hoy) errores[k + 'certificado_fecha'] = 'la fecha del certificado no puede ser futura';
@@ -242,8 +253,8 @@ export async function registrarPago(c, ctx, tipoPago, cuerpo, { claveIdempotenci
     const esCheque = m.medio === 'cheque';
     await c.consultar('insert into pago_medio (empresa_id, pago_id, medio, caja_id, cuenta_bancaria_id, cheque_id, importe) values ($1,$2,$3,$4,$5,$6,$7)', [ctx.empresaId, cab.id, m.medio, esCheque ? null : m.caja_id ?? null, esCheque ? null : m.cuenta_bancaria_id ?? null, chequeId, m.importe]);
   }
-  for (const r of p.rets) await c.consultar('insert into retencion (empresa_id, pago_id, origen, tipo, jurisdiccion_codigo, base_imponible, alicuota, importe, certificado_numero, certificado_fecha) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-    [ctx.empresaId, cab.id, p.rol.retencion, r.tipo, r.jurisdiccion_codigo ?? null, r.base_imponible ?? null, r.alicuota ? texto(mul(dec(r.alicuota), dec('0.01')), 4) : null, r.importe, r.certificado_numero, r.certificado_fecha]);
+  for (const r of p.rets) await c.consultar('insert into retencion (empresa_id, pago_id, origen, tipo, jurisdiccion_codigo, base_imponible, alicuota, importe, certificado_numero, certificado_fecha, regimen_id) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+    [ctx.empresaId, cab.id, p.rol.retencion, r.tipo, r.jurisdiccion_codigo ?? null, r.base_imponible ?? null, r.alicuota ? texto(mul(dec(r.alicuota), dec('0.01')), 4) : null, r.importe, r.certificado_numero, r.certificado_fecha, r.regimen_id ?? null]);
   for (const x of p.imput) await c.consultar('insert into pago_imputacion (empresa_id, pago_id, comprobante_id, importe) values ($1,$2,$3,$4)', [ctx.empresaId, cab.id, x.id, x.importe]);
   await c.consultar(`update pago set estado = 'confirmado' where id = $1`, [cab.id]);          // la base verifica la identidad, genera el asiento y mueve la caja y el banco
   const pago = await detallePago(c, cab.id, tipoPago);
@@ -260,7 +271,8 @@ export async function detallePago(c, id, tipoPago) {
     from pago p join tercero te on te.id = p.tercero_id where p.id = $1`, [id]);
   if (!f || f.sentido !== tipoPago) throw noEncontrado(tipoPago === 'cobro' ? 'El cobro' : 'El pago');
   const medios = await c.consultar(`select m.medio, m.importe::text importe, m.cheque_id, ca.nombre as caja, cb.banco, cb.numero_cuenta, ch.numero as cheque_numero, ch.banco as cheque_banco, ch.origen as cheque_origen from pago_medio m left join caja ca on ca.id = m.caja_id left join cuenta_bancaria cb on cb.id = m.cuenta_bancaria_id left join cheque ch on ch.id = m.cheque_id where m.pago_id = $1 order by m.id`, [id]);
-  const retenciones = await c.consultar(`select tipo, origen, jurisdiccion_codigo, importe::text importe, certificado_numero, certificado_fecha::text certificado_fecha from retencion where pago_id = $1 order by id`, [id]);
+  const retenciones = await c.consultar(`select r.tipo, r.origen, r.jurisdiccion_codigo, r.importe::text importe, r.certificado_numero, r.certificado_fecha::text certificado_fecha, r.regimen_id, rr.descripcion as regimen, rr.codigo_arca as regimen_codigo,
+      r.base_imponible::text base_imponible from retencion r left join regimen_retencion rr on rr.id = r.regimen_id where r.pago_id = $1 order by r.id`, [id]);
   const imputaciones = await c.consultar(`select i.comprobante_id, t.descripcion tipo, cb.punto_venta, cb.numero, i.importe::text importe from pago_imputacion i join comprobante cb on cb.id = i.comprobante_id join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo where i.pago_id = $1 order by i.id`, [id]);
   const asiento = f.asiento_id ? await c.uno('select id, numero, estado from asiento where id = $1', [f.asiento_id]) : null;
   const por = f.anulado_por ? (await c.uno('select nombre from usuario where id = $1', [f.anulado_por]))?.nombre : null;
@@ -330,4 +342,44 @@ export async function cuentaCorriente(c, terceroId, rolTercero) {
   let acumulado = 0n;
   const movimientos = filas.map((f) => { acumulado += dec(f.importe); return { fecha: f.fecha, clase: f.clase, id: f.ref, detalle: f.detalle, importe: f.importe, saldo: texto(acumulado) }; });
   return { tercero: t, saldo: texto(acumulado), movimientos };
+}
+
+/* ====================== regímenes de retención ====================== */
+// Cada estudio carga los regímenes que usa (con el código que le pide su aplicativo: acá no se inventan códigos). Al elegirlo en una retención, el régimen fija el impuesto,
+// la jurisdicción y la alícuota sugerida; el importe sigue siendo el del certificado. Los regímenes no se borran: se dan de baja.
+const TIPO_RETENCION = { iva: 'IVA', ganancias: 'Ganancias', iibb: 'Ingresos Brutos', suss: 'SUSS' };
+const SELECT_REGIMEN = `select r.id, r.tipo, r.jurisdiccion_codigo, j.nombre as jurisdiccion, r.codigo_arca, r.descripcion, (r.alicuota * 100)::numeric(7,2)::text as alicuota, r.activo
+  from regimen_retencion r left join arca_jurisdiccion j on j.codigo = r.jurisdiccion_codigo`;
+export async function listarRegimenes(c, { tipo, activo } = {}) {
+  if (tipo && !TIPO_RETENCION[tipo]) throw invalido({ tipo: 'tiene que ser iva, ganancias, iibb o suss' });
+  return { datos: await c.consultar(`${SELECT_REGIMEN} where ($1::text is null or r.tipo = $1) and ($2::boolean is null or r.activo = $2) order by r.tipo, j.nombre nulls first, r.descripcion`, [tipo || null, activo === undefined || activo === '' ? null : activo === 'true']) };
+}
+const leerRegimen = async (c, id) => { const f = await c.uno(`${SELECT_REGIMEN} where r.id = $1`, [id]); if (!f) throw noEncontrado('El régimen'); return f; };
+const CAMPOS_REGIMEN = { tipo: { tipo: 'enum', valores: Object.keys(TIPO_RETENCION) }, jurisdiccion_codigo: { tipo: 'entero', min: 1, max: 32767, nulo: true }, codigo_arca: { tipo: 'texto', max: 20, nulo: true },
+  descripcion: { tipo: 'texto', min: 3, max: 120 }, alicuota: { tipo: 'porcentaje' } };
+async function validarRegimen(c, d, actual, id) {
+  const errores = {}, tipo = d.tipo ?? actual?.tipo, juris = 'jurisdiccion_codigo' in d ? d.jurisdiccion_codigo : actual?.jurisdiccion_codigo, codigo = 'codigo_arca' in d ? d.codigo_arca : actual?.codigo_arca;
+  if (tipo === 'iibb' && !juris) errores.jurisdiccion_codigo = 'un régimen de ingresos brutos necesita su jurisdicción';
+  else if (tipo !== 'iibb' && juris) errores.jurisdiccion_codigo = 'solo los regímenes de ingresos brutos llevan jurisdicción';
+  else if (juris && !(await c.uno('select 1 x from arca_jurisdiccion where codigo = $1', [juris]))) errores.jurisdiccion_codigo = 'la jurisdicción no existe';
+  if (codigo && await c.uno('select 1 x from regimen_retencion where tipo = $1 and codigo_arca = $2 and id is distinct from $3', [tipo, codigo, id ?? null])) errores.codigo_arca = 'ya hay un régimen con ese código';
+  if (Object.keys(errores).length) throw invalido(errores);
+}
+export async function crearRegimen(c, ctx, cuerpo) {
+  const { valor: d } = validar({ ...CAMPOS_REGIMEN, tipo: { ...CAMPOS_REGIMEN.tipo, requerido: true }, descripcion: { ...CAMPOS_REGIMEN.descripcion, requerido: true }, alicuota: { ...CAMPOS_REGIMEN.alicuota, requerido: true } }, cuerpo);
+  await validarRegimen(c, d, null, null);
+  const r = await c.uno('insert into regimen_retencion (empresa_id, tipo, jurisdiccion_codigo, codigo_arca, descripcion, alicuota) values ($1,$2,$3,$4,$5,$6) returning id',
+    [ctx.empresaId, d.tipo, d.jurisdiccion_codigo ?? null, d.codigo_arca ?? null, d.descripcion, texto(mul(dec(d.alicuota), dec('0.01')), 4)]);
+  return leerRegimen(c, r.id);
+}
+export async function modificarRegimen(c, ctx, id, cuerpo) {
+  const { valor: d } = validar({ ...CAMPOS_REGIMEN, activo: { tipo: 'booleano' } }, cuerpo, { parcial: true });
+  if (!Object.keys(d).length) throw invalido({ _: 'No hay nada para modificar.' });
+  const antes = await leerRegimen(c, id);
+  if (d.tipo && d.tipo !== antes.tipo && await c.uno('select 1 x from retencion where regimen_id = $1', [id])) throw invalido({ tipo: 'el régimen ya se usó en retenciones: no se le puede cambiar el impuesto' });
+  await validarRegimen(c, d, antes, id);
+  const claves = ['tipo', 'jurisdiccion_codigo', 'codigo_arca', 'descripcion', 'alicuota', 'activo'].filter((k) => k in d), valor = (k) => (k === 'alicuota' ? texto(mul(dec(d[k]), dec('0.01')), 4) : d[k] ?? null);
+  const cambios = claves.filter((k) => (k === 'alicuota' ? dec(d[k]) !== dec(antes[k]) : (d[k] ?? null) !== (antes[k] ?? null))).map((k) => [k, antes[k] ?? null, d[k] ?? null]);
+  if (cambios.length) { const ks = cambios.map((x) => x[0]); await c.consultar(`update regimen_retencion set ${ks.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1`, [id, ...ks.map(valor)]); }
+  return { regimen: await leerRegimen(c, id), cambios };
 }

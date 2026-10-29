@@ -11,7 +11,7 @@ import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } f
 import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
 import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from './anulaciones.mjs';
-import { listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
+import { listarRegimenes, crearRegimen, modificarRegimen, listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
 import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, aplicarNotaCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
@@ -154,6 +154,17 @@ const RUTAS = [
     const r = await modificarBanco(c, ctx, p.id, cuerpo);
     if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Modificó la cuenta bancaria ${r.banco.banco}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'cuenta_bancaria', entidadId: p.id, cambios: r.cambios, origen });
     return r.banco;
+  }],
+  ['GET', '/api/tesoreria/regimenes', 'tesoreria.ver', ({ c, q }) => listarRegimenes(c, q)],
+  ['POST', '/api/tesoreria/regimenes', 'tesoreria.administrar', async ({ c, ctx, cuerpo, origen }) => {
+    const x = await crearRegimen(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Creó el régimen de retención ${x.descripcion}`, detalle: `${x.tipo}${x.codigo_arca ? ` · código ${x.codigo_arca}` : ''} · ${x.alicuota} %`, entidad: 'regimen_retencion', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: x };
+  }],
+  ['PATCH', '/api/tesoreria/regimenes/:id', 'tesoreria.administrar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarRegimen(c, ctx, p.id, cuerpo);
+    if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Modificó el régimen de retención ${r.regimen.descripcion}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'regimen_retencion', entidadId: p.id, cambios: r.cambios, origen });
+    return r.regimen;
   }],
   ['GET', '/api/tesoreria/movimientos', 'tesoreria.ver', ({ c, q }) => listarMovimientosTesoreria(c, q)],
   // --- Cheques: nacen dentro de un cobro o un pago; acá se listan y se siguen (depositar, acreditar, rechazar, debitar) ---

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, nuevaClave, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { aDecimal, fecha, fechaHora, hoyISO, moneda } from '../formato';
-import type { Banco, Caja, Cheque, ChequeDetalle, Jurisdiccion, MovimientoTesoreria, Pagina, PagoDetalle, PagoResumen, Pendiente, PreviaPago, ResumenCheque, Tercero } from '../tipos';
+import type { Banco, Caja, Cheque, ChequeDetalle, Jurisdiccion, MovimientoTesoreria, Pagina, PagoDetalle, PagoResumen, Pendiente, PreviaPago, Regimen, ResumenCheque, Tercero } from '../tipos';
 import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 
 type Pestana = 'cobro' | 'pago' | 'cheques' | 'cajas';
@@ -83,7 +83,7 @@ function Lista({ tipo, puedeRegistrar }: { tipo: 'cobro' | 'pago'; puedeRegistra
 
 type Medio = { uid: number; medio: keyof typeof MEDIOS; destino: string; importe: string; numero: string; banco: string; cuit: string; emision: string; pago: string; cartera: boolean; chequeId: string };
 const CHEQUE_VACIO = { numero: '', banco: '', cuit: '', emision: '', pago: '', cartera: false, chequeId: '' };
-type Ret = { uid: number; tipo: keyof typeof RETENCIONES; jurisdiccion: string; importe: string; numero: string; fecha: string };
+type Ret = { uid: number; tipo: keyof typeof RETENCIONES; jurisdiccion: string; importe: string; numero: string; fecha: string; regimen: string; base: string };
 let contador = 0;
 
 function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerrar: () => void; onHecho: (id: number) => void }) {
@@ -101,6 +101,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
   const [bancos, setBancos] = useState<Banco[]>([]);
   const [jurisdicciones, setJurisdicciones] = useState<Jurisdiccion[]>([]);
   const [carteraLista, setCarteraLista] = useState<Cheque[]>([]);
+  const [regimenes, setRegimenes] = useState<Regimen[]>([]);
   const [previa, setPrevia] = useState<PreviaPago | null>(null);
   const [errorPrevia, setErrorPrevia] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -112,6 +113,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
     obtener<{ datos: Caja[] }>('/api/tesoreria/cajas').then((r) => setCajas(r.datos.filter((c) => c.activa))).catch(() => setCajas([]));
     obtener<{ datos: Banco[] }>('/api/tesoreria/bancos').then((r) => setBancos(r.datos.filter((b) => b.activa))).catch(() => setBancos([]));
     if (tipo === 'pago') obtener<Pagina<Cheque>>('/api/cheques', { estado: 'en_cartera', origen: 'tercero', limite: 100 }).then((r) => setCarteraLista(r.datos)).catch(() => setCarteraLista([]));
+    obtener<{ datos: Regimen[] }>('/api/tesoreria/regimenes', { activo: 'true' }).then((r) => setRegimenes(r.datos)).catch(() => setRegimenes([]));
     obtener<{ datos: Jurisdiccion[] }>('/api/catalogos/jurisdicciones').then((r) => setJurisdicciones(r.datos)).catch(() => setJurisdicciones([]));
   }, []);
   useEffect(() => {
@@ -133,7 +135,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
         }
         return m.importe.trim() ? [{ medio: m.medio, ...(m.medio === 'transferencia' ? { cuenta_bancaria_id: Number(m.destino) || undefined } : { caja_id: Number(m.destino) || undefined }), importe: aDecimal(m.importe) }] : [];
       }),
-      retenciones: rets.filter((r) => r.importe.trim()).map((r) => ({ tipo: r.tipo, ...(r.tipo === 'iibb' && r.jurisdiccion ? { jurisdiccion_codigo: Number(r.jurisdiccion) } : {}), importe: aDecimal(r.importe), certificado_numero: r.numero.trim(), certificado_fecha: r.fecha })),
+      retenciones: rets.filter((r) => r.importe.trim()).map((r) => ({ tipo: r.tipo, ...(r.tipo === 'iibb' && r.jurisdiccion ? { jurisdiccion_codigo: Number(r.jurisdiccion) } : {}), ...(r.regimen ? { regimen_id: Number(r.regimen) } : {}), ...(r.base.trim() ? { base_imponible: aDecimal(r.base) } : {}), importe: aDecimal(r.importe), certificado_numero: r.numero.trim(), certificado_fecha: r.fecha })),
     };
   }, [tercero, tipo, fechaP, descuento, observaciones, imp, medios, rets]);
   const huella = JSON.stringify(pedido), retrasada = useRetraso(huella, 400);
@@ -165,7 +167,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
     if (intento.current?.huella !== h) intento.current = { huella: h, clave: nuevaClave() };      // mismo pedido = misma clave: un reintento no registra dos veces
     try { const r = await enviar<{ id: number; etiqueta: string }>('POST', t.ruta, pedido, { claveIdempotencia: intento.current.clave }); avisar(`${r.etiqueta} registrado.`); onHecho(r.id); } catch (e) { setError(e); } finally { setTrabajando(false); }
   }
-  const general = resumenErrores(error, ['tercero_id', 'fecha', 'descuento', 'imputaciones', 'medios', ...pendientesIdx(imp, 'comprobante_id'), ...pendientesIdx(imp, 'importe'), ...medios.flatMap((_, i) => ['medio', 'caja_id', 'cuenta_bancaria_id', 'importe', 'cheque', 'cheque_id', 'cheque.numero', 'cheque.banco', 'cheque.cuit_librador', 'cheque.fecha_emision', 'cheque.fecha_pago'].map((c) => `medios[${i}].${c}`)), ...rets.flatMap((_, i) => ['jurisdiccion_codigo', 'importe', 'certificado_numero', 'certificado_fecha'].map((c) => `retenciones[${i}].${c}`))]);
+  const general = resumenErrores(error, ['tercero_id', 'fecha', 'descuento', 'imputaciones', 'medios', ...pendientesIdx(imp, 'comprobante_id'), ...pendientesIdx(imp, 'importe'), ...medios.flatMap((_, i) => ['medio', 'caja_id', 'cuenta_bancaria_id', 'importe', 'cheque', 'cheque_id', 'cheque.numero', 'cheque.banco', 'cheque.cuit_librador', 'cheque.fecha_emision', 'cheque.fecha_pago'].map((c) => `medios[${i}].${c}`)), ...rets.flatMap((_, i) => ['jurisdiccion_codigo', 'importe', 'certificado_numero', 'certificado_fecha', 'regimen_id', 'base_imponible'].map((c) => `retenciones[${i}].${c}`))]);
   const idxImp = (id: number) => Object.entries(imp).filter(([, v]) => v.trim()).findIndex(([k]) => Number(k) === id);
 
   return (
@@ -236,16 +238,23 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
         <h3 style={{ margin: '16px 0 6px' }}>Retenciones y descuento</h3>
         {rets.map((r, i) => (
           <div className="fila-acceso" key={r.uid} style={{ gridTemplateColumns: '1fr 1.3fr 1fr 1fr 1fr auto' }}>
-            <Selector etiqueta="Retención" value={r.tipo} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, tipo: e.target.value as keyof typeof RETENCIONES } : x)))}>{Object.entries(RETENCIONES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Selector>
+            <Selector etiqueta="Retención" value={r.tipo} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, tipo: e.target.value as keyof typeof RETENCIONES, regimen: '' } : x)))}>{Object.entries(RETENCIONES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Selector>
             <Selector etiqueta="Jurisdicción" value={r.jurisdiccion} disabled={r.tipo !== 'iibb'} error={campos[`retenciones[${i}].jurisdiccion_codigo`]} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, jurisdiccion: e.target.value } : x)))}><option value="">{r.tipo === 'iibb' ? 'Elegí…' : '—'}</option>{jurisdicciones.map((j) => <option key={j.codigo} value={j.codigo}>{j.nombre}</option>)}</Selector>
             <Campo etiqueta="Importe" inputMode="decimal" value={r.importe} error={campos[`retenciones[${i}].importe`]} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, importe: e.target.value } : x)))} />
             <Campo etiqueta="N.º de certificado" value={r.numero} error={campos[`retenciones[${i}].certificado_numero`]} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, numero: e.target.value } : x)))} />
             <Campo etiqueta="Fecha del certificado" type="date" value={r.fecha} error={campos[`retenciones[${i}].certificado_fecha`]} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, fecha: e.target.value } : x)))} />
             <button type="button" className="icono" style={{ marginTop: 22 }} aria-label={`Quitar la retención ${i + 1}`} onClick={() => setRets((a) => a.filter((x) => x.uid !== r.uid))}>×</button>
+            {regimenes.some((g) => g.tipo === r.tipo) && (
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+                <Selector etiqueta="Régimen" value={r.regimen} error={campos[`retenciones[${i}].regimen_id`]} onChange={(e) => setRets((a) => a.map((x) => { if (x.uid !== r.uid) return x; const g = regimenes.find((y) => String(y.id) === e.target.value); return { ...x, regimen: e.target.value, jurisdiccion: g?.jurisdiccion_codigo ? String(g.jurisdiccion_codigo) : x.jurisdiccion }; }))}>
+                  <option value="">Sin régimen</option>{regimenes.filter((g) => g.tipo === r.tipo).map((g) => <option key={g.id} value={g.id}>{g.codigo_arca ? `${g.codigo_arca} · ` : ''}{g.descripcion} ({g.alicuota.replace('.', ',')} %)</option>)}</Selector>
+                <Campo etiqueta="Base imponible (opcional)" inputMode="decimal" value={r.base} error={campos[`retenciones[${i}].base_imponible`]} onChange={(e) => setRets((a) => a.map((x) => (x.uid === r.uid ? { ...x, base: e.target.value } : x)))} />
+              </div>
+            )}
           </div>
         ))}
         <div className="acciones" style={{ alignItems: 'end' }}>
-          <button type="button" className="btn chico" onClick={() => setRets((a) => [...a, { uid: ++contador, tipo: 'iva', jurisdiccion: '', importe: '', numero: '', fecha: hoyISO() }])}>+ Agregar retención {tipo === 'cobro' ? 'sufrida' : 'practicada'}</button>
+          <button type="button" className="btn chico" onClick={() => setRets((a) => [...a, { uid: ++contador, tipo: 'iva', jurisdiccion: '', importe: '', numero: '', fecha: hoyISO(), regimen: '', base: '' }])}>+ Agregar retención {tipo === 'cobro' ? 'sufrida' : 'practicada'}</button>
           <div style={{ width: 200 }}><Campo etiqueta="Descuento por pronto pago" inputMode="decimal" value={descuento} error={campos.descuento} onChange={(e) => setDescuento(e.target.value)} /></div>
         </div>
 
@@ -292,7 +301,7 @@ function Detalle({ tipo, id, onCerrar, onCambio }: { tipo: 'cobro' | 'pago'; id:
           <dl className="ficha">
             <dt>Total</dt><dd><strong>{moneda(p.total_documento)}</strong></dd>
             <dt>Medios</dt><dd>{p.medios.map((m, i) => <div key={i}>{m.medio === 'cheque' ? '' : `${MEDIOS[m.medio as keyof typeof MEDIOS] ?? m.medio} · `}{m.destino} · {moneda(m.importe)}</div>)}</dd>
-            {p.retenciones.length > 0 && <><dt>Retenciones</dt><dd>{p.retenciones.map((r, i) => <div key={i}>{RETENCIONES[r.tipo as keyof typeof RETENCIONES] ?? r.tipo} · certificado {r.certificado_numero} ({fecha(r.certificado_fecha)}) · {moneda(r.importe)}</div>)}</dd></>}
+            {p.retenciones.length > 0 && <><dt>Retenciones</dt><dd>{p.retenciones.map((r, i) => <div key={i}>{RETENCIONES[r.tipo as keyof typeof RETENCIONES] ?? r.tipo} · certificado {r.certificado_numero} ({fecha(r.certificado_fecha)}) · {moneda(r.importe)}{r.regimen ? ` · ${r.regimen}` : ''}</div>)}</dd></>}
             {Number(p.total_descuentos) > 0 && <><dt>Descuento</dt><dd>{moneda(p.total_descuentos)}</dd></>}
             <dt>Imputado a</dt><dd>{p.imputaciones.length ? p.imputaciones.map((x) => <div key={x.comprobante_id}>{x.comprobante} · {moneda(x.importe)}</div>) : <span className="muted">Nada: todo a cuenta</span>}</dd>
             {Number(p.a_cuenta) > 0 && <><dt>A cuenta</dt><dd>{moneda(p.a_cuenta)}</dd></>}
@@ -322,9 +331,11 @@ function CajasYBancos({ puedeAdministrar }: { puedeAdministrar: boolean }) {
   const [recarga, setRecarga] = useState(0);
   const [formCaja, setFormCaja] = useState<Caja | 'nueva' | null>(null);
   const [formBanco, setFormBanco] = useState<Banco | 'nueva' | null>(null);
+  const [regimenes, setRegimenes] = useState<Regimen[] | null>(null);
+  const [formRegimen, setFormRegimen] = useState<Regimen | 'nuevo' | null>(null);
   const [movs, setMovs] = useState<{ titulo: string; filtro: Record<string, number> } | null>(null);
   useEffect(() => {
-    Promise.all([obtener<{ datos: Caja[] }>('/api/tesoreria/cajas'), obtener<{ datos: Banco[] }>('/api/tesoreria/bancos')]).then(([c, b]) => { setCajas(c.datos); setBancos(b.datos); setError(null); }).catch((e) => setError(e.message));
+    Promise.all([obtener<{ datos: Caja[] }>('/api/tesoreria/cajas'), obtener<{ datos: Banco[] }>('/api/tesoreria/bancos'), obtener<{ datos: Regimen[] }>('/api/tesoreria/regimenes')]).then(([c, b, g]) => { setCajas(c.datos); setBancos(b.datos); setRegimenes(g.datos); setError(null); }).catch((e) => setError(e.message));
   }, [recarga]);
   const refrescar = () => setRecarga((n) => n + 1);
   return (
@@ -349,6 +360,18 @@ function CajasYBancos({ puedeAdministrar }: { puedeAdministrar: boolean }) {
         </>
       )}
       {formCaja && <FormCaja caja={formCaja === 'nueva' ? null : formCaja} onCerrar={() => setFormCaja(null)} onGuardado={() => { setFormCaja(null); refrescar(); }} />}
+      {regimenes && (
+        <>
+          <div className="herramientas" style={{ marginTop: 22 }}><h2 style={{ margin: 0, flex: 1 }}>Regímenes de retención</h2>{puedeAdministrar && <button className="btn" onClick={() => setFormRegimen('nuevo')}>Nuevo régimen</button>}</div>
+          {regimenes.length === 0 ? <div className="tarjeta"><Vacio titulo="Todavía no hay regímenes cargados">Cargá los que usás (con el código de tu aplicativo) para elegirlos al registrar una retención y que queden en los informes.</Vacio></div> : (
+            <div className="tabla-caja"><table>
+              <thead><tr><th>Impuesto</th><th>Código</th><th>Descripción</th><th className="num">Alícuota</th><th /></tr></thead>
+              <tbody>{regimenes.map((g) => <tr key={g.id}><td>{RETENCIONES[g.tipo as keyof typeof RETENCIONES] ?? g.tipo}{g.jurisdiccion && <div className="muted">{g.jurisdiccion}</div>}</td><td>{g.codigo_arca ?? '—'}</td><td>{g.descripcion}</td><td className="num">{g.alicuota.replace('.', ',')} %</td>
+                <td style={{ textAlign: 'right' }}>{!g.activo && <Etiqueta tono="aviso">De baja</Etiqueta>} {puedeAdministrar && <button className="btn chico" onClick={() => setFormRegimen(g)}>Editar</button>}</td></tr>)}</tbody>
+            </table></div>)}
+        </>
+      )}
+      {formRegimen && <FormRegimen regimen={formRegimen === 'nuevo' ? null : formRegimen} onCerrar={() => setFormRegimen(null)} onGuardado={() => { setFormRegimen(null); refrescar(); }} />}
       {formBanco && <FormBanco banco={formBanco === 'nueva' ? null : formBanco} onCerrar={() => setFormBanco(null)} onGuardado={() => { setFormBanco(null); refrescar(); }} />}
       {movs && <Movimientos titulo={movs.titulo} filtro={movs.filtro} onCerrar={() => setMovs(null)} />}
     </>
@@ -550,6 +573,41 @@ function AccionCheque({ cheque, accion, onCerrar, onHecho }: { cheque: ChequeDet
         </div>
         {accion === 'depositar' && bancos.length === 0 && <Alerta tipo="aviso">Todavía no hay cuentas bancarias: cargá una en “Cajas y bancos”.</Alerta>}
         <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className={accion === 'rechazar' ? 'btn peligro' : 'btn primario'} disabled={trabajando || (accion === 'rechazar' && motivo.trim().length < 3)}>{trabajando ? 'Guardando…' : def.boton}</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function FormRegimen({ regimen, onCerrar, onGuardado }: { regimen: Regimen | null; onCerrar: () => void; onGuardado: () => void }) {
+  const avisar = useAviso();
+  const [v, setV] = useState({ tipo: regimen?.tipo ?? 'ganancias', jurisdiccion: regimen?.jurisdiccion_codigo ? String(regimen.jurisdiccion_codigo) : '', codigo: regimen?.codigo_arca ?? '', descripcion: regimen?.descripcion ?? '', alicuota: regimen?.alicuota ?? '', activo: regimen?.activo ?? true });
+  const [jurisdicciones, setJurisdicciones] = useState<Jurisdiccion[]>([]);
+  const [error, setError] = useState<unknown>(null);
+  const campos = error instanceof ErrorApi ? error.campos : {};
+  useEffect(() => { obtener<{ datos: Jurisdiccion[] }>('/api/catalogos/jurisdicciones').then((r) => setJurisdicciones(r.datos)).catch(() => setJurisdicciones([])); }, []);
+  async function guardar(ev: FormEvent) {
+    ev.preventDefault(); setError(null);
+    const datos = { tipo: v.tipo, jurisdiccion_codigo: v.tipo === 'iibb' && v.jurisdiccion ? Number(v.jurisdiccion) : null, codigo_arca: v.codigo.trim() || null, descripcion: v.descripcion.trim(), alicuota: aDecimal(v.alicuota) };
+    try {
+      if (!regimen) await enviar('POST', '/api/tesoreria/regimenes', datos);
+      else { const c: Record<string, unknown> = {}; if (datos.tipo !== regimen.tipo) c.tipo = datos.tipo; if (datos.jurisdiccion_codigo !== regimen.jurisdiccion_codigo) c.jurisdiccion_codigo = datos.jurisdiccion_codigo; if (datos.codigo_arca !== (regimen.codigo_arca ?? null)) c.codigo_arca = datos.codigo_arca; if (datos.descripcion !== regimen.descripcion) c.descripcion = datos.descripcion; if (Number(datos.alicuota) !== Number(regimen.alicuota)) c.alicuota = datos.alicuota; if (v.activo !== regimen.activo) c.activo = v.activo; if (Object.keys(c).length) await enviar('PATCH', `/api/tesoreria/regimenes/${regimen.id}`, c); }
+      avisar('Régimen guardado.'); onGuardado();
+    } catch (e) { setError(e); }
+  }
+  const general = resumenErrores(error, ['tipo', 'jurisdiccion_codigo', 'codigo_arca', 'descripcion', 'alicuota', 'activo']);
+  return (
+    <Modal titulo={regimen ? regimen.descripcion : 'Nuevo régimen de retención'} onCerrar={onCerrar} ancho={520}>
+      <form onSubmit={guardar} noValidate>
+        {general && <Alerta>{general}</Alerta>}
+        <div className="rejilla">
+          <Selector etiqueta="Impuesto" value={v.tipo} error={campos.tipo} onChange={(e) => setV({ ...v, tipo: e.target.value as Regimen['tipo'], jurisdiccion: '' })}>{Object.entries(RETENCIONES).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Selector>
+          <Selector etiqueta="Jurisdicción" value={v.jurisdiccion} disabled={v.tipo !== 'iibb'} error={campos.jurisdiccion_codigo} onChange={(e) => setV({ ...v, jurisdiccion: e.target.value })}><option value="">{v.tipo === 'iibb' ? 'Elegí…' : '—'}</option>{jurisdicciones.map((j) => <option key={j.codigo} value={j.codigo}>{j.nombre}</option>)}</Selector>
+          <div className="ancho"><Campo etiqueta="Descripción" value={v.descripcion} error={campos.descripcion} onChange={(e) => setV({ ...v, descripcion: e.target.value })} autoFocus /></div>
+          <Campo etiqueta="Código del régimen" value={v.codigo} error={campos.codigo_arca} ayuda="El que usa tu aplicativo (opcional)" onChange={(e) => setV({ ...v, codigo: e.target.value })} />
+          <Campo etiqueta="Alícuota (%)" inputMode="decimal" value={v.alicuota} error={campos.alicuota} onChange={(e) => setV({ ...v, alicuota: e.target.value })} />
+          {regimen && <label className="btn ancho"><input type="checkbox" checked={v.activo} onChange={(e) => setV({ ...v, activo: e.target.checked })} /> Activo</label>}
+        </div>
+        <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className="btn primario" disabled={v.descripcion.trim().length < 3 || !v.alicuota.trim()}>Guardar</button></div>
       </form>
     </Modal>
   );
