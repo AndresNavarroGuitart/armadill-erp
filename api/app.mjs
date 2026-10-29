@@ -12,7 +12,7 @@ import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
 import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from './anulaciones.mjs';
 import { listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
-import { calcularCompra, cargarCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
+import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, aplicarNotaCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
@@ -200,6 +200,12 @@ const RUTAS = [
     const r = await cargarCompra(c, ctx, cuerpo);
     return { estado: 201, cuerpo: { ...r.comprobante, avisos: r.avisos } };
   }],
+  ['POST', '/api/compras/notas/calcular', 'compras.cargar', ({ c, ctx, cuerpo }) => calcularNotaCompra(c, ctx, cuerpo)],
+  ['POST', '/api/compras/notas', 'compras.cargar', async ({ c, ctx, cuerpo }) => {
+    const r = await cargarNotaCompra(c, ctx, cuerpo);
+    return { estado: 201, cuerpo: { ...r.comprobante, avisos: r.avisos } };
+  }],
+  ['POST', '/api/compras/notas/:id/aplicar', 'compras.cargar', async ({ c, ctx, p, cuerpo }) => (await aplicarNotaCompra(c, ctx, p.id, cuerpo)).comprobante],
   ['GET', '/api/compras/facturas/:id', 'compras.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'compra' })],
   ['POST', '/api/compras/facturas/:id/anular', 'compras.anular', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await anularComprobante(c, ctx, p.id, cuerpo, { sentido: 'compra' });

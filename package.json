@@ -8,7 +8,7 @@
     "test:modelo": "node modelo/probar_modelo.mjs",
     "test:arca": "node arca/probar_payload.mjs",
     "test:migracion": "node migracion/probar_migracion.mjs",
-    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs && node api/probar_api.mjs && node api/probar_api.mjs --pg && node api/probar_produccion.mjs && node api/probar_estudio.mjs && node api/probar_estudio.mjs --pg && node api/probar_stock.mjs && node api/probar_stock.mjs --pg && node api/probar_trazabilidad.mjs && node api/probar_trazabilidad.mjs --pg && node api/probar_anulaciones.mjs && node api/probar_anulaciones.mjs --pg && node api/probar_compras.mjs && node api/probar_compras.mjs --pg && node api/probar_tesoreria.mjs && node api/probar_tesoreria.mjs --pg && node api/probar_informes.mjs && node api/probar_informes.mjs --pg && node api/probar_cheques.mjs && node api/probar_cheques.mjs --pg",
+    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs && node api/probar_api.mjs && node api/probar_api.mjs --pg && node api/probar_produccion.mjs && node api/probar_estudio.mjs && node api/probar_estudio.mjs --pg && node api/probar_stock.mjs && node api/probar_stock.mjs --pg && node api/probar_trazabilidad.mjs && node api/probar_trazabilidad.mjs --pg && node api/probar_anulaciones.mjs && node api/probar_anulaciones.mjs --pg && node api/probar_compras.mjs && node api/probar_compras.mjs --pg && node api/probar_tesoreria.mjs && node api/probar_tesoreria.mjs --pg && node api/probar_informes.mjs && node api/probar_informes.mjs --pg && node api/probar_cheques.mjs && node api/probar_cheques.mjs --pg && node api/probar_notas_compra.mjs && node api/probar_notas_compra.mjs --pg",
     "test:asistente": "node asistente/probar_asistente.mjs",
     "asistente:dev": "node asistente/servidor_dev.mjs",
     "asistente:humo": "node asistente/probar_claude.mjs",
@@ -28,7 +28,8 @@
     "test:compras": "node api/probar_compras.mjs",
     "test:tesoreria": "node api/probar_tesoreria.mjs",
     "test:informes": "node api/probar_informes.mjs",
-    "test:cheques": "node api/probar_cheques.mjs"
+    "test:cheques": "node api/probar_cheques.mjs",
+    "test:notas-compra": "node api/probar_notas_compra.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13",

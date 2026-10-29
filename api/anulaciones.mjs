@@ -48,10 +48,9 @@ export async function detalleComprobante(c, id, { sentido } = {}) {
   const saldo = (await c.uno('select saldo::text s from v_saldo_comprobante where comprobante_id = $1', [id]))?.s ?? null;
   const anuladoPor = f.anulado_por ? (await c.uno('select nombre from usuario where id = $1', [f.anulado_por]))?.nombre : null;
   let razonNota = null;
-  if (f.sentido !== 'venta') razonNota = 'Las notas de crédito de proveedores todavía no se cargan.';
-  else if (!['factura', 'nota_debito'].includes(clase.clase)) razonNota = 'Solo se acredita una factura o una nota de débito de venta.';
+  if (!['factura', 'nota_debito'].includes(clase.clase)) razonNota = `Solo se acredita una factura o una nota de débito ${f.sentido === 'venta' ? 'de venta' : 'de proveedor'}.`;
   else if (!['confirmado', 'autorizado'].includes(f.estado)) razonNota = f.estado === 'anulado' ? 'Está anulada: no hay nada que acreditar.' : `Un comprobante ${f.estado} no se acredita.`;
-  else if (items.every((i) => dec(i.por_acreditar) <= 0n)) razonNota = 'Ya está acreditada por completo.';
+  else if (f.sentido === 'venta' && items.every((i) => dec(i.por_acreditar) <= 0n)) razonNota = 'Ya está acreditada por completo.';
   const { comprobante_origen_id, anulado_por, ...resto } = f;
   return {
     ...resto, clase: clase.clase, items, saldo, anulacion: f.estado === 'anulado' ? { motivo: f.motivo_anulacion, en: f.anulado_en, por: anuladoPor } : null,
@@ -62,7 +61,7 @@ export async function detalleComprobante(c, id, { sentido } = {}) {
 }
 
 /* ---------- anular ---------- */
-const INVERSO = { venta: 'devolucion_venta', devolucion_venta: 'venta', compra: 'devolucion_compra' };
+const INVERSO = { venta: 'devolucion_venta', devolucion_venta: 'venta', compra: 'devolucion_compra', devolucion_compra: 'compra' };
 export async function anularComprobante(c, ctx, id, cuerpo, { sentido = 'venta' } = {}) {
   const { valor: d } = validar({ motivo: { tipo: 'texto', min: 3, max: 200, requerido: true } }, cuerpo);
   const f = await c.uno(`select c.id, c.sentido, c.estado, c.numero, c.punto_venta, c.imp_total::text total, t.descripcion tipo, t.clase, te.razon_social cliente

@@ -69,8 +69,8 @@ export type PreviaNota = {
 
 /* ---------- compras ---------- */
 export type PreviaCompra = {
-  letra: string; tipo_comprobante_codigo: number; proveedor: { id: number; razon_social: string }; fecha: string; discrimina_iva: boolean;
-  items: { descripcion: string; cantidad: string; precio_unitario: string; tratamiento: string; alicuota: string | null; importe_renglon: string; ingresa_stock: boolean }[];
+  clase?: string; origen?: { id: number; etiqueta: string; saldo: string } | null; letra: string; tipo_comprobante_codigo: number; proveedor: { id: number; razon_social: string }; fecha: string; discrimina_iva: boolean;
+  items: { descripcion: string; cantidad: string; precio_unitario: string; tratamiento: string; alicuota: string | null; importe_renglon: string; ingresa_stock: boolean; devuelve_stock?: boolean }[];
   ivas: { alicuota: string; base_imponible: string; importe_iva: string }[]; imp_neto: string; imp_iva: string; imp_tot_conc: string; imp_op_ex: string; imp_trib: string;
   total_calculado: string; total_informado: string; diferencia: string; coincide: boolean; avisos: string[];
 };

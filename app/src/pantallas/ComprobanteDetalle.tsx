@@ -4,25 +4,26 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, nuevaClave, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { aDecimal, cantidad as fmtCantidad, fecha, fechaHora, moneda } from '../formato';
-import type { ComprobanteDetalle as Detalle, PreviaNota } from '../tipos';
-import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, useAviso, useRetraso } from '../ui';
+import type { ComprobanteDetalle as Detalle, Pendiente, PreviaNota } from '../tipos';
+import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, useRetraso } from '../ui';
 
 export const ESTADOS: Record<string, { texto: string; tono: 'ok' | 'aviso' | 'malo' | 'neutro' }> = {
   borrador: { texto: 'Borrador', tono: 'neutro' }, confirmado: { texto: 'Confirmado', tono: 'ok' }, autorizado: { texto: 'Autorizado', tono: 'ok' }, anulado: { texto: 'Anulado', tono: 'malo' },
 };
 
 /** `modo`: de venta (con notas de crédito) o de compra (solo anular). */
-export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir, modo = 'venta' }: { id: number; onCerrar: () => void; onCambio: () => void; onAbrir: (id: number) => void; modo?: 'venta' | 'compra' }) {
+export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir, onNotaCompra, modo = 'venta' }: { id: number; onCerrar: () => void; onCambio: () => void; onAbrir: (id: number) => void; modo?: 'venta' | 'compra'; onNotaCompra?: (c: Detalle) => void }) {
   const base = modo === 'compra' ? '/api/compras/facturas' : '/api/comprobantes';
   const { puede } = useSesion();
   const [c, setC] = useState<Detalle | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [accion, setAccion] = useState<'anular' | 'nota' | null>(null);
+  const [accion, setAccion] = useState<'anular' | 'nota' | 'aplicar' | null>(null);
   const [recarga, setRecarga] = useState(0);
   useEffect(() => { setC(null); obtener<Detalle>(`${base}/${id}`).then(setC).catch((e) => setError(e.message)); }, [id, recarga]);
   const hecho = () => { setAccion(null); setRecarga((n) => n + 1); onCambio(); };
 
-  const puedeAnular = puede(modo === 'compra' ? 'compras.anular' : 'ventas.anular'), puedeNota = modo === 'venta' && puede('ventas.emitir');
+  const puedeAnular = puede(modo === 'compra' ? 'compras.anular' : 'ventas.anular'), puedeNota = modo === 'venta' && puede('ventas.emitir'), puedeCargar = modo === 'compra' && puede('compras.cargar');
+  const aplicable = puedeCargar && !!c && c.clase === 'nota_credito' && c.estado === 'confirmado' && Number(c.saldo ?? 0) > 0;
   return (
     <>
       <Modal titulo={c ? `${c.tipo} ${c.numero_formateado ?? ''}` : 'Comprobante'} onCerrar={onCerrar} ancho={680}>
@@ -57,8 +58,10 @@ export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir, modo = 've
               </section>
             )}
             <p className="muted" style={{ marginBottom: 0 }}>{c.cae ? `CAE ${c.cae}` : 'Sin CAE: numeración interna (ARCA se conecta en un próximo paso).'}{c.asiento ? ` · Asiento ${c.asiento.estado}` : ''}</p>
-            {(puedeNota || puedeAnular) && c.estado !== 'anulado' && (
+            {(puedeNota || puedeAnular || puedeCargar) && c.estado !== 'anulado' && (
               <div className="pie-form" style={{ alignItems: 'center' }}>
+                {aplicable && <button className="btn" onClick={() => setAccion('aplicar')}>Aplicar el saldo a otra factura</button>}
+                {puedeCargar && ['factura', 'nota_debito'].includes(c.clase) && <button className="btn" disabled={c.acciones.nota_credito !== null} title={c.acciones.nota_credito ?? undefined} onClick={() => onNotaCompra?.(c)}>Cargar nota de crédito</button>}
                 {puedeNota && c.clase !== 'nota_credito' && <button className="btn" disabled={c.acciones.nota_credito !== null} title={c.acciones.nota_credito ?? undefined} onClick={() => setAccion('nota')}>Emitir nota de crédito</button>}
                 {puedeAnular && <button className="btn peligro" disabled={c.acciones.anular !== null} title={c.acciones.anular ?? undefined} onClick={() => setAccion('anular')}>Anular</button>}
               </div>
@@ -70,11 +73,45 @@ export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir, modo = 've
         )}
       </Modal>
       {accion === 'anular' && c && <Anular c={c} base={base} onCerrar={() => setAccion(null)} onHecho={hecho} />}
+      {accion === 'aplicar' && c && <AplicarNota c={c} onCerrar={() => setAccion(null)} onHecho={hecho} />}
       {accion === 'nota' && c && <Nota c={c} onCerrar={() => setAccion(null)} onHecho={(nuevoId) => { hecho(); onAbrir(nuevoId); }} />}
     </>
   );
 }
 const FilaIva = ({ alicuota, importe }: { alicuota: string; importe: string }) => <><dt>IVA {alicuota.replace('.', ',')} %</dt><dd>{moneda(importe)}</dd></>;
+
+/** Lo que le sobró a una nota de crédito de un proveedor se aplica a otra factura (o nota de débito) del mismo proveedor que todavía se deba. */
+function AplicarNota({ c, onCerrar, onHecho }: { c: Detalle; onCerrar: () => void; onHecho: () => void }) {
+  const avisar = useAviso();
+  const [pendientes, setPendientes] = useState<Pendiente[] | null>(null);
+  const [facturaId, setFacturaId] = useState('');
+  const [importe, setImporte] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [trabajando, setTrabajando] = useState(false);
+  const campos = error instanceof ErrorApi ? error.campos : {};
+  useEffect(() => { obtener<{ datos: Pendiente[] }>('/api/pagos/pendientes', { tercero_id: c.tercero_id }).then((r) => setPendientes(r.datos)).catch(() => setPendientes([])); }, [c.tercero_id]);
+  const elegir = (v: string) => { setFacturaId(v); const f = pendientes?.find((x) => String(x.id) === v); if (f) setImporte(Math.min(Number(c.saldo), Number(f.saldo)).toFixed(2)); };
+  async function aplicar(ev: FormEvent) {
+    ev.preventDefault(); setTrabajando(true); setError(null);
+    try { await enviar('POST', `/api/compras/notas/${c.id}/aplicar`, { factura_id: Number(facturaId), importe: aDecimal(importe) }); avisar('Saldo aplicado.'); onHecho(); } catch (e) { setError(e); } finally { setTrabajando(false); }
+  }
+  const general = resumenErrores(error, ['factura_id', 'importe']);
+  return (
+    <Modal titulo={`Aplicar ${c.tipo} ${c.numero_formateado}`} onCerrar={onCerrar} ancho={520}>
+      <form onSubmit={aplicar} noValidate>
+        {general && <Alerta>{general}</Alerta>}
+        <p style={{ marginTop: 0 }}>A la nota le quedan <strong>{moneda(c.saldo ?? '0')}</strong> a favor. Elegí a qué comprobante del proveedor se aplica.</p>
+        {!pendientes && <Cargando />}
+        {pendientes && pendientes.length === 0 && <Alerta tipo="aviso">El proveedor no tiene facturas con saldo para aplicar.</Alerta>}
+        {pendientes && pendientes.length > 0 && <div className="rejilla">
+          <div className="ancho"><Selector etiqueta="Comprobante" value={facturaId} error={campos.factura_id} onChange={(e) => elegir(e.target.value)}><option value="">Elegí…</option>{pendientes.map((p) => <option key={p.id} value={p.id}>{p.tipo} {p.numero_formateado} · saldo {moneda(p.saldo)}</option>)}</Selector></div>
+          <Campo etiqueta="Importe a aplicar" inputMode="decimal" value={importe} error={campos.importe} onChange={(e) => setImporte(e.target.value)} />
+        </div>}
+        <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className="btn primario" disabled={trabajando || !facturaId || !importe.trim()}>{trabajando ? 'Aplicando…' : 'Aplicar'}</button></div>
+      </form>
+    </Modal>
+  );
+}
 
 function Anular({ c, base, onCerrar, onHecho }: { c: Detalle; base: string; onCerrar: () => void; onHecho: () => void }) {
   const avisar = useAviso();

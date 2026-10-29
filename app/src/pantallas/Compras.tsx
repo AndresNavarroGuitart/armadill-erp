@@ -1,4 +1,4 @@
-// Compras: facturas de proveedores. Se cargan los datos del papel (letra, punto de venta y número del proveedor, renglones, percepciones) y el TOTAL
+// Compras: facturas, notas de crédito y notas de débito de proveedores. Se cargan los datos del papel (letra, punto de venta y número del proveedor, renglones, percepciones) y el TOTAL
 // de la factura; el servidor calcula, compara y solo carga si coincide. La pantalla no calcula importes: muestra lo que devuelve el servidor.
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, obtener } from '../api';
@@ -10,9 +10,17 @@ import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
 
 const POR_PAGINA = 25;
 
+type Clase = 'factura' | 'nota_credito' | 'nota_debito';
+type Origen = { id: number; etiqueta: string; letra: string; proveedor: { id: number; razon_social: string } };
+const NOMBRE: Record<Clase, { titulo: string; una: string; de: string; corto: string }> = {
+  factura: { titulo: 'Cargar factura de compra', una: 'una factura', de: 'la factura', corto: 'Factura' },
+  nota_credito: { titulo: 'Cargar nota de crédito de un proveedor', una: 'una nota de crédito', de: 'la nota de crédito', corto: 'Nota de crédito' },
+  nota_debito: { titulo: 'Cargar nota de débito de un proveedor', una: 'una nota de débito', de: 'la nota de débito', corto: 'Nota de débito' },
+};
+
 export function Compras() {
   const { puede } = useSesion();
-  const [nueva, setNueva] = useState(false);
+  const [nueva, setNueva] = useState<{ clase: Clase; origen?: Origen } | null>(null);
   const [estado, setEstado] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -30,12 +38,15 @@ export function Compras() {
   }, [estado, desde, hasta, pagina, recarga]);
   const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
 
-  if (nueva) return <NuevaCompra onVolver={() => setNueva(false)} onCargada={(id) => { setNueva(false); setRecarga((n) => n + 1); setAbierto(id); }} />;
+  if (nueva) return <NuevaCompra clase={nueva.clase} origen={nueva.origen} onVolver={() => setNueva(null)} onCargada={(id) => { setNueva(null); setRecarga((n) => n + 1); setAbierto(id); }} />;
   return (
     <>
       <div className="cabecera">
-        <div><h1>Compras</h1><p>Facturas de proveedores: ingresan la mercadería, actualizan el costo y suman la deuda con el proveedor.</p></div>
-        <div className="acciones">{puede('compras.cargar') && <button className="btn primario" onClick={() => setNueva(true)}>Cargar factura de compra</button>}</div>
+        <div><h1>Compras</h1><p>Facturas de proveedores: ingresan la mercadería, actualizan el costo y suman la deuda con el proveedor. Las notas de crédito la bajan y las de débito la suben.</p></div>
+        <div className="acciones">{puede('compras.cargar') && <>
+          <button className="btn" onClick={() => setNueva({ clase: 'nota_debito' })}>Nota de débito</button>
+          <button className="btn" onClick={() => setNueva({ clase: 'nota_credito' })}>Nota de crédito</button>
+          <button className="btn primario" onClick={() => setNueva({ clase: 'factura' })}>Cargar factura de compra</button></>}</div>
       </div>
       <div className="herramientas">
         <Campo etiqueta="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /><Campo etiqueta="Hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
@@ -57,26 +68,29 @@ export function Compras() {
         </div>
       )}
       {datos && total > POR_PAGINA && <div className="paginado"><span>Página {pagina + 1} de {paginas}</span><span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span></div>}
-      {abierto !== null && <ComprobanteDetalle modo="compra" id={abierto} onCerrar={() => setAbierto(null)} onCambio={() => setRecarga((n) => n + 1)} onAbrir={(id) => setAbierto(id)} />}
+      {abierto !== null && <ComprobanteDetalle modo="compra" onNotaCompra={(c) => { setAbierto(null); setNueva({ clase: 'nota_credito', origen: { id: c.id, etiqueta: `${c.tipo} ${c.numero_formateado ?? ''}`.trim(), letra: c.letra, proveedor: { id: c.tercero_id, razon_social: c.cliente } } }); }} id={abierto} onCerrar={() => setAbierto(null)} onCambio={() => setRecarga((n) => n + 1)} onAbrir={(id) => setAbierto(id)} />}
     </>
   );
 }
 
 /* ====================== Cargar una factura ====================== */
-type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; alicuota: string; tratamiento: string; cuenta: string; deposito: string };
+type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; alicuota: string; tratamiento: string; cuenta: string; deposito: string; devuelve: boolean };
 type Tributo = { uid: number; tipo: string; jurisdiccion: string; importe: string };
 let contador = 0;
-const nuevaLinea = (): Linea => ({ uid: ++contador, articulo: null, texto: '', cantidad: '1', precio: '', desc: '', alicuota: '21', tratamiento: 'gravado', cuenta: '', deposito: '' });
+const nuevaLinea = (): Linea => ({ uid: ++contador, articulo: null, texto: '', cantidad: '1', precio: '', desc: '', alicuota: '21', tratamiento: 'gravado', cuenta: '', deposito: '', devuelve: false });
 const TRIBUTOS: Record<string, string> = { percepcion_iva: 'Percepción de IVA', percepcion_iibb: 'Percepción de Ingresos Brutos', percepcion_ganancias: 'Percepción de Ganancias', percepcion_suss: 'Percepción de SUSS', impuesto_interno: 'Impuesto interno', impuesto_municipal: 'Impuesto municipal', otro: 'Otro tributo' };
 const ALICUOTAS = ['21', '10.5', '27', '5', '2.5', '0'];
 
-function NuevaCompra({ onVolver, onCargada }: { onVolver: () => void; onCargada: (id: number) => void }) {
+function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { clase: Clase; origen?: Origen; onVolver: () => void; onCargada: (id: number) => void }) {
   const avisar = useAviso();
   const { yo } = useSesion();
   const empresaRI = yo?.empresa_activa?.condicion_iva_codigo === 1;
-  const [provTexto, setProvTexto] = useState('');
-  const [proveedor, setProveedor] = useState<Tercero | null>(null);
-  const [letra, setLetra] = useState('A');
+  const nombre = NOMBRE[clase], esNC = clase === 'nota_credito', ruta = clase === 'factura' ? '/api/compras/facturas' : '/api/compras/notas';
+  const [provTexto, setProvTexto] = useState(origenInicial?.proveedor.razon_social ?? '');
+  const [proveedor, setProveedor] = useState<Tercero | null>(origenInicial ? ({ id: origenInicial.proveedor.id, razon_social: origenInicial.proveedor.razon_social } as Tercero) : null);
+  const [letra, setLetra] = useState(origenInicial?.letra ?? 'A');
+  const [origenSel, setOrigenSel] = useState(origenInicial ? String(origenInicial.id) : '');
+  const [facturas, setFacturas] = useState<ComprobanteResumen[]>([]);
   const [pv, setPv] = useState('');
   const [numero, setNumero] = useState('');
   const [fechaF, setFechaF] = useState(hoyISO());
@@ -100,26 +114,32 @@ function NuevaCompra({ onVolver, onCargada }: { onVolver: () => void; onCargada:
     obtener<{ datos: Jurisdiccion[] }>('/api/catalogos/jurisdicciones').then((r) => setJurisdicciones(r.datos)).catch(() => setJurisdicciones([]));
   }, []);
   const variosDepositos = depositos.length > 1;
+  useEffect(() => {                                                                  // las facturas del proveedor que la nota puede acreditar
+    if (!esNC || !proveedor) { setFacturas([]); return; }
+    obtener<Pagina<ComprobanteResumen>>('/api/compras/facturas', { tercero_id: proveedor.id, estado: 'confirmado', limite: 100 }).then((r) => setFacturas(r.datos.filter((f) => f.tipo.startsWith('Factura') || f.tipo.startsWith('Nota de Débito')))).catch(() => setFacturas([]));
+  }, [esNC, proveedor]);
 
   const pedido = useMemo(() => {
-    if (!proveedor || !pv.trim() || !numero.trim()) return null;
+    if (!proveedor || !pv.trim() || !numero.trim() || (esNC && !origenSel)) return null;
     const items = lineas.filter((l) => (l.articulo || l.texto.trim()) && l.cantidad.trim() && l.precio.trim()).map((l) => ({
       ...(l.articulo ? { articulo_id: l.articulo.id } : { descripcion: l.texto.trim() }), cantidad: aDecimal(l.cantidad), precio_unitario: aDecimal(l.precio), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
       ...(discrimina ? { tratamiento: l.tratamiento, ...(l.tratamiento === 'gravado' && !l.articulo ? { alicuota: l.alicuota } : {}) } : {}),
-      ...(l.cuenta && !l.articulo ? { cuenta_id: Number(l.cuenta) } : {}), ...(variosDepositos && l.articulo?.controla_stock ? { deposito_id: Number(l.deposito || depositos[0].id) } : {}),
+      ...(l.cuenta && !l.articulo ? { cuenta_id: Number(l.cuenta) } : {}), ...(esNC && l.devuelve && l.articulo?.controla_stock ? { devuelve_stock: true } : {}),
+      ...(variosDepositos && l.articulo?.controla_stock && (clase === 'factura' || l.devuelve) ? { deposito_id: Number(l.deposito || depositos[0].id) } : {}),
     }));
     if (!items.length) return null;
     return {
-      tercero_id: proveedor.id, letra, punto_venta: Number(pv), numero: Number(numero), fecha: fechaF, ...(vto ? { fecha_vto_pago: vto } : {}), total: aDecimal(total) || '0', ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}), items,
+      ...(clase !== 'factura' ? { clase } : {}), ...(esNC ? { comprobante_origen_id: Number(origenSel) } : {}),
+      tercero_id: proveedor.id, letra, punto_venta: Number(pv), numero: Number(numero), fecha: fechaF, ...(vto && !esNC ? { fecha_vto_pago: vto } : {}), total: aDecimal(total) || '0', ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}), items,
       ...(tributos.length ? { tributos: tributos.filter((t) => t.importe.trim()).map((t) => ({ tipo: t.tipo, ...(t.tipo === 'percepcion_iibb' && t.jurisdiccion ? { jurisdiccion_codigo: Number(t.jurisdiccion) } : {}), importe: aDecimal(t.importe) })) } : {}),
     };
-  }, [proveedor, letra, pv, numero, fechaF, vto, lineas, tributos, total, observaciones, discrimina, variosDepositos, depositos]);
+  }, [proveedor, letra, pv, numero, fechaF, vto, lineas, tributos, total, observaciones, discrimina, variosDepositos, depositos, clase, esNC, origenSel]);
   const huella = JSON.stringify(pedido), retrasada = useRetraso(huella, 400);
   useEffect(() => {
     if (!pedido) { setPrevia(null); setErrorPrevia(null); return; }
     if (retrasada !== huella) return;
     const ctl = new AbortController();
-    enviar<PreviaCompra>('POST', '/api/compras/facturas/calcular', pedido, { senal: ctl.signal })
+    enviar<PreviaCompra>('POST', `${ruta}/calcular`, pedido, { senal: ctl.signal })
       .then((p) => { setPrevia(p); setErrorPrevia(null); })
       .catch((e) => { if ((e as Error).name === 'AbortError') return; setPrevia(null); setErrorPrevia(e instanceof ErrorApi ? [e.message, ...Object.entries(e.campos).map(([k, m]) => `${k.replace(/^items\[(\d+)\]\./, (_, n) => `renglón ${Number(n) + 1}, `)}: ${m}`)].join(' · ') : 'No se pudo calcular.'); });
     return () => ctl.abort();
@@ -134,14 +154,14 @@ function NuevaCompra({ onVolver, onCargada }: { onVolver: () => void; onCargada:
   async function cargar(ev: FormEvent) {
     ev.preventDefault(); if (!pedido) return;
     setTrabajando(true); setError(null);
-    try { const r = await enviar<{ id: number; tipo: string; numero_formateado: string }>('POST', '/api/compras/facturas', pedido); avisar(`${r.tipo} ${r.numero_formateado} cargada.`); onCargada(r.id); }
+    try { const r = await enviar<{ id: number; tipo: string; numero_formateado: string }>('POST', ruta, pedido); avisar(`${r.tipo} ${r.numero_formateado} cargada.`); onCargada(r.id); }
     catch (e) { setError(e); } finally { setTrabajando(false); }
   }
-  const general = resumenErrores(error, ['tercero_id', 'letra', 'punto_venta', 'numero', 'fecha', 'fecha_vto_pago', 'total', ...lineas.flatMap((_, i) => ['articulo_id', 'descripcion', 'cantidad', 'precio_unitario', 'desc_pct', 'alicuota', 'cuenta_id', 'deposito_id'].map((c) => `items[${i}].${c}`)), ...tributos.flatMap((_, i) => [`tributos[${i}].jurisdiccion_codigo`, `tributos[${i}].importe`, `tributos[${i}].tipo`])]);
+  const general = resumenErrores(error, ['clase', 'comprobante_origen_id', 'tercero_id', 'letra', 'punto_venta', 'numero', 'fecha', 'fecha_vto_pago', 'total', ...lineas.flatMap((_, i) => ['articulo_id', 'descripcion', 'cantidad', 'precio_unitario', 'desc_pct', 'alicuota', 'cuenta_id', 'deposito_id', 'devuelve_stock'].map((c) => `items[${i}].${c}`)), ...tributos.flatMap((_, i) => [`tributos[${i}].jurisdiccion_codigo`, `tributos[${i}].importe`, `tributos[${i}].tipo`])]);
 
   return (
     <>
-      <div className="cabecera"><div><h1>Cargar factura de compra</h1><p>Cargá los datos tal cual figuran en la factura del proveedor. El total tiene que coincidir.</p></div><div className="acciones"><button className="btn" onClick={onVolver}>Volver</button></div></div>
+      <div className="cabecera"><div><h1>{nombre.titulo}</h1><p>Cargá los datos tal cual figuran en {nombre.de} del proveedor. El total tiene que coincidir.{esNC ? ' Se aplica a la factura que acredita.' : ''}</p></div><div className="acciones"><button className="btn" onClick={onVolver}>Volver</button></div></div>
       <form onSubmit={cargar} noValidate>
         <div className="factura">
           <div>
@@ -151,13 +171,16 @@ function NuevaCompra({ onVolver, onCargada }: { onVolver: () => void; onCargada:
                 <div className="ancho"><Buscador<Tercero> etiqueta="Proveedor" texto={provTexto} placeholder="Buscá por nombre o CUIT" autoFocus error={campos.tercero_id}
                   onTexto={(t) => { setProvTexto(t); setProveedor(null); }} buscar={(q) => obtener<Pagina<Tercero>>('/api/proveedores', { q: q || undefined, activo: 'true', limite: 8 }).then((r) => r.datos)}
                   mostrar={(t) => <><span>{t.razon_social}</span><span className="muted">{t.tipo_documento} {t.nro_documento}</span></>} onElegir={(t) => { setProveedor(t); setProvTexto(t.razon_social); }} /></div>
-                <Selector etiqueta="Letra" value={letra} error={campos.letra} onChange={(e) => setLetra(e.target.value)}><option value="A">Factura A</option><option value="B">Factura B</option><option value="C">Factura C</option><option value="M">Factura M</option></Selector>
+                <Selector etiqueta="Letra" value={letra} error={campos.letra} onChange={(e) => { setLetra(e.target.value); setOrigenSel(''); }}>{['A', 'B', 'C', 'M'].map((x) => <option key={x} value={x}>{nombre.corto} {x}</option>)}</Selector>
                 <Campo etiqueta="Punto de venta" inputMode="numeric" value={pv} error={campos.punto_venta} placeholder="0004" onChange={(e) => setPv(e.target.value.replace(/\D/g, ''))} />
                 <Campo etiqueta="Número" inputMode="numeric" value={numero} error={campos.numero} placeholder="00001234" onChange={(e) => setNumero(e.target.value.replace(/\D/g, ''))} />
-                <Campo etiqueta="Fecha de la factura" type="date" value={fechaF} error={campos.fecha} onChange={(e) => setFechaF(e.target.value)} />
-                <Campo etiqueta="Vencimiento del pago" type="date" value={vto} error={campos.fecha_vto_pago} ayuda="Opcional: sin completar, se calcula con el plazo del proveedor." onChange={(e) => setVto(e.target.value)} />
+                <Campo etiqueta={`Fecha de ${nombre.de}`} type="date" value={fechaF} error={campos.fecha} onChange={(e) => setFechaF(e.target.value)} />
+                {!esNC && <Campo etiqueta="Vencimiento del pago" type="date" value={vto} error={campos.fecha_vto_pago} ayuda="Opcional: sin completar, se calcula con el plazo del proveedor." onChange={(e) => setVto(e.target.value)} />}
+                {esNC && <div className="ancho"><Selector etiqueta="Factura que acredita" value={origenSel} error={campos.comprobante_origen_id} disabled={!!origenInicial} onChange={(e) => setOrigenSel(e.target.value)}>
+                  <option value="">{proveedor ? 'Elegí la factura…' : 'Primero elegí el proveedor'}</option>{origenInicial && !facturas.some((f) => String(f.id) === origenSel) && <option value={origenSel}>{origenInicial.etiqueta}</option>}
+                  {facturas.filter((f) => f.letra === letra).map((f) => <option key={f.id} value={f.id}>{f.tipo} {f.numero_formateado} · {fecha(f.fecha)} · {moneda(f.imp_total)}</option>)}</Selector></div>}
               </div>
-              {!discrimina && <Alerta tipo="info"><span style={{ display: 'block', marginTop: 0 }}>{letra === 'A' || letra === 'M' ? 'Esta empresa no es responsable inscripta: no toma crédito fiscal. ' : `En una factura ${letra} el IVA no se discrimina. `}Cargá el <strong>precio final</strong> (con IVA incluido): todo va al costo.</span></Alerta>}
+              {!discrimina && <Alerta tipo="info"><span style={{ display: 'block', marginTop: 0 }}>{letra === 'A' || letra === 'M' ? 'Esta empresa no es responsable inscripta: no toma crédito fiscal. ' : `En ${nombre.una} ${letra} el IVA no se discrimina. `}Cargá el <strong>precio final</strong> (con IVA incluido): todo va al costo.</span></Alerta>}
             </div>
             <div className="tarjeta">
               <h2 style={{ marginBottom: 6 }}>Renglones</h2>
@@ -175,7 +198,8 @@ function NuevaCompra({ onVolver, onCargada }: { onVolver: () => void; onCargada:
                       ayuda={l.articulo ? 'Lo toma del artículo' : undefined} onChange={(e) => { const v = e.target.value; cambiarLinea(l.uid, v === 'exento' || v === 'no_gravado' ? { tratamiento: v } : { tratamiento: 'gravado', alicuota: v }); }}>
                       {l.articulo ? <option value="articulo">Del artículo</option> : <>{ALICUOTAS.map((a) => <option key={a} value={a}>{a.replace('.', ',')} %</option>)}<option value="exento">Exento</option><option value="no_gravado">No gravado</option></>}</Selector>}
                     {!l.articulo && <Selector etiqueta="Cuenta del gasto" value={l.cuenta} error={errLinea(l.uid, 'cuenta_id')} onChange={(e) => cambiarLinea(l.uid, { cuenta: e.target.value })}><option value="">Compras (la general)</option>{cuentas.map((c) => <option key={c.id} value={c.id}>{c.codigo} · {c.nombre}</option>)}</Selector>}
-                    {variosDepositos && l.articulo?.controla_stock && <Selector etiqueta="Entra en" value={l.deposito || String(depositos[0].id)} error={errLinea(l.uid, 'deposito_id')} onChange={(e) => cambiarLinea(l.uid, { deposito: e.target.value })}>{depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}</Selector>}
+                    {esNC && l.articulo?.controla_stock && <label className="btn" style={{ alignSelf: 'end' }}><input type="checkbox" checked={l.devuelve} onChange={(e) => cambiarLinea(l.uid, { devuelve: e.target.checked })} /> Devuelve la mercadería</label>}
+                    {variosDepositos && l.articulo?.controla_stock && (clase === 'factura' || l.devuelve) && <Selector etiqueta={clase === 'factura' ? 'Entra en' : 'Sale de'} value={l.deposito || String(depositos[0].id)} error={errLinea(l.uid, 'deposito_id')} onChange={(e) => cambiarLinea(l.uid, { deposito: e.target.value })}>{depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}</Selector>}
                   </div>
                 </div>
               ))}
@@ -197,25 +221,26 @@ function NuevaCompra({ onVolver, onCargada }: { onVolver: () => void; onCargada:
             <div className="tarjeta"><div className="ancho"><Campo etiqueta="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} /></div></div>
           </div>
 
-          <aside className="tarjeta previa" aria-label="Control de la factura" aria-live="polite">
-            <Campo etiqueta="Total de la factura (el que dice el papel)" inputMode="decimal" value={total} error={campos.total} onChange={(e) => setTotal(e.target.value)} />
+          <aside className="tarjeta previa" aria-label={`Control de ${nombre.de}`} aria-live="polite">
+            <Campo etiqueta={`Total de ${nombre.de} (el que dice el papel)`} inputMode="decimal" value={total} error={campos.total} onChange={(e) => setTotal(e.target.value)} />
             {!pedido && <p className="muted">Elegí un proveedor, completá el punto de venta y el número, y cargá al menos un renglón con su precio.</p>}
             {errorPrevia && <Alerta tipo="aviso">{errorPrevia}</Alerta>}
             {previa && (
               <div style={{ marginTop: 8 }}>
+                {previa.origen && <p className="muted" style={{ margin: '0 0 6px' }}>Acredita {previa.origen.etiqueta} (saldo {moneda(previa.origen.saldo)}).</p>}
                 <dl>
-                  {previa.items.map((it, i) => <Fila key={i} k={`${fmtCantidad(it.cantidad)} × ${it.descripcion}${it.ingresa_stock ? ' (stock)' : ''}`} v={moneda(it.importe_renglon)} />)}
+                  {previa.items.map((it, i) => <Fila key={i} k={`${fmtCantidad(it.cantidad)} × ${it.descripcion}${it.ingresa_stock ? ' (stock)' : ''}${it.devuelve_stock ? ' (se devuelve)' : ''}`} v={moneda(it.importe_renglon)} />)}
                   {previa.discrimina_iva && <Fila k="Neto gravado" v={moneda(previa.imp_neto)} />}
                   {previa.ivas.filter((x) => Number(x.importe_iva) !== 0).map((x) => <Fila key={x.alicuota} k={`IVA ${x.alicuota.replace('.', ',')} %`} v={moneda(x.importe_iva)} />)}
                   {Number(previa.imp_op_ex) > 0 && <Fila k="Exento" v={moneda(previa.imp_op_ex)} />}
                   {Number(previa.imp_trib) > 0 && <Fila k="Percepciones" v={moneda(previa.imp_trib)} />}
                 </dl>
                 <dl><dt className="total"><strong>Total calculado</strong></dt><dd className="total"><strong>{moneda(previa.total_calculado)}</strong></dd></dl>
-                {previa.coincide ? <Alerta tipo="info">El total coincide con el de la factura.</Alerta> : <Alerta tipo="aviso">No coincide con el de la factura: diferencia de <strong>{moneda(previa.diferencia)}</strong>. Revisá precios, cantidades, IVA o percepciones.</Alerta>}
+                {previa.coincide ? <Alerta tipo="info">El total coincide con el del papel.</Alerta> : <Alerta tipo="aviso">No coincide con el del papel: diferencia de <strong>{moneda(previa.diferencia)}</strong>. Revisá precios, cantidades, IVA o percepciones.</Alerta>}
                 {previa.avisos.filter((a) => !/no coincide/.test(a)).map((a) => <Alerta key={a} tipo="aviso">{a}</Alerta>)}
               </div>
             )}
-            <div className="pie-form" style={{ marginTop: 14 }}><button className="btn primario" type="submit" style={{ width: '100%' }} disabled={trabajando || !pedido || !previa || !previa.coincide || !total.trim()}>{trabajando ? 'Cargando…' : 'Cargar factura'}</button></div>
+            <div className="pie-form" style={{ marginTop: 14 }}><button className="btn primario" type="submit" style={{ width: '100%' }} disabled={trabajando || !pedido || !previa || !previa.coincide || !total.trim()}>{trabajando ? 'Cargando…' : `Cargar ${nombre.corto.toLowerCase()}`}</button></div>
           </aside>
         </div>
       </form>
