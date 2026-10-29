@@ -10,6 +10,7 @@ import { listarDepositos, crearDeposito, modificarDeposito, listarExistencias, l
 import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } from './ventas.mjs';
 import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
+import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
 const json = (res, estado, cuerpo, cabeceras = {}) => { const t = JSON.stringify(cuerpo); res.writeHead(estado, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(t), ...cabeceras }); res.end(t); };
@@ -125,6 +126,19 @@ const RUTAS = [
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, q)],
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => leerComprobante(c, p.id)],
+  // --- Trazabilidad del estudio (solo administradores). Las rutas fijas van ANTES de /:id ---
+  ['GET', '/api/estudio/trazabilidad', '@estudio', ({ c, q }) => listarEventos(c, q)],
+  ['GET', '/api/estudio/trazabilidad/exportar', '@estudio', async ({ c, ctx, q, origen }) => {
+    const r = await exportarEventos(c, q);
+    await registrarEvento(c, ctx, { categoria: 'seguridad', accion: 'Exportó la trazabilidad a CSV', detalle: `${r.filas} eventos${r.filtros ? ` · ${r.filtros}` : ''}`, origen });
+    return { csv: r.csv, nombre: r.nombre };
+  }],
+  ['POST', '/api/estudio/trazabilidad/verificar', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await verificarCadena(c, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Verificó la integridad de la trazabilidad: ${r.integra ? 'íntegra' : 'CON PROBLEMAS'}`, detalle: `${r.eventos} eventos${r.primer_evento_roto ? ` · se rompe en el ${r.primer_evento_roto}` : ''}${r.resguardo ? ` · contra la cabeza guardada: ${r.resguardo.coincide ? 'coincide' : 'NO coincide'}` : ''}`, origen, resultado: r.integra ? 'ok' : 'fallo' });
+    return r;
+  }],
+  ['GET', '/api/estudio/trazabilidad/:id', '@estudio', ({ c, p }) => leerEvento(c, p.id)],
   // --- Administración del estudio (solo administradores del estudio; sin empresa activa) ---
   ['GET', '/api/estudio', '@estudio', async ({ c, invitador }) => ({ ...(await leerEstudio(c)), invitaciones: !!invitador })],
   ['PATCH', '/api/estudio', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
@@ -240,6 +254,10 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
       const salida = r.propia
         ? await r.hacer({ bd, ctx: ctxTrabajo, p, q, cuerpo, req, origen: origenDe(req), invitador })
         : await bd.conContexto(ctxTrabajo, (c) => r.hacer({ c, ctx: ctxTrabajo, p, q, cuerpo, req, origen: origenDe(req), invitador }));
+      if (salida && typeof salida.csv === 'string') {      // descarga: el archivo se arma con un BOM para que Excel lea bien los acentos
+        res.writeHead(200, { ...base, 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${salida.nombre}"` });
+        return res.end('\ufeff' + salida.csv);
+      }
       if (salida && salida.estado && salida.cuerpo !== undefined && Object.keys(salida).length === 2) return responder(salida.estado, salida.cuerpo);
       return responder(200, salida);
     } catch (e) { return fallar(e); }

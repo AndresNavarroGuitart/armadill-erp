@@ -46,3 +46,8 @@ export type Movimiento = { id: number; fecha: string; articulo_id: number; codig
 export type ListaPrecio = { id: number; nombre: string; orden: number; articulos: number; clientes: number };
 export type FilaAjuste = { articulo_id: number; codigo: string; nombre: string; base: string; actual: string | null; nuevo: string; bajo_costo: boolean; costo: string | null };
 export type ResultadoAjuste = { aplicado: boolean; lista: string; base_lista_id: number; porcentaje: string; vigente_desde: string; redondeo: string; total: number; cambian: number; sin_cambio: number; sin_precio_base: number; bajo_costo: number; datos?: FilaAjuste[] };
+
+/* ---------- trazabilidad ---------- */
+export type EventoTraza = { id: number; nro: number; codigo: string; en: string; empresa_id: number | null; empresa: string | null; usuario_id: number | null; usuario: string | null; categoria: string; accion: string; detalle: string | null; resultado: 'ok' | 'rechazo' | 'fallo'; entidad_tabla: string | null; entidad_id: number | null };
+export type EventoDetalle = EventoTraza & { cambios: { campo: string; antes: string | null; despues: string | null }[] | null; ip: string | null; dispositivo: string | null; huella_prev: string; huella: string; huella_ok: boolean; enlace_ok: boolean };
+export type VerificacionCadena = { integra: boolean; primer_evento_roto: number | null; eventos: number; cabeza: { nro: number; huella: string; en: string } | null; resguardo: { coincide: boolean; motivo: string } | null };

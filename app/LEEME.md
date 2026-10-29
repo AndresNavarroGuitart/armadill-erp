@@ -14,6 +14,7 @@ React + TypeScript + Vite sobre la API de `../api` (ver [api/LEEME.md](../api/LE
 | Artículos | Alta con precio y costo iniciales, IVA, precios por lista con fecha de vigencia |
 | Listas | Alta, nombre, orden y baja de las que nadie usa; **ajuste de precios por porcentaje** con vista previa exacta (base, redondeo, fecha de vigencia, aviso de lo que queda bajo el costo) |
 | Stock | Existencias por depósito con aviso de mínimo, ajustes (ingreso, egreso, conteo físico), transferencias, libro de movimientos con filtros y depósitos |
+| Trazabilidad (solo administradores del estudio) | Libro de eventos con filtros, detalle con antes → después y comprobación de la huella, "ver todo sobre este registro", exportación a CSV y **verificación de la cadena** (con comparación contra la cabeza guardada por fuera) |
 | Estudio (solo administradores del estudio) | Personas (alta con invitación por email opcional, reenvío, baja, marca de administrador y accesos por empresa con su rol), empresas (alta lista para facturar, edición, baja, abrir), roles y permisos, y datos del estudio. Funciona sin empresa activa: quien administra un estudio recién creado entra directo acá |
 
 El menú y los botones siguen los permisos del rol en la empresa activa (Consulta no ve “Facturar” ni “Nuevo cliente”); la API vuelve a controlar todo, el front solo evita ofrecer lo que no se puede hacer.

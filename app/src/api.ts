@@ -34,6 +34,23 @@ export async function llamar<T>(metodo: string, ruta: string, op: Opciones = {})
   if (r.status === 401) sesion.alVencer();
   throw new ErrorApi(r.status, e?.codigo ?? 'error', e?.mensaje ?? (r.status === 429 ? 'Demasiados pedidos seguidos. Esperá unos segundos.' : 'Algo salió mal. Intentá de nuevo.'), e?.campos ?? {});
 }
+/** Descarga un archivo que genera el servidor (CSV): lo pide con la sesión puesta y lo entrega al navegador como descarga. El nombre lo sugiere el servidor. */
+export async function descargar(ruta: string, consulta: Consulta, nombrePorDefecto: string): Promise<void> {
+  const q = Object.entries(consulta).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
+  const token = await sesion.obtenerToken();
+  let r: Response;
+  try { r = await fetch(q ? `${ruta}?${q}` : ruta, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(sesion.empresaId ? { 'X-Empresa-Id': String(sesion.empresaId) } : {}) } }); }
+  catch { throw new ErrorApi(0, 'sin_conexion', 'No se pudo conectar con el servidor. Revisá tu conexión e intentá de nuevo.'); }
+  if (!r.ok) {
+    let e: { error?: { codigo?: string; mensaje?: string } } | null = null; try { e = await r.json(); } catch { /* sin cuerpo */ }
+    if (r.status === 401) sesion.alVencer();
+    throw new ErrorApi(r.status, e?.error?.codigo ?? 'error', e?.error?.mensaje ?? 'No se pudo descargar el archivo.');
+  }
+  const nombre = /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '')?.[1] ?? nombrePorDefecto;
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url; a.download = nombre; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 export const obtener = <T,>(ruta: string, consulta?: Consulta, senal?: AbortSignal) => llamar<T>('GET', ruta, { consulta, senal });
 export const enviar = <T,>(metodo: 'POST' | 'PATCH' | 'PUT', ruta: string, cuerpo: unknown, extra: Omit<Opciones, 'cuerpo'> = {}) => llamar<T>(metodo, ruta, { ...extra, cuerpo });
 

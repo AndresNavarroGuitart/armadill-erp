@@ -11,6 +11,7 @@ import { Comprobantes } from './pantallas/Comprobantes';
 import { Estudio } from './pantallas/Estudio';
 import { Stock } from './pantallas/Stock';
 import { Listas } from './pantallas/Listas';
+import { Trazabilidad } from './pantallas/Trazabilidad';
 import { cuitConGuiones, nombreCondicion } from './formato';
 
 type Ruta = { clave: string; titulo: string; permiso: string; icono: string; pantalla: () => ReactElement };
@@ -25,6 +26,7 @@ const RUTAS: Ruta[] = [
 ];
 /** Administración del estudio: no depende de una empresa ni de un permiso de rol; la habilita la marca de administrador del estudio. */
 const RUTA_ESTUDIO: Ruta = { clave: 'estudio', titulo: 'Estudio', permiso: '@estudio', icono: 'M3 21h18 M5 21V7l7-4 7 4v14 M9 21v-6h6v6 M9 10h.01 M15 10h.01', pantalla: () => <Estudio /> };
+const RUTA_TRAZABILIDAD: Ruta = { clave: 'trazabilidad', titulo: 'Trazabilidad', permiso: '@estudio', icono: 'M12 8v5l3 2 M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8 M3 3v5h5', pantalla: () => <Trazabilidad /> };
 const rutaActual = () => location.hash.replace(/^#\/?/, '').split('/')[0];
 
 export function App() {
@@ -39,10 +41,10 @@ export function App() {
   if (estado === 'sin_sesion' || !yo) return <Ingreso mensaje={error} />;
   const activa = yo.empresa_activa;
   // Una persona que administra el estudio puede trabajar sin empresa activa (por ejemplo, para dar de alta la primera).
-  const enEstudio = yo.admin_estudio && (clave === 'estudio' || (!activa && yo.empresas.length === 0));
+  const enEstudio = yo.admin_estudio && ((clave === 'estudio' || clave === 'trazabilidad') || (!activa && yo.empresas.length === 0));
   if (!activa && !enEstudio) return <ElegirEmpresa />;
 
-  const disponibles = [...(activa ? RUTAS.filter((r) => puede(r.permiso)) : []), ...(yo.admin_estudio ? [RUTA_ESTUDIO] : [])];
+  const disponibles = [...(activa ? RUTAS.filter((r) => puede(r.permiso)) : []), ...(yo.admin_estudio ? [RUTA_ESTUDIO, RUTA_TRAZABILIDAD] : [])];
   const actual = disponibles.find((r) => r.clave === clave) ?? disponibles[0];
   const iniciales = yo.usuario.nombre.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
   document.title = [actual?.titulo, activa?.razon_social, 'administraNET'].filter(Boolean).join(' · ');

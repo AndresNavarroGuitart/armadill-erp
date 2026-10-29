@@ -16,6 +16,12 @@ export const cantidad = (valor: string | null | undefined): string => {
   return dd ? `${miles(e)},${dd}` : miles(e);
 };
 export const fecha = (iso: string | null | undefined): string => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—');
+/** Fecha y hora de un instante (ISO) en la zona del navegador. */
+export const fechaHora = (iso: string | null | undefined, conSegundos = false): string => {
+  if (!iso) return '—';
+  const d = new Date(iso); if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', ...(conSegundos ? { second: '2-digit' } : {}), hour12: false });
+};
 export const hoyISO = (): string => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
