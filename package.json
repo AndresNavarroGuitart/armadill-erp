@@ -8,7 +8,7 @@
     "test:modelo": "node modelo/probar_modelo.mjs",
     "test:arca": "node arca/probar_payload.mjs",
     "test:migracion": "node migracion/probar_migracion.mjs",
-    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs && node api/probar_api.mjs && node api/probar_api.mjs --pg && node api/probar_produccion.mjs && node api/probar_estudio.mjs && node api/probar_estudio.mjs --pg && node api/probar_stock.mjs && node api/probar_stock.mjs --pg && node api/probar_trazabilidad.mjs && node api/probar_trazabilidad.mjs --pg && node api/probar_anulaciones.mjs && node api/probar_anulaciones.mjs --pg",
+    "test": "node reglas/probar.mjs && node modelo/probar_modelo.mjs && node arca/probar_payload.mjs && node migracion/probar_migracion.mjs && node asistente/probar_asistente.mjs && node api/probar_api.mjs && node api/probar_api.mjs --pg && node api/probar_produccion.mjs && node api/probar_estudio.mjs && node api/probar_estudio.mjs --pg && node api/probar_stock.mjs && node api/probar_stock.mjs --pg && node api/probar_trazabilidad.mjs && node api/probar_trazabilidad.mjs --pg && node api/probar_anulaciones.mjs && node api/probar_anulaciones.mjs --pg && node api/probar_compras.mjs && node api/probar_compras.mjs --pg",
     "test:asistente": "node asistente/probar_asistente.mjs",
     "asistente:dev": "node asistente/servidor_dev.mjs",
     "asistente:humo": "node asistente/probar_claude.mjs",
@@ -24,7 +24,8 @@
     "estudio:alta": "node api/alta_estudio.mjs",
     "test:stock": "node api/probar_stock.mjs",
     "test:trazabilidad": "node api/probar_trazabilidad.mjs",
-    "test:anulaciones": "node api/probar_anulaciones.mjs"
+    "test:anulaciones": "node api/probar_anulaciones.mjs",
+    "test:compras": "node api/probar_compras.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13",

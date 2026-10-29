@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (24 archivos SQL)
+## 2. Módulos (25 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -44,7 +44,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 20 administración | `usuario.admin_estudio` (marca de quien administra el estudio completo, sin depender de una empresa); la base impone que **el estudio nunca se quede sin administrador activo**, que persona, empresa y rol de un acceso sean **del mismo estudio** y que el email se guarde en minúsculas; RLS para `estudio` y `rol_permiso` (que no tenían aislamiento) y política por estudio sobre `usuario_empresa`; `fn_provisionar_empresa` (plan de cuentas básico, cuentas automáticas, ejercicio, períodos, punto de venta 1, depósito y lista: una empresa nace **lista para facturar**), `fn_alta_empresa` (definer, exige administrador activo del estudio del contexto) y `fn_alta_estudio` (solo el dueño de la base). Ver [api/LEEME.md](api/LEEME.md) |
 | 21 stock y listas | permisos `stock.ver`, `stock.ajustar` y `listas.editar` (con su alta en los roles de base que ya existen), `articulo.stock_minimo`, `movimiento_stock.motivo` y la regla (en la base) de que **un depósito con existencias no se da de baja y la empresa conserva al menos uno activo**. Ver [api/LEEME.md](api/LEEME.md) |
 | 22 anulaciones y notas | permiso `ventas.anular`; constancia de la anulación (motivo, quién y cuándo; el comprobante **conserva su número**); `comprobante_item.item_origen_id` (qué renglón de la factura acredita cada renglón de una nota); la base impone que **una nota nunca acredite más de lo facturado** en cada renglón y que **no se anule lo que tiene cobros imputados o notas aplicadas**. Ver [api/LEEME.md](api/LEEME.md) |
-| 23 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 23 compras | permisos `compras.ver`, `compras.cargar` y `compras.anular` (las reglas de fondo —número del proveedor único, verificación de importes, asiento automático, período abierto, anulación con contraasiento— ya las imponían 06, 15 y 22). Ver [api/LEEME.md](api/LEEME.md) |
+| 24 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

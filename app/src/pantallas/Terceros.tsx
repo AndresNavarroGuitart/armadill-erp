@@ -48,14 +48,14 @@ export function Terceros({ rol }: { rol: Rol }) {
       {datos && datos.datos.length > 0 && (
         <div className="tabla-caja">
           <table>
-            <thead><tr><th>Nombre</th><th>Documento</th><th>Condición IVA</th>{rol === 'cliente' && <th className="num">Saldo</th>}<th /></tr></thead>
+            <thead><tr><th>Nombre</th><th>Documento</th><th>Condición IVA</th><th className="num">{rol === 'cliente' ? 'Nos deben' : 'Les debemos'}</th><th /></tr></thead>
             <tbody>
               {datos.datos.map((t) => (
                 <tr key={t.id} className="clic" onClick={() => setFormulario(t)}>
                   <td><strong>{t.razon_social}</strong>{t.email && <div className="muted">{t.email}</div>}</td>
                   <td className="num">{t.tipo_documento === 'SIN_IDENTIFICAR' ? 'Sin identificar' : `${t.tipo_documento} ${t.tipo_documento === 'CUIT' ? cuitConGuiones(t.nro_documento) : t.nro_documento}`}</td>
                   <td>{nombreCondicion(t.condicion_iva_codigo)}</td>
-                  {rol === 'cliente' && <td className="num">{moneda(t.saldo ?? '0')}</td>}
+                  <td className="num">{moneda(t.saldo ?? '0')}</td>
                   <td>{t.es_cliente && t.es_proveedor && <Etiqueta tono="info">{rol === 'cliente' ? 'También proveedor' : 'También cliente'}</Etiqueta>} {!t.activo && <Etiqueta tono="aviso">De baja</Etiqueta>}</td>
                 </tr>
               ))}

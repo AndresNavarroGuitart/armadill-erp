@@ -11,6 +11,7 @@ import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } f
 import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
 import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from './anulaciones.mjs';
+import { calcularCompra, cargarCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -125,8 +126,23 @@ const RUTAS = [
     const r = await emitirFactura(c, ctx, cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
     return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.comprobante, avisos: r.avisos, repetido: r.repetido } };
   }],
-  ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, q)],
-  ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id)],
+  ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, { ...q, sentido: 'venta' })],      // las compras tienen su propio permiso y su propia ruta
+  ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'venta' })],
+  // --- Compras ---
+  ['GET', '/api/compras/facturas', 'compras.ver', ({ c, q }) => listarCompras(c, q)],
+  ['POST', '/api/compras/facturas/calcular', 'compras.cargar', ({ c, ctx, cuerpo }) => calcularCompra(c, ctx, cuerpo)],
+  ['POST', '/api/compras/facturas', 'compras.cargar', async ({ c, ctx, cuerpo }) => {
+    const r = await cargarCompra(c, ctx, cuerpo);
+    return { estado: 201, cuerpo: { ...r.comprobante, avisos: r.avisos } };
+  }],
+  ['GET', '/api/compras/facturas/:id', 'compras.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'compra' })],
+  ['POST', '/api/compras/facturas/:id/anular', 'compras.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularComprobante(c, ctx, p.id, cuerpo, { sentido: 'compra' });
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Anuló ${r.etiqueta} de compra`, detalle: `${r.cliente} · $ ${r.total} · motivo: ${r.motivo}${r.stock ? ` · sacó ${r.stock} movimientos de stock` : ''}`, entidad: 'comprobante', entidadId: p.id, origen });
+    return r.comprobante;
+  }],
+  ['GET', '/api/plan-cuentas', 'compras.ver', ({ c, q }) => listarCuentas(c, q)],
+  ['GET', '/api/catalogos/jurisdicciones', 'compras.ver', ({ c }) => listarJurisdicciones(c)],
   ['POST', '/api/comprobantes/:id/anular', 'ventas.anular', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await anularComprobante(c, ctx, p.id, cuerpo);
     await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Anuló ${r.etiqueta}`, detalle: `${r.cliente} · $ ${r.total} · motivo: ${r.motivo}${r.stock ? ` · devolvió ${r.stock} movimientos de stock` : ''}`, entidad: 'comprobante', entidadId: p.id, origen });

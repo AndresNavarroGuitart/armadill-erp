@@ -26,7 +26,6 @@ async function dependientes(c, id) {
   return { cobros, notas, aplicada };
 }
 function razonNoAnular(f, dep) {
-  if (f.sentido !== 'venta') return 'Por ahora solo se anulan comprobantes de venta.';
   if (f.estado === 'anulado') return 'Ya está anulado.';
   if (f.estado === 'autorizado') return 'Tiene CAE de ARCA: no se anula, se corrige con una nota de crédito.';
   if (f.estado !== 'confirmado') return `Un comprobante ${f.estado} no se anula.`;
@@ -36,8 +35,9 @@ function razonNoAnular(f, dep) {
 }
 
 /* El comprobante completo, con lo que hace falta para decidir qué hacer con él. */
-export async function detalleComprobante(c, id) {
+export async function detalleComprobante(c, id, { sentido } = {}) {
   const f = await leerComprobante(c, id);
+  if (sentido && f.sentido !== sentido) throw noEncontrado('El comprobante');
   const dep = await dependientes(c, id);
   const clase = (await c.uno('select clase, signo from arca_tipo_comprobante where codigo = $1', [f.tipo_comprobante_codigo]));
   const acreditados = await c.consultar(`select i.item_origen_id as id, sum(i.cantidad)::text as cantidad from comprobante_item i join comprobante n on n.id = i.comprobante_id and n.estado in ('confirmado','autorizado')
@@ -48,7 +48,8 @@ export async function detalleComprobante(c, id) {
   const saldo = (await c.uno('select saldo::text s from v_saldo_comprobante where comprobante_id = $1', [id]))?.s ?? null;
   const anuladoPor = f.anulado_por ? (await c.uno('select nombre from usuario where id = $1', [f.anulado_por]))?.nombre : null;
   let razonNota = null;
-  if (f.sentido !== 'venta' || !['factura', 'nota_debito'].includes(clase.clase)) razonNota = 'Solo se acredita una factura o una nota de débito de venta.';
+  if (f.sentido !== 'venta') razonNota = 'Las notas de crédito de proveedores todavía no se cargan.';
+  else if (!['factura', 'nota_debito'].includes(clase.clase)) razonNota = 'Solo se acredita una factura o una nota de débito de venta.';
   else if (!['confirmado', 'autorizado'].includes(f.estado)) razonNota = f.estado === 'anulado' ? 'Está anulada: no hay nada que acreditar.' : `Un comprobante ${f.estado} no se acredita.`;
   else if (items.every((i) => dec(i.por_acreditar) <= 0n)) razonNota = 'Ya está acreditada por completo.';
   const { comprobante_origen_id, anulado_por, ...resto } = f;
@@ -61,12 +62,12 @@ export async function detalleComprobante(c, id) {
 }
 
 /* ---------- anular ---------- */
-const INVERSO = { venta: 'devolucion_venta', devolucion_venta: 'venta' };
-export async function anularComprobante(c, ctx, id, cuerpo) {
+const INVERSO = { venta: 'devolucion_venta', devolucion_venta: 'venta', compra: 'devolucion_compra' };
+export async function anularComprobante(c, ctx, id, cuerpo, { sentido = 'venta' } = {}) {
   const { valor: d } = validar({ motivo: { tipo: 'texto', min: 3, max: 200, requerido: true } }, cuerpo);
   const f = await c.uno(`select c.id, c.sentido, c.estado, c.numero, c.punto_venta, c.imp_total::text total, t.descripcion tipo, t.clase, te.razon_social cliente
     from comprobante c join arca_tipo_comprobante t on t.codigo = c.tipo_comprobante_codigo join tercero te on te.id = c.tercero_id where c.id = $1 for update of c`, [id]);
-  if (!f) throw noEncontrado('El comprobante');
+  if (!f || f.sentido !== sentido) throw noEncontrado('El comprobante');
   const dep = await dependientes(c, id), razon = razonNoAnular(f, dep);
   if (razon) throw new ErrorApi(422, f.estado === 'autorizado' ? 'autorizado_no_se_anula' : 'no_se_puede_anular', razon);
   const periodo = (await c.uno('select fn_periodo_aceptado($1, $2) p', [ctx.empresaId, hoyISO()])).p;
@@ -79,7 +80,7 @@ export async function anularComprobante(c, ctx, id, cuerpo) {
   const permite = (await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p;
   for (const m of movs.filter((x) => dec(x.cantidad) > 0n)) {              // lo que había entrado (devoluciones de una nota) tiene que seguir estando para poder sacarlo
     const saldo = (await c.uno('select coalesce(sum(cantidad), 0)::text s from movimiento_stock where articulo_id = $1 and deposito_id = $2', [m.articulo_id, m.deposito_id])).s;
-    if (!permite && dec(saldo) < dec(m.cantidad)) throw new ErrorApi(422, 'stock_insuficiente', `No se puede anular: la mercadería que devolvió esta nota (${cant(m.cantidad)} de ${m.nombre}) ya no está en el depósito (hay ${cant(saldo)}).`);
+    if (!permite && dec(saldo) < dec(m.cantidad)) throw new ErrorApi(422, 'stock_insuficiente', `No se puede anular: la mercadería que ${f.clase === 'nota_credito' ? 'devolvió esta nota' : 'ingresó con esta compra'} (${cant(m.cantidad)} de ${m.nombre}) ya no está en el depósito (hay ${cant(saldo)}).`);
   }
   // La nota aplicada a una factura: se deshace la aplicación (la factura recupera su saldo).
   const desaplicadas = f.clase === 'nota_credito' ? await c.consultar('delete from comprobante_aplicacion where nota_id = $1 returning factura_id', [id]) : [];
@@ -88,7 +89,19 @@ export async function anularComprobante(c, ctx, id, cuerpo) {
     await c.consultar(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, motivo) values ($1, $2, $3, $4, $5, $6, $7)`,
       [ctx.empresaId, hoyISO(), m.articulo_id, m.deposito_id, texto(-dec(m.cantidad), 4), INVERSO[m.tipo], `Anulación de ${etiqueta}`.slice(0, 200)]);
   }
+  if (f.sentido === 'compra') await revertirCostos(c, ctx, id);
   return { comprobante: await detalleComprobante(c, id), etiqueta, cliente: f.cliente, total: f.total, motivo: d.motivo, stock: movs.length, desaplicadas: desaplicadas.length };
+}
+
+/* Si el costo de un artículo era el de esta compra, vuelve al anterior (se agrega un registro nuevo: el historial no se edita). */
+async function revertirCostos(c, ctx, id) {
+  const articulos = await c.consultar('select distinct articulo_id from articulo_costo where comprobante_id = $1', [id]);
+  for (const { articulo_id } of articulos) {
+    const ultimo = await c.uno('select comprobante_id from articulo_costo where articulo_id = $1 order by fecha desc, id desc limit 1', [articulo_id]);
+    // el anterior que siga vigente (el de otra compra ya anulada no vale)
+    const previo = ultimo?.comprobante_id === id ? await c.uno(`select k.costo::text costo from articulo_costo k left join comprobante cc on cc.id = k.comprobante_id where k.articulo_id = $1 and k.comprobante_id is distinct from $2 and (cc.id is null or cc.estado <> 'anulado') order by k.fecha desc, k.id desc limit 1`, [articulo_id, id]) : null;
+    if (previo) await c.consultar(`insert into articulo_costo (empresa_id, articulo_id, fecha, costo, origen) values ($1, $2, $3, $4, 'ajuste')`, [ctx.empresaId, articulo_id, hoyISO(), previo.costo]);
+  }
 }
 
 /* ---------- nota de crédito ---------- */

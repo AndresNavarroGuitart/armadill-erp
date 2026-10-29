@@ -66,3 +66,13 @@ export type PreviaNota = {
   items: { item_id: number; descripcion: string; cantidad: string; precio_unitario: string; importe_renglon: string; devuelve_stock: boolean }[];
   ivas: { alicuota: string; base_imponible: string; importe_iva: string }[]; imp_neto: string; imp_iva: string; imp_tot_conc: string; imp_op_ex: string; imp_desc_pie: string; imp_total: string; saldo_factura: string; avisos: string[];
 };
+
+/* ---------- compras ---------- */
+export type PreviaCompra = {
+  letra: string; tipo_comprobante_codigo: number; proveedor: { id: number; razon_social: string }; fecha: string; discrimina_iva: boolean;
+  items: { descripcion: string; cantidad: string; precio_unitario: string; tratamiento: string; alicuota: string | null; importe_renglon: string; ingresa_stock: boolean }[];
+  ivas: { alicuota: string; base_imponible: string; importe_iva: string }[]; imp_neto: string; imp_iva: string; imp_tot_conc: string; imp_op_ex: string; imp_trib: string;
+  total_calculado: string; total_informado: string; diferencia: string; coincide: boolean; avisos: string[];
+};
+export type Cuenta = { id: number; codigo: string; nombre: string; tipo: string };
+export type Jurisdiccion = { codigo: number; nombre: string };

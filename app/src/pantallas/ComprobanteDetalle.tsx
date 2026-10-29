@@ -11,16 +11,18 @@ export const ESTADOS: Record<string, { texto: string; tono: 'ok' | 'aviso' | 'ma
   borrador: { texto: 'Borrador', tono: 'neutro' }, confirmado: { texto: 'Confirmado', tono: 'ok' }, autorizado: { texto: 'Autorizado', tono: 'ok' }, anulado: { texto: 'Anulado', tono: 'malo' },
 };
 
-export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir }: { id: number; onCerrar: () => void; onCambio: () => void; onAbrir: (id: number) => void }) {
+/** `modo`: de venta (con notas de crédito) o de compra (solo anular). */
+export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir, modo = 'venta' }: { id: number; onCerrar: () => void; onCambio: () => void; onAbrir: (id: number) => void; modo?: 'venta' | 'compra' }) {
+  const base = modo === 'compra' ? '/api/compras/facturas' : '/api/comprobantes';
   const { puede } = useSesion();
   const [c, setC] = useState<Detalle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [accion, setAccion] = useState<'anular' | 'nota' | null>(null);
   const [recarga, setRecarga] = useState(0);
-  useEffect(() => { setC(null); obtener<Detalle>(`/api/comprobantes/${id}`).then(setC).catch((e) => setError(e.message)); }, [id, recarga]);
+  useEffect(() => { setC(null); obtener<Detalle>(`${base}/${id}`).then(setC).catch((e) => setError(e.message)); }, [id, recarga]);
   const hecho = () => { setAccion(null); setRecarga((n) => n + 1); onCambio(); };
 
-  const puedeAnular = puede('ventas.anular'), puedeNota = puede('ventas.emitir');
+  const puedeAnular = puede(modo === 'compra' ? 'compras.anular' : 'ventas.anular'), puedeNota = modo === 'venta' && puede('ventas.emitir');
   return (
     <>
       <Modal titulo={c ? `${c.tipo} ${c.numero_formateado ?? ''}` : 'Comprobante'} onCerrar={onCerrar} ancho={680}>
@@ -34,8 +36,8 @@ export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir }: { id: nu
             {c.observaciones && c.clase === 'nota_credito' && <p className="muted" style={{ margin: '0 0 8px' }}>Motivo: {c.observaciones}</p>}
             <div className="tabla-caja">
               <table>
-                <thead><tr><th>Descripción</th><th className="num">Cant.</th><th className="num">Precio</th><th className="num">Importe</th>{c.clase === 'factura' && <th className="num">Acreditado</th>}</tr></thead>
-                <tbody>{c.items.map((it) => <tr key={it.id}><td>{it.descripcion}</td><td className="num">{fmtCantidad(it.cantidad)}</td><td className="num">{moneda(it.precio_unitario)}</td><td className="num">{moneda(it.importe_renglon)}</td>{c.clase === 'factura' && <td className="num">{Number(it.acreditado) > 0 ? fmtCantidad(it.acreditado) : <span className="muted">—</span>}</td>}</tr>)}</tbody>
+                <thead><tr><th>Descripción</th><th className="num">Cant.</th><th className="num">Precio</th><th className="num">Importe</th>{modo === 'venta' && c.clase === 'factura' && <th className="num">Acreditado</th>}</tr></thead>
+                <tbody>{c.items.map((it) => <tr key={it.id}><td>{it.descripcion}</td><td className="num">{fmtCantidad(it.cantidad)}</td><td className="num">{moneda(it.precio_unitario)}</td><td className="num">{moneda(it.importe_renglon)}</td>{modo === 'venta' && c.clase === 'factura' && <td className="num">{Number(it.acreditado) > 0 ? fmtCantidad(it.acreditado) : <span className="muted">—</span>}</td>}</tr>)}</tbody>
               </table>
             </div>
             <dl className="previa" style={{ marginTop: 12 }}>
@@ -61,20 +63,20 @@ export function ComprobanteDetalle({ id, onCerrar, onCambio, onAbrir }: { id: nu
                 {puedeAnular && <button className="btn peligro" disabled={c.acciones.anular !== null} title={c.acciones.anular ?? undefined} onClick={() => setAccion('anular')}>Anular</button>}
               </div>
             )}
-            {c.estado !== 'anulado' && (c.acciones.anular || (c.clase !== 'nota_credito' && c.acciones.nota_credito)) && (puedeAnular || puedeNota) && (
-              <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0', textAlign: 'right' }}>{c.acciones.anular && `Anular: ${c.acciones.anular}`}{c.acciones.anular && c.clase !== 'nota_credito' && c.acciones.nota_credito ? ' · ' : ''}{c.clase !== 'nota_credito' && c.acciones.nota_credito ? `Nota de crédito: ${c.acciones.nota_credito}` : ''}</p>
+            {c.estado !== 'anulado' && (c.acciones.anular || (modo === 'venta' && c.clase !== 'nota_credito' && c.acciones.nota_credito)) && (puedeAnular || puedeNota) && (
+              <p className="muted" style={{ fontSize: 12.5, margin: '6px 0 0', textAlign: 'right' }}>{c.acciones.anular && `Anular: ${c.acciones.anular}`}{c.acciones.anular && modo === 'venta' && c.clase !== 'nota_credito' && c.acciones.nota_credito ? ' · ' : ''}{modo === 'venta' && c.clase !== 'nota_credito' && c.acciones.nota_credito ? `Nota de crédito: ${c.acciones.nota_credito}` : ''}</p>
             )}
           </>
         )}
       </Modal>
-      {accion === 'anular' && c && <Anular c={c} onCerrar={() => setAccion(null)} onHecho={hecho} />}
+      {accion === 'anular' && c && <Anular c={c} base={base} onCerrar={() => setAccion(null)} onHecho={hecho} />}
       {accion === 'nota' && c && <Nota c={c} onCerrar={() => setAccion(null)} onHecho={(nuevoId) => { hecho(); onAbrir(nuevoId); }} />}
     </>
   );
 }
 const FilaIva = ({ alicuota, importe }: { alicuota: string; importe: string }) => <><dt>IVA {alicuota.replace('.', ',')} %</dt><dd>{moneda(importe)}</dd></>;
 
-function Anular({ c, onCerrar, onHecho }: { c: Detalle; onCerrar: () => void; onHecho: () => void }) {
+function Anular({ c, base, onCerrar, onHecho }: { c: Detalle; base: string; onCerrar: () => void; onHecho: () => void }) {
   const avisar = useAviso();
   const [motivo, setMotivo] = useState('');
   const [error, setError] = useState<unknown>(null);
@@ -82,14 +84,14 @@ function Anular({ c, onCerrar, onHecho }: { c: Detalle; onCerrar: () => void; on
   const campos = error instanceof ErrorApi ? error.campos : {};
   async function confirmar(ev: FormEvent) {
     ev.preventDefault(); setTrabajando(true); setError(null);
-    try { await enviar('POST', `/api/comprobantes/${c.id}/anular`, { motivo: motivo.trim() }); avisar(`${c.tipo} ${c.numero_formateado} ${c.clase === 'nota_credito' ? 'anulada' : 'anulado'}.`); onHecho(); } catch (e) { setError(e); } finally { setTrabajando(false); }
+    try { await enviar('POST', `${base}/${c.id}/anular`, { motivo: motivo.trim() }); avisar(`${c.tipo} ${c.numero_formateado} ${/^(Factura|Nota)/.test(c.tipo) ? 'anulada' : 'anulado'}.`); onHecho(); } catch (e) { setError(e); } finally { setTrabajando(false); }
   }
   const general = resumenErrores(error, ['motivo']);
   return (
     <Modal titulo={`Anular ${c.tipo} ${c.numero_formateado}`} onCerrar={onCerrar} ancho={520}>
       <form onSubmit={confirmar} noValidate>
         {general && <Alerta>{general}</Alerta>}
-        <Alerta tipo="aviso">Esto no se puede deshacer. El comprobante <strong>conserva su número</strong> y queda anulado; se registra el contraasiento contable de hoy y, si había mercadería que salió de un depósito, vuelve a él. Si el cliente tiene que recibir un comprobante correcto, emitilo después.</Alerta>
+        <Alerta tipo="aviso">Esto no se puede deshacer. El comprobante <strong>conserva su número</strong> y queda anulado; se registra el contraasiento contable de hoy y, si había mercadería, el stock vuelve a como estaba. Si hace falta un comprobante correcto, cargalo o emitilo después.</Alerta>
         <Campo etiqueta="Motivo de la anulación" value={motivo} error={campos.motivo} placeholder="Ej.: se facturó al cliente equivocado" onChange={(e) => setMotivo(e.target.value)} autoFocus />
         <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>No anular</button><button type="submit" className="btn peligro" disabled={trabajando || motivo.trim().length < 3}>{trabajando ? 'Anulando…' : 'Anular definitivamente'}</button></div>
       </form>
