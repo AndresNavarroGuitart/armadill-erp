@@ -3,7 +3,7 @@
 // La base impone lo de fondo: identidad contable (medios + retenciones + descuentos = imputado + a cuenta), no imputar más que el saldo, asiento automático,
 // y que la caja y el banco se muevan SOLO al confirmar o anular. Acá se agrega lo que conviene avisar antes (y que no se gire más de lo que hay).
 import { createHash } from 'node:crypto';
-import { validar } from './validar.mjs';
+import { validar, cuitValido } from './validar.mjs';
 import { ErrorApi, invalido, noEncontrado } from './errores.mjs';
 import { numeroFormateado } from './ventas.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
@@ -84,7 +84,9 @@ export async function listarMovimientosTesoreria(c, { caja_id, cuenta_bancaria_i
 const ESQUEMA = {
   tercero_id: { tipo: 'entero', min: 1, requerido: true }, fecha: { tipo: 'fecha' }, observaciones: { tipo: 'texto', max: 500 }, descuento: { tipo: 'importe', min: 0, max: 999999999999 },
   imputaciones: { tipo: 'lista', max: 100, elemento: { comprobante_id: { tipo: 'entero', min: 1, requerido: true }, importe: { tipo: 'importe', min: 0.01, max: 999999999999, requerido: true } } },
-  medios: { tipo: 'lista', max: 20, elemento: { medio: { tipo: 'enum', valores: ['efectivo', 'tarjeta', 'transferencia'], requerido: true }, caja_id: { tipo: 'entero', min: 1 }, cuenta_bancaria_id: { tipo: 'entero', min: 1 }, importe: { tipo: 'importe', min: 0.01, max: 999999999999, requerido: true } } },
+  medios: { tipo: 'lista', max: 20, elemento: { medio: { tipo: 'enum', valores: ['efectivo', 'tarjeta', 'transferencia', 'cheque'], requerido: true }, caja_id: { tipo: 'entero', min: 1 }, cuenta_bancaria_id: { tipo: 'entero', min: 1 }, cheque_id: { tipo: 'entero', min: 1 },
+    cheque: { tipo: 'objeto', campos: { numero: { tipo: 'texto', min: 1, max: 20, requerido: true }, banco: { tipo: 'texto', min: 2, max: 60 }, cuit_librador: { tipo: 'texto', max: 11 }, fecha_emision: { tipo: 'fecha' }, fecha_pago: { tipo: 'fecha' } } },
+    importe: { tipo: 'importe', min: 0.01, max: 999999999999 } } },
   retenciones: { tipo: 'lista', max: 20, elemento: {
     tipo: { tipo: 'enum', valores: ['iva', 'ganancias', 'iibb', 'suss'], requerido: true }, jurisdiccion_codigo: { tipo: 'entero', min: 1, max: 32767 }, base_imponible: { tipo: 'importe', min: 0, max: 999999999999 },
     alicuota: { tipo: 'porcentaje' }, importe: { tipo: 'importe', min: 0.01, max: 999999999999, requerido: true }, certificado_numero: { tipo: 'texto', min: 1, max: 30, requerido: true }, certificado_fecha: { tipo: 'fecha', requerido: true },
@@ -118,9 +120,54 @@ async function prepararPago(c, ctx, tipoPago, cuerpo) {
 
   // --- con qué se cobra o se paga
   const cajas = await c.consultar('select id, nombre, tipo, activa, moneda from caja'), bancos = await c.consultar('select id, banco, numero_cuenta, activa, moneda from cuenta_bancaria');
-  const medios = [], salidas = new Map();
+  const medios = [], salidas = new Map(), idsCheque = new Set(), nuevos = new Set(), hace30 = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   for (const [i, m] of (d.medios ?? []).entries()) {
     const k = `medios[${i}].`;
+    if (m.medio === 'cheque') {
+      if (m.caja_id) errores[k + 'caja_id'] = 'un cheque no va a una caja';
+      if (m.cheque_id && m.cheque) errores[k + 'cheque'] = 'indicá un cheque de la cartera o los datos de uno nuevo, no los dos';
+      else if (m.cheque_id) {
+        if (tipoPago === 'cobro') errores[k + 'cheque_id'] = 'en un cobro se recibe un cheque nuevo: ingresá sus datos';
+        else {
+          const ch = await c.uno('select id, numero, banco, importe::text importe, origen, estado from cheque where id = $1', [m.cheque_id]);
+          if (!ch) errores[k + 'cheque_id'] = 'el cheque no existe';
+          else if (ch.origen !== 'tercero' || ch.estado !== 'en_cartera') errores[k + 'cheque_id'] = `el cheque ${ch.numero} no está en la cartera (está ${ch.estado.replace('_', ' ')})`;
+          else if (idsCheque.has(ch.id)) errores[k + 'cheque_id'] = 'ese cheque está repetido';
+          else {
+            idsCheque.add(ch.id);
+            if (m.importe && dec(m.importe) !== dec(ch.importe)) errores[k + 'importe'] = `el cheque es de $ ${ch.importe}: se entrega entero`;
+            medios.push({ ...m, importe: ch.importe, destino: `Cheque ${ch.numero}${ch.banco ? ` · ${ch.banco}` : ''}`, clave: `ch${ch.id}`, saldoSql: null });
+          }
+        }
+      } else if (m.cheque) {
+        const x = m.cheque;
+        if (!m.importe) errores[k + 'importe'] = 'es obligatorio';
+        if (x.cuit_librador && !cuitValido(x.cuit_librador)) errores[k + 'cheque.cuit_librador'] = 'el CUIT no es válido';
+        if (x.fecha_emision && x.fecha_emision > hoy) errores[k + 'cheque.fecha_emision'] = 'la fecha de emisión no puede ser futura';
+        if (x.fecha_pago && x.fecha_emision && x.fecha_pago < x.fecha_emision) errores[k + 'cheque.fecha_pago'] = 'no puede ser anterior a la fecha de emisión';
+        if (tipoPago === 'cobro') {
+          if (m.cuenta_bancaria_id) errores[k + 'cuenta_bancaria_id'] = 'el cheque de un tercero no va a una cuenta: se elige al depositarlo';
+          if (!x.banco) errores[k + 'cheque.banco'] = 'es obligatorio';
+          else {
+            const clave = `${x.banco.toLowerCase()}|${x.numero}`;
+            if (nuevos.has(clave) || await c.uno("select 1 x from cheque where origen = 'tercero' and lower(banco) = lower($1) and numero = $2 and estado <> 'anulado'", [x.banco, x.numero])) errores[k + 'cheque.numero'] = 'ya hay un cheque de ese banco con ese número';
+            nuevos.add(clave);
+          }
+          if (x.fecha_pago && x.fecha_pago < hace30) avisos.push(`El cheque ${x.numero} tiene más de 30 días desde su fecha de pago: puede estar vencido para presentarlo al banco.`);
+          medios.push({ ...m, importe: m.importe ?? '0', destino: `Cheque ${x.numero} · ${x.banco ?? ''}`, clave: `ch${i}`, saldoSql: null, nuevo: { origen: 'tercero', ...x } });
+        } else {
+          const b = bancos.find((y) => y.id === m.cuenta_bancaria_id);
+          if (!m.cuenta_bancaria_id) errores[k + 'cuenta_bancaria_id'] = 'elegí la cuenta bancaria del cheque'; else if (!b) errores[k + 'cuenta_bancaria_id'] = 'la cuenta bancaria no existe'; else if (!b.activa) errores[k + 'cuenta_bancaria_id'] = 'la cuenta bancaria está dada de baja'; else if (b.moneda !== 'PES') errores[k + 'cuenta_bancaria_id'] = 'por ahora solo se emiten cheques de cuentas en pesos';
+          else {
+            const clave = `${b.id}|${x.numero}`;
+            if (nuevos.has(clave) || await c.uno("select 1 x from cheque where origen = 'propio' and cuenta_bancaria_id = $1 and numero = $2 and estado <> 'anulado'", [b.id, x.numero])) errores[k + 'cheque.numero'] = 'ya emitiste un cheque con ese número de esa cuenta';
+            nuevos.add(clave);
+          }
+          medios.push({ ...m, importe: m.importe ?? '0', destino: `Cheque propio ${x.numero}${b ? ` · ${b.banco}` : ''}`, clave: `ch${i}`, saldoSql: null, nuevo: { origen: 'propio', ...x, banco: b?.banco ?? null, fecha_emision: x.fecha_emision ?? fecha, cuenta_bancaria_id: m.cuenta_bancaria_id } });
+        }
+      } else errores[k + 'cheque'] = tipoPago === 'cobro' ? 'ingresá los datos del cheque' : 'elegí un cheque de la cartera o ingresá los datos de uno propio';
+      continue;
+    }
     if (m.medio === 'transferencia') {
       if (m.caja_id) errores[k + 'caja_id'] = 'una transferencia no va a una caja';
       const b = bancos.find((x) => x.id === m.cuenta_bancaria_id);
@@ -155,7 +202,7 @@ async function prepararPago(c, ctx, tipoPago, cuerpo) {
 
   // --- no se gira más de lo que hay (en un pago, o al devolver un cobro)
   if (tipoPago === 'pago') {
-    const porDestino = new Map(); for (const m of medios) porDestino.set(m.clave, { m, total: (porDestino.get(m.clave)?.total ?? 0n) + dec(m.importe) });
+    const porDestino = new Map(); for (const m of medios) if (m.saldoSql) porDestino.set(m.clave, { m, total: (porDestino.get(m.clave)?.total ?? 0n) + dec(m.importe) });
     for (const { m, total } of porDestino.values()) {
       const saldo = (await c.uno(`select coalesce(sum(importe), 0)::text s from movimiento_tesoreria where ${m.saldoSql[0]} = $1`, [m.saldoSql[1]])).s;
       if (total > dec(saldo)) throw new ErrorApi(422, 'saldo_insuficiente', `${m.medio === 'transferencia' ? 'La cuenta' : 'La caja'} ${m.destino} tiene $ ${saldo} y se quieren sacar $ ${texto(total)}.`);
@@ -185,7 +232,16 @@ export async function registrarPago(c, ctx, tipoPago, cuerpo, { claveIdempotenci
   const p = await prepararPago(c, ctx, tipoPago, cuerpo);
   const cab = await c.uno(`insert into pago (empresa_id, sentido, fecha, tercero_id, total_medios, total_retenciones, total_descuentos, total_imputado, observaciones, creado_por)
     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning id`, [ctx.empresaId, tipoPago, p.fecha, p.tercero.id, texto(p.tm), texto(p.tr), texto(p.td), texto(p.ti), p.d.observaciones ?? null, ctx.usuarioId]);
-  for (const m of p.medios) await c.consultar('insert into pago_medio (empresa_id, pago_id, medio, caja_id, cuenta_bancaria_id, importe) values ($1,$2,$3,$4,$5,$6)', [ctx.empresaId, cab.id, m.medio, m.caja_id ?? null, m.cuenta_bancaria_id ?? null, m.importe]);
+  for (const m of p.medios) {
+    let chequeId = m.cheque_id ?? null;
+    if (m.nuevo) {                                                                   // el cheque nace con el cobro (de un tercero) o con el pago (propio); la base lo pasa de estado al confirmar
+      const x = m.nuevo;
+      chequeId = (await c.uno('insert into cheque (empresa_id, origen, numero, banco, cuit_librador, importe, fecha_emision, fecha_pago, tercero_id, cuenta_bancaria_id, estado) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id',
+        [ctx.empresaId, x.origen, x.numero, x.banco ?? null, x.cuit_librador ?? null, m.importe, x.fecha_emision ?? null, x.fecha_pago ?? null, p.tercero.id, x.cuenta_bancaria_id ?? null, x.origen === 'tercero' ? 'en_cartera' : 'emitido'])).id;
+    }
+    const esCheque = m.medio === 'cheque';
+    await c.consultar('insert into pago_medio (empresa_id, pago_id, medio, caja_id, cuenta_bancaria_id, cheque_id, importe) values ($1,$2,$3,$4,$5,$6,$7)', [ctx.empresaId, cab.id, m.medio, esCheque ? null : m.caja_id ?? null, esCheque ? null : m.cuenta_bancaria_id ?? null, chequeId, m.importe]);
+  }
   for (const r of p.rets) await c.consultar('insert into retencion (empresa_id, pago_id, origen, tipo, jurisdiccion_codigo, base_imponible, alicuota, importe, certificado_numero, certificado_fecha) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
     [ctx.empresaId, cab.id, p.rol.retencion, r.tipo, r.jurisdiccion_codigo ?? null, r.base_imponible ?? null, r.alicuota ? texto(mul(dec(r.alicuota), dec('0.01')), 4) : null, r.importe, r.certificado_numero, r.certificado_fecha]);
   for (const x of p.imput) await c.consultar('insert into pago_imputacion (empresa_id, pago_id, comprobante_id, importe) values ($1,$2,$3,$4)', [ctx.empresaId, cab.id, x.id, x.importe]);
@@ -203,14 +259,14 @@ export async function detallePago(c, id, tipoPago) {
       p.total_documento::text total_documento, p.total_imputado::text total_imputado, p.a_cuenta::text a_cuenta, p.estado, p.asiento_id, p.observaciones, p.motivo_anulacion, p.anulado_en, p.anulado_por, p.creado_en
     from pago p join tercero te on te.id = p.tercero_id where p.id = $1`, [id]);
   if (!f || f.sentido !== tipoPago) throw noEncontrado(tipoPago === 'cobro' ? 'El cobro' : 'El pago');
-  const medios = await c.consultar(`select m.medio, m.importe::text importe, ca.nombre as caja, cb.banco, cb.numero_cuenta from pago_medio m left join caja ca on ca.id = m.caja_id left join cuenta_bancaria cb on cb.id = m.cuenta_bancaria_id where m.pago_id = $1 order by m.id`, [id]);
+  const medios = await c.consultar(`select m.medio, m.importe::text importe, m.cheque_id, ca.nombre as caja, cb.banco, cb.numero_cuenta, ch.numero as cheque_numero, ch.banco as cheque_banco, ch.origen as cheque_origen from pago_medio m left join caja ca on ca.id = m.caja_id left join cuenta_bancaria cb on cb.id = m.cuenta_bancaria_id left join cheque ch on ch.id = m.cheque_id where m.pago_id = $1 order by m.id`, [id]);
   const retenciones = await c.consultar(`select tipo, origen, jurisdiccion_codigo, importe::text importe, certificado_numero, certificado_fecha::text certificado_fecha from retencion where pago_id = $1 order by id`, [id]);
   const imputaciones = await c.consultar(`select i.comprobante_id, t.descripcion tipo, cb.punto_venta, cb.numero, i.importe::text importe from pago_imputacion i join comprobante cb on cb.id = i.comprobante_id join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo where i.pago_id = $1 order by i.id`, [id]);
   const asiento = f.asiento_id ? await c.uno('select id, numero, estado from asiento where id = $1', [f.asiento_id]) : null;
   const por = f.anulado_por ? (await c.uno('select nombre from usuario where id = $1', [f.anulado_por]))?.nombre : null;
   const { asiento_id, anulado_por, motivo_anulacion, anulado_en, sentido, ...resto } = f;
   return { ...resto, clase: tipoPago, etiqueta: `${rol.recibo} ${numeroFormateado(f.punto_venta, f.numero)}`, numero_formateado: numeroFormateado(f.punto_venta, f.numero), asiento,
-    medios: medios.map((m) => ({ medio: m.medio, importe: m.importe, destino: m.caja ?? `${m.banco}${m.numero_cuenta ? ` ${m.numero_cuenta}` : ''}` })), retenciones,
+    medios: medios.map((m) => ({ medio: m.medio, importe: m.importe, cheque_id: m.cheque_id ?? null, destino: m.cheque_id ? `${m.cheque_origen === 'propio' ? 'Cheque propio' : 'Cheque'} ${m.cheque_numero}${m.cheque_banco ? ` · ${m.cheque_banco}` : ''}` : m.caja ?? `${m.banco}${m.numero_cuenta ? ` ${m.numero_cuenta}` : ''}` })), retenciones,
     imputaciones: imputaciones.map((x) => ({ comprobante_id: x.comprobante_id, comprobante: `${x.tipo} ${x.numero == null ? '' : numeroFormateado(x.punto_venta, x.numero)}`.trim(), importe: x.importe })),
     anulacion: f.estado === 'anulado' ? { motivo: motivo_anulacion, en: anulado_en, por } : null };
 }
@@ -248,7 +304,7 @@ export async function anularPago(c, ctx, id, tipoPago, cuerpo) {
   if (tipoPago === 'cobro') {                  // el dinero que había entrado tiene que seguir estando
     const medios = await c.consultar(`select m.caja_id, m.cuenta_bancaria_id, sum(m.importe)::text as total, coalesce(ca.nombre, cb.banco) as nombre,
         coalesce((select sum(t.importe) from movimiento_tesoreria t where t.caja_id = m.caja_id or t.cuenta_bancaria_id = m.cuenta_bancaria_id), 0)::text as saldo
-      from pago_medio m left join caja ca on ca.id = m.caja_id left join cuenta_bancaria cb on cb.id = m.cuenta_bancaria_id where m.pago_id = $1 group by m.caja_id, m.cuenta_bancaria_id, ca.nombre, cb.banco`, [id]);
+      from pago_medio m left join caja ca on ca.id = m.caja_id left join cuenta_bancaria cb on cb.id = m.cuenta_bancaria_id where m.pago_id = $1 and (m.caja_id is not null or m.cuenta_bancaria_id is not null) group by m.caja_id, m.cuenta_bancaria_id, ca.nombre, cb.banco`, [id]);
     for (const m of medios) if (dec(m.total) > dec(m.saldo)) throw new ErrorApi(422, 'saldo_insuficiente', `No se puede anular: ${m.nombre} tiene $ ${m.saldo} y habría que devolver $ ${m.total}.`);
   }
   const etiqueta = `${ROL[tipoPago].recibo} ${numeroFormateado(f.punto_venta, f.numero)}`;
@@ -266,7 +322,11 @@ export async function cuentaCorriente(c, terceroId, rolTercero) {
         from comprobante cb join arca_tipo_comprobante tc on tc.codigo = cb.tipo_comprobante_codigo where cb.tercero_id = $1 and cb.sentido = $2 and cb.estado in ('confirmado','autorizado')
       union all
       select p.fecha::text, p.id, 'pago', p.id, case p.sentido when 'cobro' then 'Recibo ' else 'Orden de pago ' end || lpad(p.punto_venta::text, 4, '0') || '-' || lpad(p.numero::text, 8, '0'), (-p.total_documento)::text
-        from pago p where p.tercero_id = $1 and p.sentido = $3 and p.estado = 'confirmado') x order by fecha, clase, orden`, [terceroId, sentido, tipoPago]);
+        from pago p where p.tercero_id = $1 and p.sentido = $3 and p.estado = 'confirmado'
+      union all
+      select ev.fecha::text, ch.id, 'cheque', ch.id, 'Cheque ' || ch.numero || coalesce(' (' || ch.banco || ')', '') || ' rechazado', ch.importe::text
+        from cheque ch join lateral (select max(fecha) as fecha from cheque_evento where cheque_id = ch.id and estado_nuevo = 'rechazado') ev on true
+       where ch.tercero_id = $1 and ch.origen = 'tercero' and ch.estado = 'rechazado' and $2 = 'venta') x order by fecha, case clase when 'comprobante' then 1 when 'pago' then 2 else 3 end, orden`, [terceroId, sentido, tipoPago]);
   let acumulado = 0n;
   const movimientos = filas.map((f) => { acumulado += dec(f.importe); return { fecha: f.fecha, clase: f.clase, id: f.ref, detalle: f.detalle, importe: f.importe, saldo: texto(acumulado) }; });
   return { tercero: t, saldo: texto(acumulado), movimientos };

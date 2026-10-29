@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (27 archivos SQL)
+## 2. Módulos (28 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -47,7 +47,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 23 compras | permisos `compras.ver`, `compras.cargar` y `compras.anular` (las reglas de fondo —número del proveedor único, verificación de importes, asiento automático, período abierto, anulación con contraasiento— ya las imponían 06, 15 y 22). Ver [api/LEEME.md](api/LEEME.md) |
 | 24 tesorería | permisos `tesoreria.ver`, `cobros.registrar`, `pagos.registrar`, `tesoreria.anular` y `tesoreria.administrar`; constancia de anulación en `pago` (motivo, quién y cuándo; conserva su número); `api_idempotencia` pasa a poder referir a un cobro o pago (exactamente uno de comprobante o pago); el alta de empresa crea la cuenta **1.1.4 Bancos** y la **Caja general** (y se completaron las empresas existentes). Los movimientos de tesorería los genera la base al confirmar y los contrarresta al anular |
 | 25 informes | permiso `informes.ver` (lo tienen los cuatro roles base). Los informes no guardan nada: se derivan de `v_libro_iva`, `v_posicion_iva`, `v_saldo_comprobante`, `v_saldo_tercero`, `retencion`, `asiento` y `asiento_linea` |
-| 26 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 26 cheques | permiso `cheques.gestionar`; índices que impiden cargar dos veces el mismo cheque (de un tercero: banco y número; propio: cuenta y número; el anulado libera el número); cuenta automática `cheques_a_pagar` (2.1.7) en el alta de empresa y en las existentes; el asiento de un pago manda el cheque a **Valores a depositar** (de un tercero) o **Cheques a pagar** (propio); `fn_pago_cheques` pasa los cheques de estado al confirmar o anular un cobro o un pago (y solo deja anular si el cheque no siguió su camino); `fn_cheque_pasar` hace depositar, acreditar, rechazar y debitar con sus fechas, asiento y movimiento del banco; un cheque rechazado entra en el saldo del cliente (`v_saldo_tercero`) |
+| 27 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

@@ -200,7 +200,7 @@ await prueba('Adaptador pg: cada transacción lleva su límite de tiempo (el cor
 // ---------------------------------------------------------------------------
 await prueba('Migrador: aplicó todo el modelo en orden, es repetible y avisa qué falta sin cambiar nada', async () => {
   igual(entorno.migracion.aplicadas.length, readdirSync(new URL('../modelo/', import.meta.url)).filter((f) => /^\d\d_.*\.sql$/.test(f)).length, 'archivos aplicados');
-  igual(entorno.migracion.aplicadas[0], '00_base.sql', 'el primero'); igual(entorno.migracion.aplicadas.at(-1), '26_endurecimiento_supabase.sql', 'el último');
+  igual(entorno.migracion.aplicadas[0], '00_base.sql', 'el primero'); igual(entorno.migracion.aplicadas.at(-1), '27_endurecimiento_supabase.sql', 'el último');
   const c = new pg.Client({ connectionString: entorno.url }); await c.connect();
   try { igual(await migrar(c, { aplicar: true }), { aplicadas: [], pendientes: [] }, 'segunda vez: nada'); igual(await migrar(c), { aplicadas: [], pendientes: [] }, 'consulta: nada pendiente'); } finally { await c.end(); }
 });

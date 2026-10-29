@@ -38,6 +38,10 @@ export function validar(esquema, cuerpo, { parcial = false } = {}) {
       v.forEach((el, i) => { try { salida.push(validar(def.elemento, el).valor); } catch (e) { for (const [k, m] of Object.entries(e.campos || {})) errores[`${campo}[${i}].${k}`] = m; } });
       valor[campo] = salida; continue;
     }
+    if (def.tipo === 'objeto') {
+      try { valor[campo] = validar(def.campos, v).valor; } catch (e) { for (const [k, m] of Object.entries(e.campos || {})) errores[`${campo}.${k}`] = m; }
+      continue;
+    }
     const [e, ok] = TIPOS[def.tipo](v, def);
     if (e) errores[campo] = e; else valor[campo] = ok;
   }

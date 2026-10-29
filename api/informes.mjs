@@ -158,7 +158,7 @@ async function antiguedad(c, rol, q) {
   cortar(filas.length, 'El informe');
   const datos = filas.map((x) => { const f = Object.fromEntries(Object.entries(x).map(([k, v]) => [k, [...TRAMOS, 'deuda', 'saldo_neto'].includes(k) ? texto(dec(v)) : v])); return { ...f, sin_aplicar: texto(dec(f.saldo_neto) - dec(f.deuda)) }; });
   return { al: hoy, rol, filas: datos, totales: sumas(datos, [...TRAMOS, 'deuda', 'saldo_neto', 'sin_aplicar']),
-    avisos: ['El vencimiento es el de la factura (o su fecha, si no tiene). "Sin aplicar" son notas de crédito y pagos a cuenta que todavía no se imputaron a una factura.'] };
+    avisos: ['El vencimiento es el de la factura (o su fecha, si no tiene). "Sin aplicar" en negativo son notas de crédito y pagos a cuenta que todavía no se imputaron a una factura; en positivo, cheques rechazados que el cliente sigue debiendo.'] };
 }
 const columnasAntiguedad = [['razon_social', 'Razón social'], ['nro_documento', 'Documento'], ['a_vencer', 'A vencer'], ['vencido_1_30', 'Vencido 1-30 días'], ['vencido_31_60', 'Vencido 31-60'], ['vencido_61_90', 'Vencido 61-90'], ['vencido_mas_90', 'Vencido más de 90'], ['deuda', 'Deuda'], ['sin_aplicar', 'Sin aplicar'], ['saldo_neto', 'Saldo neto']];
 

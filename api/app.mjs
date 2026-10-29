@@ -14,6 +14,7 @@ import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from 
 import { listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
 import { calcularCompra, cargarCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
+import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -154,6 +155,14 @@ const RUTAS = [
     return r.banco;
   }],
   ['GET', '/api/tesoreria/movimientos', 'tesoreria.ver', ({ c, q }) => listarMovimientosTesoreria(c, q)],
+  // --- Cheques: nacen dentro de un cobro o un pago; acá se listan y se siguen (depositar, acreditar, rechazar, debitar) ---
+  ['GET', '/api/cheques', 'tesoreria.ver', ({ c, q }) => listarCheques(c, q)],
+  ['GET', '/api/cheques/:id', 'tesoreria.ver', ({ c, p }) => detalleCheque(c, p.id)],
+  ...Object.keys(ACCIONES).map((accion) => ['POST', `/api/cheques/:id/${accion}`, 'cheques.gestionar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await pasarCheque(c, ctx, p.id, accion, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `${r.texto} el cheque ${r.antes.numero}`, detalle: `${r.antes.banco ?? 'cheque propio'} · $ ${r.antes.importe}${r.motivo ? ` · ${r.motivo}` : ''}`, entidad: 'cheque', entidadId: p.id, origen });
+    return r.cheque;
+  }]),
   // --- Cobros ---
   ['GET', '/api/cobros', 'tesoreria.ver', ({ c, q }) => listarPagos(c, 'cobro', q)],
   ['GET', '/api/cobros/pendientes', 'tesoreria.ver', ({ c, q }) => listarPendientes(c, 'cobro', q)],

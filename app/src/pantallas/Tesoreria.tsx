@@ -4,14 +4,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, nuevaClave, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { aDecimal, fecha, fechaHora, hoyISO, moneda } from '../formato';
-import type { Banco, Caja, Jurisdiccion, MovimientoTesoreria, Pagina, PagoDetalle, PagoResumen, Pendiente, PreviaPago, Tercero } from '../tipos';
+import type { Banco, Caja, Cheque, ChequeDetalle, Jurisdiccion, MovimientoTesoreria, Pagina, PagoDetalle, PagoResumen, Pendiente, PreviaPago, ResumenCheque, Tercero } from '../tipos';
 import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 
-type Pestana = 'cobro' | 'pago' | 'cajas';
+type Pestana = 'cobro' | 'pago' | 'cheques' | 'cajas';
 const POR_PAGINA = 25;
 const TEXTO = { cobro: { uno: 'cobro', varios: 'Cobros', tercero: 'Cliente', terceros: 'clientes', ruta: '/api/cobros', accion: 'Registrar cobro', hecho: 'cobrado', permiso: 'cobros.registrar' }, pago: { uno: 'pago', varios: 'Pagos', tercero: 'Proveedor', terceros: 'proveedores', ruta: '/api/pagos', accion: 'Registrar pago', hecho: 'pagado', permiso: 'pagos.registrar' } } as const;
 const ESTADOS: Record<string, { texto: string; tono: 'ok' | 'malo' }> = { confirmado: { texto: 'Confirmado', tono: 'ok' }, anulado: { texto: 'Anulado', tono: 'malo' } };
-const MEDIOS = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia' } as const;
+const MEDIOS = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', cheque: 'Cheque' } as const;
 const RETENCIONES = { iva: 'IVA', ganancias: 'Ganancias', iibb: 'Ingresos Brutos', suss: 'SUSS' } as const;
 /** Suma de importes escritos (en centavos enteros, sin punto flotante) solo para sugerir un valor; el servidor valida y calcula. */
 const centavos = (s: string) => { const t = aDecimal(s); const m = /^(\d+)(?:\.(\d{1,2}))?/.exec(t); return m ? BigInt(m[1]) * 100n + BigInt((m[2] ?? '').padEnd(2, '0')) : 0n; };
@@ -24,10 +24,10 @@ export function Tesoreria() {
     <>
       <div className="cabecera"><div><h1>Tesorería</h1><p>Cobros a clientes, pagos a proveedores, y el dinero de cada caja y cuenta bancaria.</p></div></div>
       <div className="pestanas" role="tablist" aria-label="Tesorería">
-        {([['cobro', 'Cobros'], ['pago', 'Pagos'], ['cajas', 'Cajas y bancos']] as [Pestana, string][]).map(([k, n]) => <button key={k} role="tab" id={`tab-${k}`} aria-selected={pestana === k} aria-controls={`panel-${k}`} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
+        {([['cobro', 'Cobros'], ['pago', 'Pagos'], ['cheques', 'Cheques'], ['cajas', 'Cajas y bancos']] as [Pestana, string][]).map(([k, n]) => <button key={k} role="tab" id={`tab-${k}`} aria-selected={pestana === k} aria-controls={`panel-${k}`} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
       </div>
       <div role="tabpanel" id={`panel-${pestana}`} aria-labelledby={`tab-${pestana}`}>
-        {pestana === 'cajas' ? <CajasYBancos puedeAdministrar={puede('tesoreria.administrar')} /> : <Lista key={pestana} tipo={pestana} puedeRegistrar={puede(TEXTO[pestana].permiso)} />}
+        {pestana === 'cajas' ? <CajasYBancos puedeAdministrar={puede('tesoreria.administrar')} /> : pestana === 'cheques' ? <Cheques puedeGestionar={puede('cheques.gestionar')} /> : <Lista key={pestana} tipo={pestana} puedeRegistrar={puede(TEXTO[pestana].permiso)} />}
       </div>
     </>
   );
@@ -81,7 +81,8 @@ function Lista({ tipo, puedeRegistrar }: { tipo: 'cobro' | 'pago'; puedeRegistra
   );
 }
 
-type Medio = { uid: number; medio: keyof typeof MEDIOS; destino: string; importe: string };
+type Medio = { uid: number; medio: keyof typeof MEDIOS; destino: string; importe: string; numero: string; banco: string; cuit: string; emision: string; pago: string; cartera: boolean; chequeId: string };
+const CHEQUE_VACIO = { numero: '', banco: '', cuit: '', emision: '', pago: '', cartera: false, chequeId: '' };
 type Ret = { uid: number; tipo: keyof typeof RETENCIONES; jurisdiccion: string; importe: string; numero: string; fecha: string };
 let contador = 0;
 
@@ -99,6 +100,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
   const [cajas, setCajas] = useState<Caja[]>([]);
   const [bancos, setBancos] = useState<Banco[]>([]);
   const [jurisdicciones, setJurisdicciones] = useState<Jurisdiccion[]>([]);
+  const [carteraLista, setCarteraLista] = useState<Cheque[]>([]);
   const [previa, setPrevia] = useState<PreviaPago | null>(null);
   const [errorPrevia, setErrorPrevia] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -109,6 +111,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
   useEffect(() => {
     obtener<{ datos: Caja[] }>('/api/tesoreria/cajas').then((r) => setCajas(r.datos.filter((c) => c.activa))).catch(() => setCajas([]));
     obtener<{ datos: Banco[] }>('/api/tesoreria/bancos').then((r) => setBancos(r.datos.filter((b) => b.activa))).catch(() => setBancos([]));
+    if (tipo === 'pago') obtener<Pagina<Cheque>>('/api/cheques', { estado: 'en_cartera', origen: 'tercero', limite: 100 }).then((r) => setCarteraLista(r.datos)).catch(() => setCarteraLista([]));
     obtener<{ datos: Jurisdiccion[] }>('/api/catalogos/jurisdicciones').then((r) => setJurisdicciones(r.datos)).catch(() => setJurisdicciones([]));
   }, []);
   useEffect(() => {
@@ -121,10 +124,18 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
     const imputaciones = Object.entries(imp).filter(([, v]) => v.trim()).map(([id, v]) => ({ comprobante_id: Number(id), importe: aDecimal(v) }));
     return {
       tercero_id: tercero.id, fecha: fechaP, ...(descuento.trim() ? { descuento: aDecimal(descuento) } : {}), ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}), imputaciones,
-      medios: medios.filter((m) => m.importe.trim()).map((m) => ({ medio: m.medio, ...(m.medio === 'transferencia' ? { cuenta_bancaria_id: Number(m.destino) || undefined } : { caja_id: Number(m.destino) || undefined }), importe: aDecimal(m.importe) })),
+      medios: medios.flatMap((m): Record<string, unknown>[] => {
+        if (m.medio === 'cheque') {
+          if (m.cartera) return m.chequeId ? [{ medio: 'cheque', cheque_id: Number(m.chequeId) }] : [];                  // el servidor toma el importe del cheque
+          if (!m.importe.trim() && !m.numero.trim()) return [];
+          return [{ medio: 'cheque', ...(m.importe.trim() ? { importe: aDecimal(m.importe) } : {}), ...(tipo === 'pago' ? { cuenta_bancaria_id: Number(m.destino) || undefined } : {}),
+            cheque: { numero: m.numero.trim(), ...(tipo === 'cobro' ? { banco: m.banco.trim() } : {}), ...(m.cuit.trim() ? { cuit_librador: m.cuit.replace(/\D/g, '') } : {}), ...(m.emision ? { fecha_emision: m.emision } : {}), ...(m.pago ? { fecha_pago: m.pago } : {}) } }];
+        }
+        return m.importe.trim() ? [{ medio: m.medio, ...(m.medio === 'transferencia' ? { cuenta_bancaria_id: Number(m.destino) || undefined } : { caja_id: Number(m.destino) || undefined }), importe: aDecimal(m.importe) }] : [];
+      }),
       retenciones: rets.filter((r) => r.importe.trim()).map((r) => ({ tipo: r.tipo, ...(r.tipo === 'iibb' && r.jurisdiccion ? { jurisdiccion_codigo: Number(r.jurisdiccion) } : {}), importe: aDecimal(r.importe), certificado_numero: r.numero.trim(), certificado_fecha: r.fecha })),
     };
-  }, [tercero, fechaP, descuento, observaciones, imp, medios, rets]);
+  }, [tercero, tipo, fechaP, descuento, observaciones, imp, medios, rets]);
   const huella = JSON.stringify(pedido), retrasada = useRetraso(huella, 400);
   const algo = !!pedido && (pedido.medios.length > 0 || pedido.retenciones.length > 0);
   useEffect(() => {
@@ -139,11 +150,11 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
 
   const imputado = Object.values(imp).reduce((s, v) => s + centavos(v), 0n);
   const cobradoEnMedios = medios.reduce((s, m) => s + centavos(m.importe), 0n) + rets.reduce((s, r) => s + centavos(r.importe), 0n) + centavos(descuento);
-  const agregarMedio = () => setMedios((a) => [...a, { uid: ++contador, medio: 'efectivo', destino: String(cajas.find((c) => c.tipo !== 'tarjetas')?.id ?? ''), importe: imputado > cobradoEnMedios ? aTexto(imputado - cobradoEnMedios) : '' }]);
-  const destinos = (m: Medio) => (m.medio === 'transferencia' ? bancos.map((b) => ({ id: b.id, nombre: `${b.banco}${b.numero_cuenta ? ` · ${b.numero_cuenta}` : ''}` })) : cajas.filter((c) => (m.medio === 'tarjeta' ? c.tipo === 'tarjetas' : c.tipo !== 'tarjetas')).map((c) => ({ id: c.id, nombre: c.nombre })));
+  const agregarMedio = () => setMedios((a) => [...a, { uid: ++contador, medio: 'efectivo', destino: String(cajas.find((c) => c.tipo !== 'tarjetas')?.id ?? ''), importe: imputado > cobradoEnMedios ? aTexto(imputado - cobradoEnMedios) : '', ...CHEQUE_VACIO }]);
+  const destinos = (m: Medio) => (m.medio === 'transferencia' || m.medio === 'cheque' ? bancos.map((b) => ({ id: b.id, nombre: `${b.banco}${b.numero_cuenta ? ` · ${b.numero_cuenta}` : ''}` })) : cajas.filter((c) => (m.medio === 'tarjeta' ? c.tipo === 'tarjetas' : c.tipo !== 'tarjetas')).map((c) => ({ id: c.id, nombre: c.nombre })));
   const cambiarMedio = (uid: number, c: Partial<Medio>) => setMedios((a) => a.map((m) => {
     if (m.uid !== uid) return m; const n = { ...m, ...c };
-    if (c.medio && c.medio !== m.medio) n.destino = String(destinos(n)[0]?.id ?? '');             // al cambiar de medio, el destino cambia de lista
+    if (c.medio && c.medio !== m.medio) { n.destino = String(destinos(n)[0]?.id ?? ''); n.cartera = c.medio === 'cheque' && tipo === 'pago' && carteraLista.length > 0; }   // al cambiar de medio, el destino cambia de lista
     return n;
   }));
 
@@ -154,7 +165,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
     if (intento.current?.huella !== h) intento.current = { huella: h, clave: nuevaClave() };      // mismo pedido = misma clave: un reintento no registra dos veces
     try { const r = await enviar<{ id: number; etiqueta: string }>('POST', t.ruta, pedido, { claveIdempotencia: intento.current.clave }); avisar(`${r.etiqueta} registrado.`); onHecho(r.id); } catch (e) { setError(e); } finally { setTrabajando(false); }
   }
-  const general = resumenErrores(error, ['tercero_id', 'fecha', 'descuento', 'imputaciones', 'medios', ...pendientesIdx(imp, 'comprobante_id'), ...pendientesIdx(imp, 'importe'), ...medios.flatMap((_, i) => ['medio', 'caja_id', 'cuenta_bancaria_id', 'importe'].map((c) => `medios[${i}].${c}`)), ...rets.flatMap((_, i) => ['jurisdiccion_codigo', 'importe', 'certificado_numero', 'certificado_fecha'].map((c) => `retenciones[${i}].${c}`))]);
+  const general = resumenErrores(error, ['tercero_id', 'fecha', 'descuento', 'imputaciones', 'medios', ...pendientesIdx(imp, 'comprobante_id'), ...pendientesIdx(imp, 'importe'), ...medios.flatMap((_, i) => ['medio', 'caja_id', 'cuenta_bancaria_id', 'importe', 'cheque', 'cheque_id', 'cheque.numero', 'cheque.banco', 'cheque.cuit_librador', 'cheque.fecha_emision', 'cheque.fecha_pago'].map((c) => `medios[${i}].${c}`)), ...rets.flatMap((_, i) => ['jurisdiccion_codigo', 'importe', 'certificado_numero', 'certificado_fecha'].map((c) => `retenciones[${i}].${c}`))]);
   const idxImp = (id: number) => Object.entries(imp).filter(([, v]) => v.trim()).findIndex(([k]) => Number(k) === id);
 
   return (
@@ -191,14 +202,35 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
 
         <h3 style={{ margin: '16px 0 6px' }}>{tipo === 'cobro' ? 'Cómo se cobra' : 'Cómo se paga'}</h3>
         {medios.length === 0 && <p className="muted" style={{ margin: '0 0 8px' }}>Agregá al menos un medio (o una retención).</p>}
-        {medios.map((m, i) => (
-          <div className="fila-acceso" key={m.uid} style={{ gridTemplateColumns: '1fr 1.6fr 1fr auto' }}>
-            <Selector etiqueta="Medio" value={m.medio} error={campos[`medios[${i}].medio`]} onChange={(e) => cambiarMedio(m.uid, { medio: e.target.value as keyof typeof MEDIOS })}>{Object.entries(MEDIOS).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Selector>
-            <Selector etiqueta={m.medio === 'transferencia' ? 'Cuenta bancaria' : 'Caja'} value={m.destino} error={campos[`medios[${i}].caja_id`] ?? campos[`medios[${i}].cuenta_bancaria_id`]} onChange={(e) => cambiarMedio(m.uid, { destino: e.target.value })}><option value="">Elegí…</option>{destinos(m).map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}</Selector>
-            <Campo etiqueta="Importe" inputMode="decimal" value={m.importe} error={campos[`medios[${i}].importe`]} onChange={(e) => cambiarMedio(m.uid, { importe: e.target.value })} />
-            <button type="button" className="icono" style={{ marginTop: 22 }} aria-label={`Quitar el medio ${i + 1}`} onClick={() => setMedios((a) => a.filter((x) => x.uid !== m.uid))}>×</button>
-          </div>
-        ))}
+        {medios.map((m, i) => {
+          const cheque = m.medio === 'cheque', k = `medios[${i}].`;
+          const usados = new Set(medios.filter((x) => x.uid !== m.uid && x.cartera && x.chequeId).map((x) => x.chequeId));
+          return (
+            <div className="fila-acceso" key={m.uid} style={{ gridTemplateColumns: '1fr 1.6fr 1fr auto' }}>
+              <Selector etiqueta="Medio" value={m.medio} error={campos[k + 'medio']} onChange={(e) => cambiarMedio(m.uid, { medio: e.target.value as keyof typeof MEDIOS })}>{Object.entries(MEDIOS).map(([key, n]) => <option key={key} value={key}>{n}</option>)}</Selector>
+              {cheque && tipo === 'cobro' && <Campo etiqueta="Banco del cheque" value={m.banco} error={campos[k + 'cheque.banco']} onChange={(e) => cambiarMedio(m.uid, { banco: e.target.value })} />}
+              {cheque && tipo === 'pago' && <Selector etiqueta="Cheque" value={m.cartera ? 'cartera' : 'propio'} onChange={(e) => cambiarMedio(m.uid, { cartera: e.target.value === 'cartera', chequeId: '', importe: '' })}><option value="propio">Propio (lo emite la empresa)</option><option value="cartera" disabled={carteraLista.length === 0}>De la cartera (endoso){carteraLista.length === 0 ? ' — no hay' : ''}</option></Selector>}
+              {!cheque && <Selector etiqueta={m.medio === 'transferencia' ? 'Cuenta bancaria' : 'Caja'} value={m.destino} error={campos[k + 'caja_id'] ?? campos[k + 'cuenta_bancaria_id']} onChange={(e) => cambiarMedio(m.uid, { destino: e.target.value })}><option value="">Elegí…</option>{destinos(m).map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}</Selector>}
+              <Campo etiqueta="Importe" inputMode="decimal" value={m.importe} readOnly={m.cartera} error={campos[k + 'importe']} onChange={(e) => cambiarMedio(m.uid, { importe: e.target.value })} />
+              <button type="button" className="icono" style={{ marginTop: 22 }} aria-label={`Quitar el medio ${i + 1}`} onClick={() => setMedios((a) => a.filter((x) => x.uid !== m.uid))}>×</button>
+              {cheque && m.cartera && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <Selector etiqueta="Cheque de la cartera" value={m.chequeId} error={campos[k + 'cheque_id'] ?? campos[k + 'cheque']} onChange={(e) => cambiarMedio(m.uid, { chequeId: e.target.value, importe: carteraLista.find((c) => String(c.id) === e.target.value)?.importe ?? '' })}>
+                    <option value="">Elegí…</option>{carteraLista.map((c) => <option key={c.id} value={c.id} disabled={usados.has(String(c.id))}>{c.numero} · {c.banco ?? ''} · {moneda(c.importe)}{c.tercero ? ` · de ${c.tercero}` : ''}{c.diferido ? ` · diferido al ${fecha(c.fecha_pago)}` : ''}</option>)}
+                  </Selector>
+                </div>
+              )}
+              {cheque && !m.cartera && (
+                <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+                  {tipo === 'pago' && <Selector etiqueta="Cuenta bancaria" value={m.destino} error={campos[k + 'cuenta_bancaria_id']} onChange={(e) => cambiarMedio(m.uid, { destino: e.target.value })}><option value="">Elegí…</option>{destinos(m).map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}</Selector>}
+                  <Campo etiqueta="N.º de cheque" value={m.numero} error={campos[k + 'cheque.numero']} onChange={(e) => cambiarMedio(m.uid, { numero: e.target.value })} />
+                  {tipo === 'cobro' && <Campo etiqueta="CUIT del librador" inputMode="numeric" value={m.cuit} error={campos[k + 'cheque.cuit_librador']} onChange={(e) => cambiarMedio(m.uid, { cuit: e.target.value })} />}
+                  <Campo etiqueta="Fecha de emisión" type="date" value={m.emision} error={campos[k + 'cheque.fecha_emision']} onChange={(e) => cambiarMedio(m.uid, { emision: e.target.value })} />
+                  <Campo etiqueta="Fecha de pago (si es diferido)" type="date" value={m.pago} error={campos[k + 'cheque.fecha_pago']} onChange={(e) => cambiarMedio(m.uid, { pago: e.target.value })} />
+                </div>
+              )}
+            </div>);
+        })}
         <button type="button" className="btn chico" onClick={agregarMedio}>+ Agregar medio</button>
 
         <h3 style={{ margin: '16px 0 6px' }}>Retenciones y descuento</h3>
@@ -259,7 +291,7 @@ function Detalle({ tipo, id, onCerrar, onCambio }: { tipo: 'cobro' | 'pago'; id:
           {p.anulacion && <Alerta>Anulado el {fechaHora(p.anulacion.en)} por {p.anulacion.por ?? '—'}. Motivo: {p.anulacion.motivo}</Alerta>}
           <dl className="ficha">
             <dt>Total</dt><dd><strong>{moneda(p.total_documento)}</strong></dd>
-            <dt>Medios</dt><dd>{p.medios.map((m, i) => <div key={i}>{MEDIOS[m.medio as keyof typeof MEDIOS] ?? m.medio} · {m.destino} · {moneda(m.importe)}</div>)}</dd>
+            <dt>Medios</dt><dd>{p.medios.map((m, i) => <div key={i}>{m.medio === 'cheque' ? '' : `${MEDIOS[m.medio as keyof typeof MEDIOS] ?? m.medio} · `}{m.destino} · {moneda(m.importe)}</div>)}</dd>
             {p.retenciones.length > 0 && <><dt>Retenciones</dt><dd>{p.retenciones.map((r, i) => <div key={i}>{RETENCIONES[r.tipo as keyof typeof RETENCIONES] ?? r.tipo} · certificado {r.certificado_numero} ({fecha(r.certificado_fecha)}) · {moneda(r.importe)}</div>)}</dd></>}
             {Number(p.total_descuentos) > 0 && <><dt>Descuento</dt><dd>{moneda(p.total_descuentos)}</dd></>}
             <dt>Imputado a</dt><dd>{p.imputaciones.length ? p.imputaciones.map((x) => <div key={x.comprobante_id}>{x.comprobante} · {moneda(x.importe)}</div>) : <span className="muted">Nada: todo a cuenta</span>}</dd>
@@ -393,6 +425,131 @@ function FormBanco({ banco, onCerrar, onGuardado }: { banco: Banco | null; onCer
         </div>
         {campos.activa && <Alerta>{campos.activa}</Alerta>}
         <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className="btn primario" disabled={v.banco.trim().length < 2}>Guardar</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ====================== cheques ====================== */
+const ESTADO_CHEQUE: Record<string, { texto: string; tono: 'neutro' | 'ok' | 'aviso' | 'malo' | 'info' }> = {
+  en_cartera: { texto: 'En cartera', tono: 'info' }, depositado: { texto: 'Depositado', tono: 'aviso' }, acreditado: { texto: 'Acreditado', tono: 'ok' }, rechazado: { texto: 'Rechazado', tono: 'malo' },
+  entregado: { texto: 'Entregado', tono: 'neutro' }, emitido: { texto: 'Emitido', tono: 'info' }, cobrado: { texto: 'Debitado', tono: 'ok' }, anulado: { texto: 'Anulado', tono: 'neutro' },
+};
+const ACCION_CHEQUE: Record<string, { boton: string; titulo: string; ayuda: string }> = {
+  depositar: { boton: 'Depositar', titulo: 'Depositar el cheque', ayuda: 'Elegí la cuenta donde lo depositás. El banco recién recibe la plata cuando lo acreditás.' },
+  acreditar: { boton: 'Acreditar', titulo: 'Acreditar el cheque', ayuda: 'Confirmá que el banco ya lo acreditó: la plata entra en la cuenta bancaria.' },
+  rechazar: { boton: 'Rechazar', titulo: 'Registrar el rechazo', ayuda: 'El cheque rebotó: el cliente vuelve a deber ese importe.' },
+  debitar: { boton: 'Registrar débito', titulo: 'Registrar el débito', ayuda: 'El banco debitó el cheque de la cuenta: la plata sale de la cuenta bancaria.' },
+};
+const cobrableDesde = (c: Cheque) => c.fecha_pago ?? c.fecha_emision;
+
+function Cheques({ puedeGestionar }: { puedeGestionar: boolean }) {
+  const [estado, setEstado] = useState('');
+  const [origen, setOrigen] = useState('');
+  const [texto, setTexto] = useState('');
+  const q = useRetraso(texto, 300);
+  const [pagina, setPagina] = useState(0);
+  const [datos, setDatos] = useState<(Pagina<Cheque> & { resumen: ResumenCheque[] }) | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [recarga, setRecarga] = useState(0);
+  const [abierto, setAbierto] = useState<number | null>(null);
+  useEffect(() => { setPagina(0); }, [estado, origen, q]);
+  useEffect(() => {
+    const ctl = new AbortController();
+    obtener<Pagina<Cheque> & { resumen: ResumenCheque[] }>('/api/cheques', { estado, origen, q: q.trim(), limite: POR_PAGINA, desplazamiento: pagina * POR_PAGINA }, ctl.signal).then((r) => { setDatos(r); setError(null); }).catch((e) => { if ((e as Error).name !== 'AbortError') setError(e.message); });
+    return () => ctl.abort();
+  }, [estado, origen, q, pagina, recarga]);
+  const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
+  const pendientes = (datos?.resumen ?? []).filter((r) => ['en_cartera', 'depositado', 'emitido'].includes(r.estado) && r.cantidad > 0);
+  return (
+    <>
+      <div className="herramientas">
+        <Campo etiqueta="Buscar" type="search" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Número, banco o persona" />
+        <Selector etiqueta="Estado" value={estado} onChange={(e) => setEstado(e.target.value)}><option value="">Todos</option>{Object.entries(ESTADO_CHEQUE).map(([k, v]) => <option key={k} value={k}>{k === 'cobrado' ? 'Debitado' : v.texto}</option>)}</Selector>
+        <Selector etiqueta="De quién" value={origen} onChange={(e) => setOrigen(e.target.value)}><option value="">Todos</option><option value="tercero">De terceros (recibidos)</option><option value="propio">Propios (emitidos)</option></Selector>
+      </div>
+      {pendientes.length > 0 && <p className="muted" style={{ margin: '0 0 10px' }}>{pendientes.map((r) => `${r.origen === 'propio' ? 'Propios' : 'De terceros'} ${ESTADO_CHEQUE[r.estado].texto.toLowerCase()}: ${r.cantidad} por ${moneda(r.importe)}`).join(' · ')}</p>}
+      {error && <Alerta>{error}</Alerta>}
+      {!datos && !error && <Cargando />}
+      {datos && datos.datos.length === 0 && <div className="tarjeta"><Vacio titulo="No hay cheques">{estado || origen || q ? 'Probá con otros filtros.' : 'Los cheques se cargan al cobrar o pagar con el medio “Cheque”.'}</Vacio></div>}
+      {datos && datos.datos.length > 0 && (
+        <div className="tabla-caja"><table>
+          <thead><tr><th>Cheque</th><th>Persona</th><th>Se puede cobrar</th><th className="num">Importe</th><th>Estado</th></tr></thead>
+          <tbody>{datos.datos.map((c) => (
+            <tr key={c.id} className="clic" onClick={() => setAbierto(c.id)}>
+              <td><strong>{c.numero}</strong><div className="muted">{c.origen === 'propio' ? `Propio · ${c.cuenta_banco ?? ''}` : c.banco}</div></td>
+              <td>{c.tercero ?? '—'}</td>
+              <td>{cobrableDesde(c) ? fecha(cobrableDesde(c)) : '—'} {c.diferido && <Etiqueta tono="aviso">Diferido</Etiqueta>}</td>
+              <td className="num">{moneda(c.importe)}</td>
+              <td><Etiqueta tono={ESTADO_CHEQUE[c.estado]?.tono ?? 'neutro'}>{ESTADO_CHEQUE[c.estado]?.texto ?? c.estado}</Etiqueta></td>
+            </tr>))}</tbody>
+        </table></div>
+      )}
+      {datos && total > POR_PAGINA && <div className="paginado"><span>Página {pagina + 1} de {paginas}</span><span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span></div>}
+      {abierto !== null && <DetalleCheque id={abierto} puedeGestionar={puedeGestionar} onCerrar={() => setAbierto(null)} onCambio={() => setRecarga((n) => n + 1)} />}
+    </>
+  );
+}
+
+function DetalleCheque({ id, puedeGestionar, onCerrar, onCambio }: { id: number; puedeGestionar: boolean; onCerrar: () => void; onCambio: () => void }) {
+  const [c, setC] = useState<ChequeDetalle | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [accion, setAccion] = useState<string | null>(null);
+  useEffect(() => { obtener<ChequeDetalle>(`/api/cheques/${id}`).then(setC).catch((e) => setError(e.message)); }, [id]);
+  return (
+    <Modal titulo={c ? `Cheque ${c.numero}` : 'Cheque'} onCerrar={onCerrar} ancho={620}>
+      {error && <Alerta>{error}</Alerta>}
+      {!c && !error && <Cargando />}
+      {c && (
+        <>
+          <p style={{ marginTop: 0 }}><strong>{moneda(c.importe)}</strong> · <Etiqueta tono={ESTADO_CHEQUE[c.estado]?.tono ?? 'neutro'}>{ESTADO_CHEQUE[c.estado]?.texto ?? c.estado}</Etiqueta> {c.diferido && <Etiqueta tono="aviso">Diferido</Etiqueta>}</p>
+          <dl className="ficha">
+            <dt>{c.origen === 'propio' ? 'Propio' : 'De'}</dt><dd>{c.origen === 'propio' ? `Cuenta ${c.cuenta_banco ?? ''}${c.cuenta_numero ? ` ${c.cuenta_numero}` : ''}` : c.tercero ?? '—'}</dd>
+            {c.origen === 'tercero' && <><dt>Banco</dt><dd>{c.banco ?? '—'}{c.cuit_librador ? ` · librador CUIT ${c.cuit_librador}` : ''}</dd></>}
+            {c.origen === 'tercero' && c.cuenta_banco && <><dt>Depositado en</dt><dd>{c.cuenta_banco}{c.cuenta_numero ? ` ${c.cuenta_numero}` : ''}</dd></>}
+            {c.origen === 'propio' && c.tercero && <><dt>Entregado a</dt><dd>{c.tercero}</dd></>}
+            <dt>Emisión</dt><dd>{fecha(c.fecha_emision)}</dd><dt>Fecha de pago</dt><dd>{fecha(c.fecha_pago)}</dd>
+          </dl>
+          <h3 style={{ margin: '16px 0 6px' }}>Historial</h3>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>{c.eventos.map((e) => <li key={e.id}>{fecha(e.fecha)} · <strong>{ESTADO_CHEQUE[e.estado_nuevo]?.texto ?? e.estado_nuevo}</strong>{e.nota ? ` — ${e.nota}` : ''}</li>)}</ul>
+          {puedeGestionar && c.acciones.length > 0 && <div className="pie-form">{c.acciones.map((a) => <button key={a} className={a === 'rechazar' ? 'btn peligro' : 'btn primario'} onClick={() => setAccion(a)}>{ACCION_CHEQUE[a].boton}</button>)}</div>}
+        </>
+      )}
+      {c && accion && <AccionCheque cheque={c} accion={accion} onCerrar={() => setAccion(null)} onHecho={(nuevo) => { setC(nuevo); setAccion(null); onCambio(); }} />}
+    </Modal>
+  );
+}
+
+function AccionCheque({ cheque, accion, onCerrar, onHecho }: { cheque: ChequeDetalle; accion: string; onCerrar: () => void; onHecho: (c: ChequeDetalle) => void }) {
+  const avisar = useAviso(), def = ACCION_CHEQUE[accion];
+  const [fechaA, setFechaA] = useState(hoyISO());
+  const [cuenta, setCuenta] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [bancos, setBancos] = useState<Banco[]>([]);
+  const [error, setError] = useState<unknown>(null);
+  const [trabajando, setTrabajando] = useState(false);
+  const campos = error instanceof ErrorApi ? error.campos : {};
+  useEffect(() => { if (accion === 'depositar') obtener<{ datos: Banco[] }>('/api/tesoreria/bancos').then((r) => { const a = r.datos.filter((b) => b.activa); setBancos(a); if (a.length === 1) setCuenta(String(a[0].id)); }).catch(() => setBancos([])); }, [accion]);
+  async function enviarAccion(ev: FormEvent) {
+    ev.preventDefault(); setTrabajando(true); setError(null);
+    try {
+      const r = await enviar<ChequeDetalle>('POST', `/api/cheques/${cheque.id}/${accion}`, { fecha: fechaA, ...(accion === 'depositar' ? { cuenta_bancaria_id: Number(cuenta) || undefined } : {}), ...(accion === 'rechazar' ? { motivo: motivo.trim() } : {}) });
+      avisar(`Cheque ${cheque.numero}: ${ESTADO_CHEQUE[r.estado]?.texto.toLowerCase() ?? r.estado}.`); onHecho(r);
+    } catch (e) { setError(e); } finally { setTrabajando(false); }
+  }
+  const general = resumenErrores(error, ['fecha', 'cuenta_bancaria_id', 'motivo']);
+  return (
+    <Modal titulo={def.titulo} onCerrar={onCerrar} ancho={460}>
+      <form onSubmit={enviarAccion} noValidate>
+        {general && <Alerta>{general}</Alerta>}
+        <p style={{ marginTop: 0 }}>Cheque <strong>{cheque.numero}</strong> por <strong>{moneda(cheque.importe)}</strong>. {def.ayuda}</p>
+        <div className="rejilla">
+          {accion === 'depositar' && <div className="ancho"><Selector etiqueta="Cuenta bancaria" value={cuenta} error={campos.cuenta_bancaria_id} onChange={(e) => setCuenta(e.target.value)}><option value="">Elegí…</option>{bancos.map((b) => <option key={b.id} value={b.id}>{b.banco}{b.numero_cuenta ? ` · ${b.numero_cuenta}` : ''}</option>)}</Selector></div>}
+          {accion === 'rechazar' && <div className="ancho"><Campo etiqueta="Motivo del rechazo" value={motivo} error={campos.motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus /></div>}
+          <Campo etiqueta="Fecha" type="date" value={fechaA} error={campos.fecha} onChange={(e) => setFechaA(e.target.value)} />
+        </div>
+        {accion === 'depositar' && bancos.length === 0 && <Alerta tipo="aviso">Todavía no hay cuentas bancarias: cargá una en “Cajas y bancos”.</Alerta>}
+        <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className={accion === 'rechazar' ? 'btn peligro' : 'btn primario'} disabled={trabajando || (accion === 'rechazar' && motivo.trim().length < 3)}>{trabajando ? 'Guardando…' : def.boton}</button></div>
       </form>
     </Modal>
   );
