@@ -70,7 +70,8 @@ async function accesosDe(c, ids) {
   const m = new Map(); for (const f of filas) { if (!m.has(f.usuario_id)) m.set(f.usuario_id, []); m.get(f.usuario_id).push({ empresa_id: f.empresa_id, empresa: f.empresa, rol_id: f.rol_id, rol: f.rol }); }
   return m;
 }
-const SELECT_PERSONA = `select id, email, nombre, activo, admin_estudio, (auth_sub is not null) as vinculada, creado_en from usuario`;
+const SELECT_PERSONA = `select id, email, nombre, activo, admin_estudio, (auth_sub is not null) as vinculada, creado_en,
+  (select max(e.en) from evento e where e.entidad_tabla = 'usuario' and e.entidad_id = usuario.id and e.accion like 'Invitó a %' and e.resultado = 'ok') as invitada_en from usuario`;
 const conAccesos = async (c, filas) => { const m = await accesosDe(c, filas.map((f) => f.id)); return filas.map((f) => ({ ...f, accesos: m.get(f.id) ?? [] })); };
 
 export async function listarPersonas(c, { q, activo } = {}) {
@@ -193,4 +194,20 @@ export async function modificarEmpresa(c, ctx, id, cuerpo) {
     await c.consultar(`update empresa set ${claves.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1`, [id, ...claves.map((k) => d[k] ?? null)]);
   }
   return { empresa: await leerEmpresa(c, id), cambios };
+}
+
+/* ---------- invitaciones ---------- */
+const INVITACIONES_POR_HORA = 3, INVITACIONES_POR_DIA_Y_ESTUDIO = 50;
+/** Comprueba que se pueda invitar a esta persona (existe, está activa, todavía no ingresó, y no se pasó de los límites) y devuelve sus datos.
+ *  Los límites se cuentan en la trazabilidad (intentos fallidos incluidos), así valen aunque haya varias copias del servidor. */
+export async function prepararInvitacion(c, id) {
+  const p = await c.uno('select id, email, nombre, activo, (auth_sub is not null) as vinculada from usuario where id = $1', [id]);
+  if (!p) throw enEstudio('La persona');
+  if (!p.activo) throw new ErrorApi(422, 'no_se_puede_invitar', 'La persona está dada de baja: reactivala antes de invitarla.');
+  if (p.vinculada) throw new ErrorApi(422, 'ya_ingreso', 'Esta persona ya ingresó al sistema: no hace falta invitarla.');
+  const n = await c.uno(`select count(*) filter (where e.entidad_id = $1 and e.en > now() - interval '1 hour')::int as hora, count(*) filter (where e.en > now() - interval '1 day')::int as dia
+    from evento e where e.entidad_tabla = 'usuario' and (e.accion like 'Invitó a %' or e.accion like 'Intentó invitar a %')`, [id]);
+  if (n.hora >= INVITACIONES_POR_HORA) throw new ErrorApi(429, 'invitaciones_limitadas', `Ya se le enviaron ${INVITACIONES_POR_HORA} invitaciones en la última hora. Esperá un rato antes de reenviar.`);
+  if (n.dia >= INVITACIONES_POR_DIA_Y_ESTUDIO) throw new ErrorApi(429, 'invitaciones_limitadas', 'El estudio alcanzó el máximo de invitaciones por día. Probá mañana.');
+  return p;
 }

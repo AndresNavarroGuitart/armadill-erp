@@ -36,12 +36,14 @@ Roles base (`fn_roles_base`): Administrador, Contador, Auxiliar, Consulta.
 | `GET /api/comprobantes`, `GET /api/comprobantes/:id` | `ventas.ver` | filtros `estado`, `tercero_id`, `desde`, `hasta` |
 | `GET/PATCH /api/estudio` | administrador del estudio | nombre y CUIT del estudio |
 | `GET/POST /api/estudio/personas`, `GET/PATCH /api/estudio/personas/:id`, `PUT /api/estudio/personas/:id/accesos` | administrador del estudio | alta, baja, marca de administrador y reemplazo de accesos (empresa + rol) |
+| `POST /api/estudio/personas/:id/invitacion` | administrador del estudio | invita a la persona (el email sale de la base, no del pedido) por Supabase Auth; 501 si la instalación no tiene clave de servicio |
 | `GET/POST /api/estudio/empresas`, `GET/PATCH /api/estudio/empresas/:id` | administrador del estudio | el alta deja la empresa lista para facturar; el CUIT no se modifica; la baja es lógica |
 | `GET /api/estudio/permisos`, `GET/POST /api/estudio/roles`, `PUT /api/estudio/roles/:id/permisos` | administrador del estudio | roles propios del estudio; `Administrador` es de sistema y no se edita |
 
 ## Reglas que conviene recordar
 
 - **Administración del estudio** (`/api/estudio/*`): la habilita la marca `usuario.admin_estudio`, no un rol; no necesita empresa activa. Nadie se da de baja a sí misma, el estudio nunca se queda sin administrador activo (lo impone la base), el email de quien ya ingresó no se cambia, y dar de baja a una persona le corta el acceso **en el acto** (cada pedido se vuelve a verificar contra la base). Todo cambio queda en la trazabilidad (categoría `seguridad` o `maestros`) con el antes y el después.
+- **Invitaciones**: `POST /api/estudio/personas/:id/invitacion`. No corre dentro de una transacción de la base (hay una llamada de red): comprueba, invita y recién después deja constancia (`Invitó a …`, o `Intentó invitar a …` con resultado `fallo`). Solo a personas activas que todavía no ingresaron; **tope de 3 por persona por hora y 50 por estudio por día**, contados en la trazabilidad (valen aunque haya varias copias del servidor). Si el email ya tiene cuenta, responde `ya_tiene_cuenta` en vez de fallar. Los errores del proveedor se traducen: la respuesta de Supabase no se reenvía y el registro interno guarda solo el estado.
 - **Alta de un estudio nuevo**: no la hace la aplicación sino quien opera la plataforma: `DATABASE_URL=… npm run estudio:alta -- --nombre … --admin-email … --admin-nombre … --aplicar` (sin `--aplicar` solo verifica los datos).
 
 - **El total nunca viene del cliente**: se calcula en el servidor con la misma aritmética exacta (decimales, sin punto flotante) que `reglas/calculo.mjs`; un campo desconocido en el cuerpo se rechaza.
@@ -75,6 +77,8 @@ Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por soc
 | `ORIGENES` | sí | Direcciones del front, separadas por coma, solo origen y con https (http solo localhost). No admite `*` |
 | `DATABASE_CA` | según el caso | Certificado PEM de la autoridad de la base si la conexión TLS no valida con las de Node (el de Supabase se descarga desde su panel). Con `
 ` escritos como texto sirve |
+| `SUPABASE_SERVICE_KEY` | no | Clave de **servicio** del proyecto ("secret" o `service_role`), solo para invitar a las personas desde la pantalla. Puede todo sobre las cuentas: solo vive en esta variable del servidor, no se envía al navegador, no se registra y no aparece en ningún error. Se rechaza una clave "publishable"/"anon" o sin `SUPABASE_URL`. Sin ella, la pantalla ofrece la salida manual |
+| `URL_APP` | no (primer `ORIGENES`) | A dónde vuelve la persona al tocar el enlace de la invitación. Tiene que estar en la lista de URLs permitidas de Supabase |
 | `TRUST_PROXY_HOPS` | no (0) | Cuántos proxies propios hay delante; define qué IP queda en la trazabilidad. **Con 0 se ignora `X-Forwarded-For`** |
 | `PORT`, `HOST`, `POOL_MAX`, `LIMITE_POR_MINUTO`, `JWT_AUDIENCIA` | no | 8080, 0.0.0.0, 10, 240 por persona, `authenticated` |
 
@@ -83,12 +87,13 @@ Piezas ya hechas y probadas contra una base PostgreSQL de verdad (PGlite por soc
 1. **Supabase → Authentication:** desactivar el alta libre ("Allow new users to sign up"), exigir confirmación de email, fijar la lista de URLs de retorno (la del front) y usar claves de firma asimétricas (JWT Signing Keys). Subir el largo mínimo de contraseña a 12 y activar la protección de contraseñas filtradas.
 2. **Supabase → API:** quitar `public` de los esquemas expuestos o desactivar la Data API (el sistema no la usa; `21_endurecimiento_supabase.sql` es la segunda barrera, no la única).
 3. `DATABASE_URL=… npm run db:migrar` (muestra qué falta) y luego `DATABASE_URL=… npm run db:migrar -- --aplicar`. Usar la conexión **directa** (puerto 5432) para migrar.
-4. Dar de alta el estudio con `npm run estudio:alta` (crea el estudio, sus cuatro roles y la primera persona administradora). Esa persona se **invita** en Supabase (Authentication → Users → Invite) con el mismo email; al ingresar por primera vez queda vinculada y desde la pantalla **Estudio** da de alta sus empresas y personas. Cada persona nueva también necesita su cuenta en Supabase con el mismo email (hoy se invita desde el panel de Supabase: falta enviar la invitación desde la aplicación, que requiere una clave de servicio en el servidor).
-5. Levantar `npm run api:servidor` con las variables de arriba (para la base conviene la conexión del pooler en modo transacción, puerto 6543).
-6. Front: `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` (ver `app/.env.example`).
+4. Dar de alta el estudio con `npm run estudio:alta` (crea el estudio, sus cuatro roles y la primera persona administradora). Esa persona se **invita** en Supabase (Authentication → Users → Invite) con el mismo email; al ingresar por primera vez queda vinculada y desde la pantalla **Estudio** da de alta sus empresas y personas. Cada persona nueva también necesita su cuenta en Supabase con el mismo email (con `SUPABASE_SERVICE_KEY` configurada la invitación se envía desde la pantalla de personas; sin ella, se invita desde el panel de Supabase).
+5. Supabase → Authentication → URL Configuration: agregar `URL_APP` a las URLs permitidas y revisar la plantilla del correo de invitación (la dirección del enlace tiene que llevar a la aplicación). La clave de servicio se copia de Project Settings → API Keys ("secret") y va **solo** en el entorno del servidor.
+6. Levantar `npm run api:servidor` con las variables de arriba (para la base conviene la conexión del pooler en modo transacción, puerto 6543).
+7. Front: `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` (ver `app/.env.example`).
 
 ### Qué no se pudo probar acá
-Todo esto se verificó contra PGlite y un proveedor de identidad simulado, **no contra un proyecto real de Supabase**: no hay credenciales en esta máquina. Quedan por confirmar en el primer despliegue: que `btree_gist` se cree bien en su esquema de extensiones, que el pooler en modo transacción acepte el patrón (debería: todo es `SET LOCAL`), que el certificado TLS valide y que los correos de invitación y recuperación lleguen con las URLs de retorno correctas.
+Todo esto se verificó contra PGlite y un proveedor de identidad simulado, **no contra un proyecto real de Supabase**: no hay credenciales en esta máquina. Quedan por confirmar en el primer despliegue: que `POST /auth/v1/invite` responda como se espera con la clave de servicio (la simulación se basa en la documentación de Supabase), que al abrir el enlace de invitación la persona llegue con `type=invite` y el front le pida elegir contraseña, que `btree_gist` se cree bien en su esquema de extensiones, que el pooler en modo transacción acepte el patrón (debería: todo es `SET LOCAL`), que el certificado TLS valide y que los correos de invitación y recuperación lleguen con las URLs de retorno correctas.
 
 ## Lo que falta
 

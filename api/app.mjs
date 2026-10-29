@@ -2,12 +2,12 @@
 // Es un manejador de Node (req, res) sin framework: sirve igual dentro de Hono, Fastify o un servicio propio.
 //   Cada pedido:  token → persona → empresa (X-Empresa-Id) → permiso → transacción con el contexto de sesión → respuesta.
 //   Lo que cambia algo deja su rastro en la trazabilidad dentro de la misma transacción.
-import { traducir, ErrorApi, noEncontrado } from './errores.mjs';
+import { traducir, ErrorApi, noEncontrado, invalido } from './errores.mjs';
 import { crearTercero, listarTerceros, obtenerTercero, modificarTercero } from './terceros.mjs';
 import { crearArticulo, listarArticulos, leerArticulo, modificarArticulo, fijarPrecio, listarListas, crearLista } from './articulos.mjs';
 import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } from './ventas.mjs';
 import { registrarEvento } from './eventos.mjs';
-import { leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
+import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
 const json = (res, estado, cuerpo, cabeceras = {}) => { const t = JSON.stringify(cuerpo); res.writeHead(estado, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(t), ...cabeceras }); res.end(t); };
@@ -83,7 +83,7 @@ const RUTAS = [
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, q)],
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => leerComprobante(c, p.id)],
   // --- Administración del estudio (solo administradores del estudio; sin empresa activa) ---
-  ['GET', '/api/estudio', '@estudio', ({ c }) => leerEstudio(c)],
+  ['GET', '/api/estudio', '@estudio', async ({ c, invitador }) => ({ ...(await leerEstudio(c)), invitaciones: !!invitador })],
   ['PATCH', '/api/estudio', '@estudio', async ({ c, ctx, cuerpo, origen }) => {
     const r = await modificarEstudio(c, ctx, cuerpo);
     if (r.cambios.length) await registrarEvento(c, ctx, { categoria: 'maestros', accion: 'Modificó los datos del estudio', detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'estudio', entidadId: ctx.estudioId, cambios: r.cambios, origen });
@@ -107,6 +107,20 @@ const RUTAS = [
     await registrarEvento(c, ctx, { categoria: 'seguridad', accion: `Dio de alta a la persona ${persona.nombre}`, detalle: `${persona.email} · ${persona.accesos.length} empresas${persona.admin_estudio ? ' · administradora del estudio' : ''}`, entidad: 'usuario', entidadId: persona.id, origen });
     return { estado: 201, cuerpo: persona };
   }],
+  // Invitar a una persona a crear su cuenta de ingreso. NO corre dentro de una transacción de la base (hay una llamada de red en el medio):
+  // primero se comprueba, después se invita, y recién entonces se deja constancia. El email sale de la persona cargada, nunca del pedido.
+  ['POST', '/api/estudio/personas/:id/invitacion', '@estudio', async ({ bd, ctx, p, cuerpo, origen, invitador }) => {
+    if (!invitador) throw new ErrorApi(501, 'invitaciones_no_configuradas', 'Esta instalación todavía no envía invitaciones desde el sistema. Invitá a la persona desde el panel de Supabase, con el mismo email.');
+    if (cuerpo && Object.keys(cuerpo).length) throw invalido({ _: 'Este pedido no lleva datos: el email sale de la persona cargada.' });
+    const persona = await bd.conContexto(ctx, (c) => prepararInvitacion(c, p.id));
+    let r = null, fallo = null;
+    try { r = await invitador.invitar(persona.email); } catch (e) { fallo = e; }
+    await bd.conContexto(ctx, (c) => registrarEvento(c, ctx, fallo
+      ? { categoria: 'seguridad', accion: `Intentó invitar a ${persona.nombre}`, detalle: persona.email, entidad: 'usuario', entidadId: persona.id, origen, resultado: 'fallo' }
+      : { categoria: 'seguridad', accion: `Invitó a ${persona.nombre}`, detalle: `${persona.email} · ${r.estado === 'ya_tiene_cuenta' ? 'ya tenía cuenta de ingreso' : 'invitación enviada'}`, entidad: 'usuario', entidadId: persona.id, origen }));
+    if (fallo) throw fallo;
+    return { estado: r.estado, email: persona.email, mensaje: r.estado === 'ya_tiene_cuenta' ? 'Esa persona ya tiene una cuenta de ingreso: puede entrar con su contraseña o pedir un enlace por email.' : `Le enviamos una invitación a ${persona.email}.` };
+  }, { propia: true }],
   ['GET', '/api/estudio/personas/:id', '@estudio', ({ c, p }) => leerPersona(c, p.id)],
   ['PATCH', '/api/estudio/personas/:id', '@estudio', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await modificarPersona(c, ctx, p.id, cuerpo);
@@ -130,11 +144,11 @@ const RUTAS = [
     if (r.cambios.length) await registrarEvento(c, { ...ctx, empresaId: p.id }, { categoria: 'maestros', accion: r.cambios.some((x) => x[0] === 'activa') ? `${r.empresa.activa ? 'Reactivó' : 'Dio de baja'} la empresa ${r.empresa.razon_social}` : `Modificó la empresa ${r.empresa.razon_social}`, detalle: r.cambios.map((x) => x[0]).join(', '), entidad: 'empresa', entidadId: p.id, cambios: r.cambios, origen });
     return r.empresa;
   }],
-].map(([metodo, ruta, permiso, hacer]) => ({ metodo, permiso, hacer, patron: new RegExp('^' + ruta.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$') }));
+].map(([metodo, ruta, permiso, hacer, opciones = {}]) => ({ metodo, permiso, hacer, propia: !!opciones.propia, patron: new RegExp('^' + ruta.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$') }));
 
 const esAdminEstudio = async (bd, ctx) => !!(await bd.conContexto({ ...ctx, empresaId: null }, (c) => c.uno('select 1 x from usuario where id = fn_usuario_actual() and admin_estudio and activo')));
 
-export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = crearLimitador(240, 60_000), maxBytes = 64 * 1024, saltosDeProxy = 0, registrarError = () => {} }) {
+export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = crearLimitador(240, 60_000), maxBytes = 64 * 1024, saltosDeProxy = 0, invitador = null, registrarError = () => {} }) {
   const origenDe = crearOrigenDe(saltosDeProxy);
   return async function manejador(req, res) {
     const base = { 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
@@ -180,7 +194,9 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
         cuerpo = await leerCuerpo(req, maxBytes);
       }
       const q = Object.fromEntries(url.searchParams);
-      const salida = await bd.conContexto(ctxTrabajo, (c) => r.hacer({ c, ctx: ctxTrabajo, p, q, cuerpo, req, origen: origenDe(req) }));
+      const salida = r.propia
+        ? await r.hacer({ bd, ctx: ctxTrabajo, p, q, cuerpo, req, origen: origenDe(req), invitador })
+        : await bd.conContexto(ctxTrabajo, (c) => r.hacer({ c, ctx: ctxTrabajo, p, q, cuerpo, req, origen: origenDe(req), invitador }));
       if (salida && salida.estado && salida.cuerpo !== undefined && Object.keys(salida).length === 2) return responder(salida.estado, salida.cuerpo);
       return responder(200, salida);
     } catch (e) { return fallar(e); }

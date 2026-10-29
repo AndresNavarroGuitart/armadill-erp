@@ -38,10 +38,23 @@ export function leerConfiguracion(env = process.env) {
     else if (u.protocol === 'http:' && !ESLOCAL.test(u.hostname)) errores.push(`ORIGENES: "${o}" tiene que ser https (http solo para localhost)`);
   }
 
+  // Invitaciones desde la aplicación (opcional). La clave de servicio puede TODO sobre las cuentas: solo se acepta una clave de servicio,
+  // nunca la publicable, y nunca sin saber a qué proyecto apunta.
+  const claveServicio = (env.SUPABASE_SERVICE_KEY ?? '').trim();
+  let urlApp = (env.URL_APP ?? '').trim() || origenes[0] || '';
+  if (claveServicio) {
+    if (!supabase) errores.push('SUPABASE_SERVICE_KEY: hace falta SUPABASE_URL para saber a qué proyecto pertenece');
+    if (/^sb_publishable_/.test(claveServicio) || claveServicio.length < 20) errores.push('SUPABASE_SERVICE_KEY: no parece una clave de servicio (la "secret" o "service_role"); la "publishable" o "anon" no sirve para invitar');
+    let u; try { u = new URL(urlApp); } catch (e) { errores.push('URL_APP: dirección de la aplicación a la que llega la invitación (por defecto, el primer ORIGENES)'); }
+    if (u && (u.search || u.hash || u.username || u.password)) errores.push('URL_APP: tiene que ser la dirección de la aplicación, sin parámetros ni usuario');
+    if (u && u.protocol === 'http:' && !ESLOCAL.test(u.hostname)) errores.push('URL_APP: tiene que ser https');
+  }
+
   const config = {
     puerto: entero('PORT', 8080, 1, 65535), escucharEn: (env.HOST ?? '0.0.0.0').trim() || '0.0.0.0',
     baseDeDatos, baseDeDatosCa: baseDeDatosCa || null, poolMaximo: entero('POOL_MAX', 10, 1, 100), saltosDeProxy: entero('TRUST_PROXY_HOPS', 0, 0, 5),
     jwt: { emisor, jwksUrl: jwksUrl || null, secretoHS256: secretoHS256 || null, audiencia: (env.JWT_AUDIENCIA ?? 'authenticated').trim() || 'authenticated' },
+    invitaciones: claveServicio ? { url: supabase, claveServicio, urlRetorno: urlApp } : null,
     origenes, limitePorMinuto: entero('LIMITE_POR_MINUTO', 240, 10, 100000),
   };
   if (errores.length) { const e = new Error(`Configuración incompleta o inválida:\n  - ${errores.join('\n  - ')}`); e.errores = errores; throw e; }

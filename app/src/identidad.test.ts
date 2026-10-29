@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { crearIdentidadDesarrollo, crearIdentidadSupabase, elegirIdentidad, traducirErrorAuth } from './identidad';
+import { crearIdentidadDesarrollo, crearIdentidadSupabase, elegirIdentidad, llegoPorInvitacion, traducirErrorAuth } from './identidad';
 
 type Escuchador = (evento: string) => void;
 function clienteFalso(sobre: Partial<{ sesion: { access_token: string } | null; errorIngreso: object | null; errorOtp: object | null; errorReset: object | null; errorClave: object | null }> = {}) {
@@ -65,6 +65,31 @@ describe('identidad con Supabase', () => {
     await id.salir(); expect(f.auth.signOut).toHaveBeenCalled();
     const flaca = clienteFalso({ errorClave: { code: 'weak_password', status: 422 } });
     await expect(crearIdentidadSupabase(flaca.cliente, 'https://app/').cambiarClave('corta')).rejects.toThrow(/12 caracteres/);
+  });
+});
+
+describe('llegada por invitación', () => {
+  type Oyente = (evento: string, sesion: object | null) => void;
+  const conOyente = (esInvitacion: boolean) => {
+    let oyente: Oyente | null = null;
+    const cliente = { auth: { onAuthStateChange: (f: Oyente) => { oyente = f; return { data: { subscription: { unsubscribe: vi.fn() } } }; } } } as unknown as SupabaseClient;
+    const eventos: string[] = []; crearIdentidadSupabase(cliente, 'https://app/', { esInvitacion }).alCambiar((e) => eventos.push(e));
+    return { eventos, emitir: (e: string, s: object | null = { access_token: 't' }) => oyente?.(e, s) };
+  };
+  it('la primera entrada por el enlace de invitación pide elegir contraseña, una sola vez', () => {
+    const a = conOyente(true); a.emitir('INITIAL_SESSION', null); a.emitir('SIGNED_IN'); a.emitir('SIGNED_IN'); a.emitir('TOKEN_REFRESHED');
+    expect(a.eventos).toEqual(['recuperacion']);
+  });
+  it('una entrada normal no pide nada', () => {
+    const a = conOyente(false); a.emitir('INITIAL_SESSION'); a.emitir('SIGNED_IN'); expect(a.eventos).toEqual([]);
+  });
+  it('el enlace de invitación se reconoce en el fragmento o en la consulta, y no se confunde con otros', () => {
+    expect(llegoPorInvitacion('#access_token=abc&type=invite', '')).toBe(true);
+    expect(llegoPorInvitacion('#type=invite&access_token=abc', '')).toBe(true);
+    expect(llegoPorInvitacion('', '?type=invite&token_hash=x')).toBe(true);
+    expect(llegoPorInvitacion('#access_token=abc&type=recovery', '')).toBe(false);
+    expect(llegoPorInvitacion('#/factura', '')).toBe(false);
+    expect(llegoPorInvitacion('#x=1&subtype=invite', '')).toBe(false);
   });
 });
 

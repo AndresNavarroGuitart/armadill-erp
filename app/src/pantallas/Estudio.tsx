@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, obtener } from '../api';
 import { useSesion } from '../sesion';
-import { cuitConGuiones, CONDICIONES_IVA, nombreCondicion } from '../formato';
-import type { Acceso, EmpresaAdmin, EstudioDatos, Permiso, Persona, Rol } from '../tipos';
+import { cuitConGuiones, CONDICIONES_IVA, fecha, nombreCondicion } from '../formato';
+import type { Acceso, EmpresaAdmin, EstudioDatos, Permiso, Persona, ResultadoInvitacion, Rol } from '../tipos';
 import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, Vacio } from '../ui';
 
 type Pestana = 'personas' | 'empresas' | 'roles' | 'estudio';
@@ -15,14 +15,15 @@ export function Estudio() {
   const [empresas, setEmpresas] = useState<EmpresaAdmin[] | null>(null);
   const [roles, setRoles] = useState<Rol[] | null>(null);
   const [permisos, setPermisos] = useState<Permiso[]>([]);
+  const [invitaciones, setInvitaciones] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
   const refrescar = useCallback(() => setRecarga((n) => n + 1), []);
 
   useEffect(() => {
     let vivo = true;
-    Promise.all([obtener<{ datos: EmpresaAdmin[] }>('/api/estudio/empresas'), obtener<{ datos: Rol[] }>('/api/estudio/roles'), obtener<{ datos: Permiso[] }>('/api/estudio/permisos')])
-      .then(([e, r, p]) => { if (vivo) { setEmpresas(e.datos); setRoles(r.datos); setPermisos(p.datos); setError(null); } })
+    Promise.all([obtener<{ datos: EmpresaAdmin[] }>('/api/estudio/empresas'), obtener<{ datos: Rol[] }>('/api/estudio/roles'), obtener<{ datos: Permiso[] }>('/api/estudio/permisos'), obtener<EstudioDatos>('/api/estudio')])
+      .then(([e, r, p, est]) => { if (vivo) { setEmpresas(e.datos); setRoles(r.datos); setPermisos(p.datos); setInvitaciones(est.invitaciones); setError(null); } })
       .catch((e) => { if (vivo) setError(e.message); });
     return () => { vivo = false; };
   }, [recarga]);
@@ -37,7 +38,7 @@ export function Estudio() {
       {!error && (!empresas || !roles) && <Cargando />}
       {empresas && roles && (
         <div role="tabpanel" id={`panel-${pestana}`} aria-labelledby={`tab-${pestana}`}>
-          {pestana === 'personas' && <Personas empresas={empresas} roles={roles} />}
+          {pestana === 'personas' && <Personas empresas={empresas} roles={roles} invitaciones={invitaciones} />}
           {pestana === 'empresas' && <Empresas empresas={empresas} onCambio={refrescar} />}
           {pestana === 'roles' && <Roles roles={roles} permisos={permisos} onCambio={refrescar} />}
           {pestana === 'estudio' && <DatosEstudio />}
@@ -48,7 +49,7 @@ export function Estudio() {
 }
 
 /* ====================== Personas ====================== */
-function Personas({ empresas, roles }: { empresas: EmpresaAdmin[]; roles: Rol[] }) {
+function Personas({ empresas, roles, invitaciones }: { empresas: EmpresaAdmin[]; roles: Rol[]; invitaciones: boolean }) {
   const { yo } = useSesion();
   const [datos, setDatos] = useState<Persona[] | null>(null);
   const [q, setQ] = useState('');
@@ -85,7 +86,7 @@ function Personas({ empresas, roles }: { empresas: EmpresaAdmin[]; roles: Rol[] 
                   <td><strong>{p.nombre}</strong>{p.id === yo?.usuario.id && ' (vos)'}<div className="muted">{p.email}</div></td>
                   <td>{p.accesos.length === 0 ? <span className="muted">Sin acceso a empresas</span> : p.accesos.map((a) => <div key={a.empresa_id}>{a.empresa} <span className="muted">· {a.rol}</span></div>)}</td>
                   <td>
-                    {p.admin_estudio && <Etiqueta tono="info">Administra el estudio</Etiqueta>} {!p.vinculada && p.activo && <Etiqueta tono="aviso">Todavía no ingresó</Etiqueta>} {!p.activo && <Etiqueta tono="malo">De baja</Etiqueta>}
+                    {p.admin_estudio && <Etiqueta tono="info">Administra el estudio</Etiqueta>} {!p.vinculada && p.activo && <Etiqueta tono="aviso">{p.invitada_en ? `Invitada el ${fecha(p.invitada_en)}` : 'Sin invitar'}</Etiqueta>} {!p.activo && <Etiqueta tono="malo">De baja</Etiqueta>}
                   </td>
                 </tr>
               ))}
@@ -93,7 +94,7 @@ function Personas({ empresas, roles }: { empresas: EmpresaAdmin[]; roles: Rol[] 
           </table>
         </div>
       )}
-      {abierta && <FormPersona persona={abierta === 'nueva' ? null : abierta} empresas={empresas} roles={roles} yoId={yo?.usuario.id ?? 0} onCerrar={() => setAbierta(null)} onGuardado={() => { setAbierta(null); setRecarga((n) => n + 1); }} />}
+      {abierta && <FormPersona persona={abierta === 'nueva' ? null : abierta} empresas={empresas} roles={roles} invitaciones={invitaciones} yoId={yo?.usuario.id ?? 0} onCerrar={() => setAbierta(null)} onGuardado={() => { setAbierta(null); setRecarga((n) => n + 1); }} onRefrescar={() => setRecarga((n) => n + 1)} />}
     </>
   );
 }
@@ -124,7 +125,7 @@ function EditorAccesos({ filas, setFilas, empresas, roles, errores, deshabilitad
 const filasDe = (accesos: Acceso[]): FilaAcceso[] => accesos.map((a) => ({ clave: ++claveFila, empresa_id: String(a.empresa_id), rol_id: String(a.rol_id) }));
 const aCuerpo = (filas: FilaAcceso[]) => filas.map((f) => ({ empresa_id: Number(f.empresa_id), rol_id: Number(f.rol_id) }));
 
-function FormPersona({ persona, empresas, roles, yoId, onCerrar, onGuardado }: { persona: Persona | null; empresas: EmpresaAdmin[]; roles: Rol[]; yoId: number; onCerrar: () => void; onGuardado: () => void }) {
+function FormPersona({ persona, empresas, roles, invitaciones, yoId, onCerrar, onGuardado, onRefrescar }: { persona: Persona | null; empresas: EmpresaAdmin[]; roles: Rol[]; invitaciones: boolean; yoId: number; onCerrar: () => void; onGuardado: () => void; onRefrescar?: () => void }) {
   const avisar = useAviso();
   const [nombre, setNombre] = useState(persona?.nombre ?? '');
   const [email, setEmail] = useState(persona?.email ?? '');
@@ -134,6 +135,8 @@ function FormPersona({ persona, empresas, roles, yoId, onCerrar, onGuardado }: {
   const [error, setError] = useState<unknown>(null);
   const [errorAccesos, setErrorAccesos] = useState<unknown>(null);
   const [trabajando, setTrabajando] = useState(false);
+  const [invitar, setInvitar] = useState(invitaciones);
+  const [resultadoInv, setResultadoInv] = useState<{ tipo: 'info' | 'error'; texto: string } | null>(null);
   const campos = error instanceof ErrorApi ? error.campos : {}, camposAcc = errorAccesos instanceof ErrorApi ? errorAccesos.campos : {};
   const yoMisma = persona?.id === yoId;
 
@@ -142,7 +145,11 @@ function FormPersona({ persona, empresas, roles, yoId, onCerrar, onGuardado }: {
     try {
       if (!persona) {
         const creada = await enviar<Persona>('POST', '/api/estudio/personas', { email: email.trim(), nombre: nombre.trim(), admin_estudio: admin, accesos: aCuerpo(filas) });
-        avisar(`${creada.nombre} quedó cargada. Para que ingrese, tiene que tener una cuenta con ${creada.email}.`);
+        // La persona ya quedó guardada; la invitación es un segundo paso que puede fallar sin deshacer el alta.
+        if (invitaciones && invitar) {
+          try { const r = await enviar<ResultadoInvitacion>('POST', `/api/estudio/personas/${creada.id}/invitacion`, {}); avisar(`${creada.nombre} quedó cargada. ${r.mensaje}`); }
+          catch (e) { avisar(`${creada.nombre} quedó cargada, pero no se pudo enviar la invitación: ${(e as Error).message} Podés reenviarla desde su ficha.`, 'error'); }
+        } else avisar(`${creada.nombre} quedó cargada. Para que ingrese, tiene que tener una cuenta con ${creada.email}.`);
       } else {
         const cambios: Record<string, unknown> = {};
         if (nombre.trim() !== persona.nombre) cambios.nombre = nombre.trim();
@@ -159,6 +166,11 @@ function FormPersona({ persona, empresas, roles, yoId, onCerrar, onGuardado }: {
     setTrabajando(true); setErrorAccesos(null);
     try { await enviar('PUT', `/api/estudio/personas/${persona.id}/accesos`, { accesos: aCuerpo(filas) }); avisar('Accesos guardados.'); onGuardado(); } catch (e) { setErrorAccesos(e); } finally { setTrabajando(false); }
   }
+  async function invitarAhora() {
+    if (!persona) return;
+    setTrabajando(true); setResultadoInv(null);
+    try { const r = await enviar<ResultadoInvitacion>('POST', `/api/estudio/personas/${persona.id}/invitacion`, {}); setResultadoInv({ tipo: 'info', texto: r.mensaje }); onRefrescar?.(); } catch (e) { setResultadoInv({ tipo: 'error', texto: (e as Error).message }); } finally { setTrabajando(false); }
+  }
   const general = resumenErrores(error, ['nombre', 'email', 'activo', 'admin_estudio', ...Array.from({ length: filas.length }, (_, i) => `accesos[${i}].empresa_id`)]);
   const generalAcc = resumenErrores(errorAccesos, Array.from({ length: filas.length }, (_, i) => `accesos[${i}].empresa_id`).concat(Array.from({ length: filas.length }, (_, i) => `accesos[${i}].rol_id`)));
   const accesosCompletos = filas.every((f) => f.empresa_id && f.rol_id);
@@ -167,16 +179,19 @@ function FormPersona({ persona, empresas, roles, yoId, onCerrar, onGuardado }: {
     <Modal titulo={persona ? persona.nombre : 'Nueva persona'} onCerrar={onCerrar} ancho={640}>
       <form onSubmit={guardar} noValidate>
         {general && <Alerta>{general}</Alerta>}
-        {!persona && <Alerta tipo="info">Cargá a la persona y sus accesos. Para ingresar tiene que tener una cuenta con <strong>ese mismo email</strong> (se la invita desde el panel de ingreso); la primera vez que entra queda vinculada.</Alerta>}
-        {persona && !persona.vinculada && persona.activo && <Alerta tipo="aviso">Todavía no ingresó al sistema: hasta entonces se puede corregir su email.</Alerta>}
+        {!persona && <Alerta tipo="info">Cargá a la persona y sus accesos. Para ingresar tiene que tener una cuenta con <strong>ese mismo email</strong>; la primera vez que entra queda vinculada.{!invitaciones && ' Esta instalación no envía invitaciones desde el sistema: invitala desde el panel de Supabase.'}</Alerta>}
+        {persona && !persona.vinculada && persona.activo && <Alerta tipo="aviso">Todavía no ingresó al sistema: hasta entonces se puede corregir su email. {persona.invitada_en ? `Se la invitó el ${fecha(persona.invitada_en)}.` : 'Todavía no se la invitó.'}</Alerta>}
+        {resultadoInv && <Alerta tipo={resultadoInv.tipo}>{resultadoInv.texto}</Alerta>}
         <div className="rejilla">
           <Campo etiqueta="Nombre y apellido" value={nombre} error={campos.nombre} onChange={(e) => setNombre(e.target.value)} autoFocus={!persona} />
           <Campo etiqueta="Email" type="email" value={email} disabled={!!persona?.vinculada} error={campos.email} ayuda={persona?.vinculada ? 'Ya ingresó: el email no se cambia.' : undefined} onChange={(e) => setEmail(e.target.value)} />
           <label className="btn ancho"><input type="checkbox" checked={admin} onChange={(e) => setAdmin(e.target.checked)} /> Administra el estudio (personas, empresas y roles)</label>
           {persona && <label className="btn ancho"><input type="checkbox" checked={activo} disabled={yoMisma} onChange={(e) => setActivo(e.target.checked)} /> Activa {yoMisma ? '(no podés darte de baja a vos misma)' : '(si la desmarcás, pierde el acceso en el acto)'}</label>}
         </div>
+        {!persona && invitaciones && <label className="btn ancho" style={{ marginTop: 12 }}><input type="checkbox" checked={invitar} onChange={(e) => setInvitar(e.target.checked)} /> Enviarle ahora una invitación por email para crear su cuenta</label>}
         {!persona && (<><h3 style={{ margin: '16px 0 6px' }}>Acceso a empresas</h3><EditorAccesos filas={filas} setFilas={setFilas} empresas={empresas} roles={roles} errores={campos} /></>)}
         <div className="pie-form">
+          {persona && !persona.vinculada && persona.activo && invitaciones && <button type="button" className="btn" disabled={trabajando} onClick={invitarAhora}>{persona.invitada_en || resultadoInv?.tipo === 'info' ? 'Reenviar invitación' : 'Enviar invitación'}</button>}
           <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
           <button type="submit" className="btn primario" disabled={trabajando || !nombre.trim() || !email.trim() || (!persona && !accesosCompletos)}>{trabajando ? 'Guardando…' : persona ? 'Guardar datos' : 'Crear persona'}</button>
         </div>

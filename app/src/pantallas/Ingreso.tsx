@@ -119,7 +119,7 @@ export function NuevaClave({ onListo }: { onListo: () => void }) {
     <div className="ingreso">
       <form className="caja tarjeta" onSubmit={guardar} noValidate>
         <div className="logo" aria-hidden="true">a</div>
-        <h1>Elegí tu contraseña nueva</h1>
+        <h1>Elegí tu contraseña</h1>
         <p className="muted">Usá al menos 12 caracteres; una frase larga es mejor que algo complicado.</p>
         {error && <Alerta>{error}</Alerta>}
         <div className="rejilla" style={{ gridTemplateColumns: '1fr' }}>

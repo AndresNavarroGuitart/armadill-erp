@@ -39,7 +39,12 @@ function firmarRS256(clave, payload) { const cuerpo = `${b64u({ alg: 'RS256', ty
 const reclamos = (extra = {}) => ({ sub: 'sub-admin', aud: 'authenticated', iss: EMISOR, exp: ahoraS() + 3600, ...extra });
 
 let publicadas = [], pedidos = 0, caido = false;
+const invitacionesRecibidas = [], CLAVE_SERVICIO = 'sb_secret_otra-clave-de-prueba-que-no-debe-aparecer-en-ningun-registro';
 const idp = http.createServer((req, res) => {
+  if (req.url.startsWith('/auth/v1/invite') && req.method === 'POST') {
+    let cuerpo = ''; req.on('data', (d) => { cuerpo += d; });
+    return req.on('end', () => { invitacionesRecibidas.push({ auth: req.headers.authorization, apikey: req.headers.apikey, email: JSON.parse(cuerpo).email, redirect: new URL(req.url, 'http://x').searchParams.get('redirect_to') }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); });
+  }
   if (req.url !== '/auth/v1/.well-known/jwks.json') { res.writeHead(404); return res.end(); }
   pedidos += 1;
   if (caido) { res.writeHead(503); return res.end('no'); }
@@ -260,13 +265,18 @@ await prueba('Configuración: informa todos los problemas juntos y rechaza "*", 
   verdad(/SUPABASE_URL: tiene que ser https/.test(msg({ ...BUENA, SUPABASE_URL: 'http://proyecto.supabase.co' })), 'SUPABASE_URL http');
   verdad(/demasiado corto/.test(msg({ ...BUENA, SUPABASE_JWT_SECRET: 'secreto' })), 'secreto corto'); verdad(/DATABASE_URL: tiene que empezar/.test(msg({ ...BUENA, DATABASE_URL: 'mysql://x' })), 'otro motor');
   verdad(/DATABASE_CA/.test(msg({ ...BUENA, DATABASE_CA: 'no es un certificado' })), 'CA inválida');
+  igual(leerConfiguracion(BUENA).invitaciones, null, 'sin clave de servicio no hay invitaciones');
+  igual(leerConfiguracion({ ...BUENA, SUPABASE_SERVICE_KEY: 'sb_secret_' + 'x'.repeat(30) }).invitaciones, { url: 'https://proyecto.supabase.co', claveServicio: 'sb_secret_' + 'x'.repeat(30), urlRetorno: 'https://app.ejemplo.com' }, 'invitaciones con la URL de la app tomada del primer origen');
+  verdad(/clave de servicio/.test(msg({ ...BUENA, SUPABASE_SERVICE_KEY: 'sb_publishable_' + 'x'.repeat(30) })), 'la clave publicable no sirve para invitar');
+  verdad(/SUPABASE_URL/.test(msg({ DATABASE_URL: BUENA.DATABASE_URL, ORIGENES: BUENA.ORIGENES, SUPABASE_JWT_SECRET: 'x'.repeat(40), SUPABASE_SERVICE_KEY: 'sb_secret_' + 'x'.repeat(30) })), 'sin URL del proyecto no se acepta una clave de servicio');
+  verdad(/URL_APP: tiene que ser https/.test(msg({ ...BUENA, SUPABASE_SERVICE_KEY: 'sb_secret_' + 'x'.repeat(30), URL_APP: 'http://app.ejemplo.com' })), 'URL_APP http');
   igual(leerConfiguracion({ ...BUENA, DATABASE_CA: '-----BEGIN CERTIFICATE-----\\nAAAA\\n-----END CERTIFICATE-----' }).baseDeDatosCa, '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----', 'CA con saltos escritos como \\n');
   verdad(/PORT/.test(msg({ ...BUENA, PORT: 'abc' })), 'puerto'); verdad(/TRUST_PROXY_HOPS/.test(msg({ ...BUENA, TRUST_PROXY_HOPS: '99' })), 'saltos');
 });
 await prueba('Servidor de producción: arranca con su configuración, verifica un ingreso ES256 real, aísla por empresa y no arranca si falta configuración', async () => {
   const puertoIdp = idp.address().port, puerto = 20000 + Math.floor(Math.random() * 20000), emisor = `http://127.0.0.1:${puertoIdp}/auth/v1`;
   publicadas = [k1.publica];
-  const env = { ...process.env, DATABASE_URL: entorno.url, SUPABASE_URL: `http://127.0.0.1:${puertoIdp}`, ORIGENES: 'http://localhost:3030', PORT: String(puerto), HOST: '127.0.0.1', POOL_MAX: '1' };
+  const env = { ...process.env, DATABASE_URL: entorno.url, SUPABASE_URL: `http://127.0.0.1:${puertoIdp}`, ORIGENES: 'http://localhost:3030', PORT: String(puerto), HOST: '127.0.0.1', POOL_MAX: '1', SUPABASE_SERVICE_KEY: CLAVE_SERVICIO };
   const hijo = spawn(process.execPath, [fileURLToPath(new URL('./servidor.mjs', import.meta.url))], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let salida = ''; hijo.stdout.on('data', (d) => { salida += d; }); hijo.stderr.on('data', (d) => { salida += d; });
   try {
@@ -279,6 +289,13 @@ await prueba('Servidor de producción: arranca con su configuración, verifica u
     igual((await pedir(t({ iss: 'https://otro.test/auth/v1' }))).status, 401, 'emisor ajeno'); igual((await pedir(t({ exp: ahoraS() - 600 }))).status, 401, 'vencido'); igual((await pedir(null)).status, 401, 'sin token');
     igual((await pedir(t(), S.empresas.ajena.id)).status, 403, 'empresa de otro estudio'); igual((await pedir(t({ sub: 'desconocida' }))).status, 403, 'persona desconocida');
     verdad(!/eyJ/.test(salida) && !/Bearer/.test(salida), 'el registro no debe contener tokens');
+    // Invitación de punta a punta: persona nueva → el servidor llama al proveedor con la clave de servicio.
+    const post = (ruta, cuerpo) => fetch('http://127.0.0.1:' + puerto + ruta, { method: 'POST', headers: { Authorization: 'Bearer ' + t(), 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+    const persona = await (await post('/api/estudio/personas', { email: 'Recien.Llegada@Estudio.test', nombre: 'Recién Llegada' })).json();
+    const inv = await post('/api/estudio/personas/' + persona.id + '/invitacion', {}); igual(inv.status, 200, 'invita');
+    igual((await inv.json()).estado, 'invitada', 'estado');
+    igual(invitacionesRecibidas.map((x) => [x.email, x.redirect, x.auth, x.apikey]), [['recien.llegada@estudio.test', 'http://localhost:3030', 'Bearer ' + CLAVE_SERVICIO, CLAVE_SERVICIO]], 'el proveedor recibió la invitación con la clave de servicio y la dirección de la aplicación');
+    verdad(!salida.includes(CLAVE_SERVICIO), 'la clave de servicio no aparece en el registro del servidor');
   } finally { hijo.kill(); }
   const sinConfig = spawnSync(process.execPath, [fileURLToPath(new URL('./servidor.mjs', import.meta.url))], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
   igual(sinConfig.status, 1, 'sin configuración no arranca'); verdad(/DATABASE_URL: falta/.test(sinConfig.stderr), `explica qué falta: ${sinConfig.stderr}`);

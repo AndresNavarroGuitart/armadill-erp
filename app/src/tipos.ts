@@ -32,8 +32,9 @@ export type Comprobante = ComprobanteResumen & {
 
 /* ---------- administración del estudio ---------- */
 export type Acceso = { empresa_id: number; empresa: string; rol_id: number; rol: string };
-export type Persona = { id: number; email: string; nombre: string; activo: boolean; admin_estudio: boolean; vinculada: boolean; accesos: Acceso[] };
+export type Persona = { id: number; email: string; nombre: string; activo: boolean; admin_estudio: boolean; vinculada: boolean; invitada_en: string | null; accesos: Acceso[] };
+export type ResultadoInvitacion = { estado: 'invitada' | 'ya_tiene_cuenta'; email: string; mensaje: string };
 export type EmpresaAdmin = { id: number; cuit: string; razon_social: string; condicion_iva_codigo: number; inicio_actividades: string | null; nro_iibb: string | null; domicilio_fiscal: string | null; convenio_multilateral: boolean; activa: boolean; personas: number };
 export type Rol = { id: number; nombre: string; sistema: boolean; accesos: number; permisos: string[] };
 export type Permiso = { clave: string; modulo: string; descripcion: string };
-export type EstudioDatos = { id: number; nombre: string; cuit: string | null; personas: number; empresas: number };
+export type EstudioDatos = { id: number; nombre: string; cuit: string | null; personas: number; empresas: number; invitaciones: boolean };

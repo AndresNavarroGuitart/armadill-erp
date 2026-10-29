@@ -12,7 +12,7 @@ React + TypeScript + Vite sobre la API de `../api` (ver [api/LEEME.md](../api/LE
 | Comprobantes | Listado con filtros por fecha y estado, y detalle con renglones, IVA y asiento |
 | Clientes y proveedores | Alta, edición con cambios mínimos, baja lógica, búsqueda, saldo del cliente; errores del servidor campo por campo |
 | Artículos | Alta con precio y costo iniciales, IVA, precios por lista con fecha de vigencia |
-| Estudio (solo administradores del estudio) | Personas (alta, baja, marca de administrador y accesos por empresa con su rol), empresas (alta lista para facturar, edición, baja, abrir), roles y permisos, y datos del estudio. Funciona sin empresa activa: quien administra un estudio recién creado entra directo acá |
+| Estudio (solo administradores del estudio) | Personas (alta con invitación por email opcional, reenvío, baja, marca de administrador y accesos por empresa con su rol), empresas (alta lista para facturar, edición, baja, abrir), roles y permisos, y datos del estudio. Funciona sin empresa activa: quien administra un estudio recién creado entra directo acá |
 
 El menú y los botones siguen los permisos del rol en la empresa activa (Consulta no ve “Facturar” ni “Nuevo cliente”); la API vuelve a controlar todo, el front solo evita ofrecer lo que no se puede hacer.
 
@@ -22,6 +22,7 @@ El menú y los botones siguen los permisos del rol en la empresa activa (Consult
 - **Un reintento no emite dos veces**: la clave de idempotencia se mantiene mientras el pedido sea el mismo y cambia si la persona modifica algo.
 - **Sesión**: la administra `identidad.ts` (Supabase Auth con flujo PKCE; renueva el token solo). Se guarda en `sessionStorage` y se pierde al cerrar la pestaña; nunca en `localStorage`. Un 401 cierra la sesión y vuelve al ingreso.
 - **Acceso ≠ autenticación**: que Supabase reconozca a la persona no alcanza; si no figura en `usuario` (alta del administrador del estudio), la API responde "sin acceso" y el front cierra la sesión. Por eso el alta libre en Supabase tiene que estar desactivada.
+- **Invitaciones**: la pantalla de personas invita a través de la API (la clave de servicio nunca llega al navegador). Quien entra por el enlace de invitación llega con una cuenta sin contraseña y el front le pide elegir una antes de seguir (`identidad.ts` detecta `type=invite`).
 - **El enlace por email y la recuperación responden igual exista o no la cuenta** (no revelan quién está registrado), salvo cuando se alcanzó el límite de envíos.
 - **Sin CORS en desarrollo**: Vite reenvía `/api` y `/dev` a la API (`API_URL`, por defecto `http://127.0.0.1:3020`).
 - Accesibilidad: etiquetas asociadas, errores con `aria-describedby`, diálogos nativos (`<dialog>`), foco visible, respeta `prefers-reduced-motion`.
@@ -46,7 +47,7 @@ npm run build       # tipos + build de producción en dist/
 
 - Probar el ingreso contra un proyecto real de Supabase y desplegar (ver [api/LEEME.md](../api/LEEME.md#puesta-en-producción-supabase)). La configuración va en `app/.env.local` (modelo en `.env.example`): solo la URL y la clave *publishable*, que son públicas por diseño.
 - MFA y pantalla de administración de personas y empresas.
-- Enviar las invitaciones de Supabase desde la pantalla de personas (hoy se invita desde el panel de Supabase), trazabilidad en pantalla y asignación de empresas por lote.
+- Trazabilidad en pantalla y asignación de empresas por lote. Las invitaciones por email requieren `SUPABASE_SERVICE_KEY` en el servidor; sin ella la pantalla lo avisa y la persona se invita desde el panel de Supabase.
 - Gestión de listas de precios y de stock desde la pantalla (hoy un bien con stock necesita movimientos que todavía no tienen pantalla; para facturar servicios o bienes sin control de stock ya alcanza).
 - Anular y notas de crédito, compras, cobros y pagos, asistente con Claude y emisión electrónica con CAE.
 - Pruebas automáticas de pantallas (hoy la verificación fue manual contra la API real; no se pudieron tomar capturas por estar la vista previa en segundo plano).

@@ -9,6 +9,7 @@ import { sembrarDemo } from './semilla.mjs';
 import { crearBd } from './bd.mjs';
 import { crearAutenticador, firmarJwtHS256 } from './auth.mjs';
 import { crearApi } from './app.mjs';
+import { ErrorApi } from './errores.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
 if (process.env.NODE_ENV === 'production') { console.error('Este servidor es solo para desarrollo (secreto y datos de prueba).'); process.exit(1); }
@@ -17,7 +18,12 @@ const SECRETO = 'secreto-solo-para-desarrollo-no-usar-en-produccion', EMISOR = '
 const { db } = await crearBase();
 const S = await sembrarDemo(db);
 const bd = crearBd(db);
-const manejador = crearApi({
+// Invitaciones SIMULADAS: no se envía ningún correo; sirve para recorrer la pantalla. 'ya.tiene.cuenta@…' prueba el otro resultado y 'falla@…' un error del proveedor.
+const invitador = { async invitar(email) {
+  if (/^falla@/.test(email)) throw new ErrorApi(502, 'proveedor_identidad', 'El servicio de ingreso no pudo enviar la invitación (simulado). Probá de nuevo en unos minutos.');
+  console.log(`[invitación simulada] ${email}`); return { estado: /^ya.tiene.cuenta@/.test(email) ? 'ya_tiene_cuenta' : 'invitada' };
+} };
+const manejador = crearApi({ invitador,
   bd, autenticar: crearAutenticador({ bd, secreto: SECRETO, emisor: EMISOR, registrarError: (e) => console.error('[error]', e.message) }),
   origenesPermitidos: (process.env.ORIGENES || 'http://localhost:3007,http://localhost:3030').split(',').map((s) => s.trim()).filter(Boolean),
   limitar: crearLimitador(300, 60_000), registrarError: (e) => console.error('[error]', e.message),

@@ -12,6 +12,7 @@ import { crearApi } from './app.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 import { cuitConDigito } from './cuit.mjs';
 import { altaEstudio, validarAltaEstudio } from './alta_estudio.mjs';
+import { crearInvitador } from './invitaciones.mjs';
 
 let correctas = 0, fallas = 0;
 async function prueba(nombre, fn) {
@@ -30,11 +31,30 @@ const S = await sembrarDemo(db);
 const autenticar = crearAutenticador({ bd, secreto: SECRETO, emisor: EMISOR });
 const q = async (sql, p = []) => (await db.query(sql, p)).rows, uno = async (sql, p = []) => (await q(sql, p))[0];
 const srv = await new Promise((ok) => { const s = http.createServer(crearApi({ bd, autenticar, origenesPermitidos: [], limitar: crearLimitador(100000) })); s.listen(0, '127.0.0.1', () => ok({ base: `http://127.0.0.1:${s.address().port}`, cerrar: () => new Promise((r) => s.close(r)) })); });
+// Un "Supabase" de juguete que recibe las invitaciones: guarda lo que le llega y responde según el email.
+const CLAVE_SERVICIO = 'sb_secret_CLAVE-DE-PRUEBA-que-no-debe-filtrarse-jamas', recibidos = [];
+const proveedor = http.createServer((req, res) => {
+  let cuerpo = ''; req.on('data', (d) => { cuerpo += d; }); req.on('end', () => {
+    const u = new URL(req.url, 'http://x'), datos = cuerpo ? JSON.parse(cuerpo) : {};
+    recibidos.push({ metodo: req.method, ruta: u.pathname, redirect: u.searchParams.get('redirect_to'), apikey: req.headers.apikey, auth: req.headers.authorization, email: datos.email, claves: Object.keys(datos) });
+    if (u.pathname !== '/auth/v1/invite') { res.writeHead(404); return res.end(); }
+    if (/^lento@/.test(datos.email)) return;                                                         // no responde: prueba el tiempo máximo
+    const responder = (estado, j) => { res.writeHead(estado, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(j)); };
+    if (/^ya\.tiene@/.test(datos.email)) return responder(422, { code: 422, error_code: 'email_exists', msg: 'A user with this email address has already been registered' });
+    if (/^limite@/.test(datos.email)) return responder(429, { code: 429, error_code: 'over_email_send_rate_limit', msg: 'email rate limit exceeded' });
+    if (/^falla@/.test(datos.email)) return responder(500, { msg: 'error interno con la clave ' + req.headers.apikey });         // un proveedor que devuelve la clave en el error
+    responder(200, { id: 'uuid', email: datos.email });
+  });
+});
+await new Promise((r) => proveedor.listen(0, '127.0.0.1', r));
+const URL_PROVEEDOR = 'http://127.0.0.1:' + proveedor.address().port, errores_registrados = [];
+const invitador = crearInvitador({ url: URL_PROVEEDOR, claveServicio: CLAVE_SERVICIO, urlRetorno: 'https://app.ejemplo.com/', tiempoMaximoMs: 400, registrarError: (e) => errores_registrados.push(e.message) });
+const srvInv = await new Promise((ok) => { const s = http.createServer(crearApi({ bd, autenticar, origenesPermitidos: [], limitar: crearLimitador(100000), invitador })); s.listen(0, '127.0.0.1', () => ok({ base: 'http://127.0.0.1:' + s.address().port, cerrar: () => new Promise((r) => s.close(r)) })); });
 const token = (sub, extra = {}) => firmarJwtHS256({ sub, aud: 'authenticated', iss: EMISOR, exp: Math.floor(Date.now() / 1000) + 3600, ...extra }, SECRETO);
 const SESION = { admin: token('sub-admin'), consulta: token('sub-consulta'), otro: token('sub-otro'), auxiliar: token('sub-auxiliar', { email: 'auxiliar@estudio.test', email_verified: true }) };
-async function api(quien, metodo, ruta, { cuerpo, empresa } = {}) {
+async function api(quien, metodo, ruta, { cuerpo, empresa, servidor = srv } = {}) {
   const t = SESION[quien] ?? quien;
-  const r = await fetch(srv.base + ruta, { method: metodo, headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}), ...(cuerpo !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(empresa ? { 'X-Empresa-Id': String(empresa) } : {}) }, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+  const r = await fetch(servidor.base + ruta, { method: metodo, headers: { ...(t ? { Authorization: `Bearer ${t}` } : {}), ...(cuerpo !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(empresa ? { 'X-Empresa-Id': String(empresa) } : {}) }, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
   const texto = await r.text(); let json = null; try { json = texto ? JSON.parse(texto) : null; } catch (e) { /* no JSON */ }
   return { estado: r.status, cuerpo: json };
 }
@@ -234,6 +254,56 @@ await prueba('Trazabilidad: toda la administración quedó registrada con la per
   verdad((await uno(`select count(*)::int n from evento where categoria = 'seguridad'`)).n >= 8, 'hay eventos de seguridad');
 });
 
+// ---------------------------------------------------------------------------
+await prueba('Invitaciones: sin configurar la ruta responde 501 con la salida manual, y el estudio informa que no están disponibles', async () => {
+  const p = await api('admin', 'POST', '/api/estudio/personas', { cuerpo: { email: 'inv.manual@estudio.test', nombre: 'Invitada Manual' } }); ids.invManual = p.cuerpo.id;
+  const r = await api('admin', 'POST', '/api/estudio/personas/' + ids.invManual + '/invitacion', { cuerpo: {} }); igual([r.estado, r.cuerpo.error.codigo], [501, 'invitaciones_no_configuradas'], 'sin proveedor'); verdad(/panel de Supabase/.test(r.cuerpo.error.mensaje), 'explica la salida manual');
+  igual([(await api('admin', 'GET', '/api/estudio')).cuerpo.invitaciones, (await api('admin', 'GET', '/api/estudio', { servidor: srvInv })).cuerpo.invitaciones], [false, true], 'el estudio informa si puede invitar');
+});
+await prueba('Invitaciones: invita al email guardado (nunca a uno del pedido), con la clave solo hacia el proveedor, y deja constancia', async () => {
+  const inv = (id, cuerpo = {}) => api('admin', 'POST', '/api/estudio/personas/' + id + '/invitacion', { cuerpo, servidor: srvInv });
+  const p = await api('admin', 'POST', '/api/estudio/personas', { cuerpo: { email: 'Nueva.Persona@Estudio.test', nombre: 'Nueva Persona' } }); ids.invNueva = p.cuerpo.id; igual(p.cuerpo.invitada_en, null, 'todavía sin invitación');
+  const mal = await inv(ids.invNueva, { email: 'victima@otro.com' }); igual(mal.estado, 422, 'el pedido no puede traer un email'); igual(recibidos.length, 0, 'nada salió hacia el proveedor');
+  const r = await inv(ids.invNueva); igual(r.estado, 200, JSON.stringify(r.cuerpo)); igual([r.cuerpo.estado, r.cuerpo.email], ['invitada', 'nueva.persona@estudio.test'], 'respuesta');
+  const h = recibidos.at(-1); igual([h.metodo, h.ruta, h.email, h.claves, h.redirect], ['POST', '/auth/v1/invite', 'nueva.persona@estudio.test', ['email'], 'https://app.ejemplo.com/'], 'lo que recibió el proveedor'); igual([h.apikey, h.auth], [CLAVE_SERVICIO, 'Bearer ' + CLAVE_SERVICIO], 'autenticación hacia el proveedor');
+  verdad(!JSON.stringify(r.cuerpo).includes(CLAVE_SERVICIO), 'la clave no sale en la respuesta');
+  const ev = await ultimoEvento('Invitó a Nueva Persona'); igual([ev.categoria, ev.usuario_id], ['seguridad', ADMIN], 'evento'); verdad(!JSON.stringify(ev).includes(CLAVE_SERVICIO), 'ni en la trazabilidad');
+  verdad((await api('admin', 'GET', '/api/estudio/personas/' + ids.invNueva)).cuerpo.invitada_en, 'la persona muestra cuándo se la invitó');
+  const ya = await api('admin', 'POST', '/api/estudio/personas', { cuerpo: { email: 'ya.tiene@estudio.test', nombre: 'Ya Tiene Cuenta' } });
+  const r2 = await inv(ya.cuerpo.id); igual([r2.estado, r2.cuerpo.estado], [200, 'ya_tiene_cuenta'], 'cuenta existente'); verdad(/ya tiene una cuenta/.test(r2.cuerpo.mensaje), 'mensaje');
+});
+await prueba('Invitaciones: no se invita a quien ya ingresó, está de baja, es de otro estudio, ni lo puede hacer quien no administra', async () => {
+  const inv = (quien, id) => api(quien, 'POST', '/api/estudio/personas/' + id + '/invitacion', { cuerpo: {}, servidor: srvInv });
+  const antes = recibidos.length;
+  igual((await inv('admin', S.usuarios.consulta.id)).cuerpo.error.codigo, 'ya_ingreso', 'ya ingresó');
+  igual((await inv('admin', S.usuarios.baja.id)).cuerpo.error.codigo, 'no_se_puede_invitar', 'de baja');
+  igual((await inv('otro', ids.invNueva)).estado, 404, 'otro estudio');
+  igual((await inv('consulta', ids.invNueva)).estado, 403, 'sin ser administrador'); igual((await inv(null, ids.invNueva)).estado, 401, 'sin sesión'); igual((await inv('admin', 99999)).estado, 404, 'inexistente');
+  igual(recibidos.length, antes, 'ninguna de esas llegó al proveedor');
+});
+await prueba('Invitaciones: errores del proveedor se traducen sin filtrar su respuesta ni la clave; el tiempo máximo corta; todo queda registrado', async () => {
+  const crear = async (email, nombre) => (await api('admin', 'POST', '/api/estudio/personas', { cuerpo: { email, nombre } })).cuerpo.id;
+  const inv = (id) => api('admin', 'POST', '/api/estudio/personas/' + id + '/invitacion', { cuerpo: {}, servidor: srvInv });
+  const falla = await inv(await crear('falla@estudio.test', 'Falla Proveedor')); igual([falla.estado, falla.cuerpo.error.codigo], [502, 'proveedor_identidad'], 'error del proveedor'); verdad(!JSON.stringify(falla.cuerpo).includes(CLAVE_SERVICIO), 'la clave que el proveedor devolvió en su error no sale');
+  verdad(errores_registrados.length === 1 && /respondió 500/.test(errores_registrados[0]) && !errores_registrados.join().includes(CLAVE_SERVICIO), 'el registro interno solo lleva el estado: ' + errores_registrados.join());
+  igual((await uno("select resultado from evento where accion = 'Intentó invitar a Falla Proveedor'")).resultado, 'fallo', 'queda como fallo');
+  const lim = await inv(await crear('limite@estudio.test', 'Limite Correo')); igual([lim.estado, lim.cuerpo.error.codigo], [429, 'invitaciones_limitadas'], 'límite del proveedor de correo');
+  const t0 = Date.now(), lento = await inv(await crear('lento@estudio.test', 'Lento Proveedor')); igual([lento.estado, lento.cuerpo.error.codigo], [504, 'proveedor_identidad'], 'no responde'); verdad(Date.now() - t0 < 3000, 'corta por tiempo');
+});
+await prueba('Invitaciones: tope por persona y por hora (cuenta también los intentos fallidos), calculado desde la trazabilidad', async () => {
+  const id = (await api('admin', 'POST', '/api/estudio/personas', { cuerpo: { email: 'tope@estudio.test', nombre: 'Tope Horario' } })).cuerpo.id;
+  const inv = () => api('admin', 'POST', '/api/estudio/personas/' + id + '/invitacion', { cuerpo: {}, servidor: srvInv });
+  for (let i = 0; i < 3; i++) igual((await inv()).estado, 200, 'envío ' + (i + 1));
+  const cuarta = await inv(); igual([cuarta.estado, cuarta.cuerpo.error.codigo], [429, 'invitaciones_limitadas'], 'el cuarto'); const antes = recibidos.length; await inv(); igual(recibidos.length, antes, 'y no llega al proveedor');
+});
+await prueba('Invitaciones: el invitador exige sus datos y arma bien la dirección del proveedor', async () => {
+  let msg = ''; try { crearInvitador({ url: URL_PROVEEDOR }); } catch (e) { msg = e.message; } verdad(/clave de servicio/.test(msg), 'sin clave no se crea');
+  const i2 = crearInvitador({ url: URL_PROVEEDOR + '///', claveServicio: CLAVE_SERVICIO, urlRetorno: 'https://app.ejemplo.com/inicio?a=1&b=2' }); await i2.invitar('otra@estudio.test');
+  igual(recibidos.at(-1).redirect, 'https://app.ejemplo.com/inicio?a=1&b=2', 'la dirección de retorno viaja codificada y llega intacta');
+});
+
+await srvInv.cerrar();
+await new Promise((r) => proveedor.close(r));
 await srv.cerrar();
 await cerrarBase();
 console.log(`\n${correctas} pruebas correctas, ${fallas} con falla${MODO_PG ? ' (adaptador pg)' : ''}`);

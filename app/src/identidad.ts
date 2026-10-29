@@ -40,7 +40,8 @@ function almacenDeSesion() {
   return { getItem: (k: string) => (s ? s.getItem(k) : memoria.get(k) ?? null), setItem: (k: string, v: string) => { if (s) s.setItem(k, v); else memoria.set(k, v); }, removeItem: (k: string) => { if (s) s.removeItem(k); else memoria.delete(k); } };
 }
 
-export function crearIdentidadSupabase(cliente: SupabaseClient, urlDeRetorno: string): Identidad {
+/** `esInvitacion`: la persona llegó desde el enlace de invitación (type=invite). Esa cuenta nace sin contraseña, así que al entrar se le pide elegir una. */
+export function crearIdentidadSupabase(cliente: SupabaseClient, urlDeRetorno: string, { esInvitacion = false }: { esInvitacion?: boolean } = {}): Identidad {
   const falla = (e: unknown): never => { throw new Error(traducirErrorAuth(e as { code?: string })); };
   return {
     tipo: 'supabase',
@@ -52,7 +53,12 @@ export function crearIdentidadSupabase(cliente: SupabaseClient, urlDeRetorno: st
     async cambiarClave(nueva) { const { error } = await cliente.auth.updateUser({ password: nueva }); if (error) falla(error); },
     async salir() { await cliente.auth.signOut(); },
     alCambiar(cb) {
-      const { data } = cliente.auth.onAuthStateChange((evento) => { if (evento === 'SIGNED_OUT') cb('cerrada'); else if (evento === 'PASSWORD_RECOVERY') cb('recuperacion'); });
+      let pendiente = esInvitacion;
+      const { data } = cliente.auth.onAuthStateChange((evento, sesion) => {
+        if (evento === 'SIGNED_OUT') cb('cerrada');
+        else if (evento === 'PASSWORD_RECOVERY') cb('recuperacion');
+        else if (pendiente && sesion && (evento === 'SIGNED_IN' || evento === 'INITIAL_SESSION')) { pendiente = false; cb('recuperacion'); }   // primera entrada por invitación: elegir contraseña
+      });
       return () => data.subscription.unsubscribe();
     },
   };
@@ -75,11 +81,15 @@ const SIN_CONFIGURAR = (): Identidad => {
   return { tipo: 'ninguna', token: async () => null, ingresarConClave: nada, enviarEnlace: nada, recuperarClave: nada, cambiarClave: nada, salir: async () => {}, alCambiar: () => () => {} };
 };
 
+/** El enlace del correo de invitación vuelve con `type=invite` en la dirección (en el fragmento o en la consulta). */
+export const llegoPorInvitacion = (hash: string, search: string): boolean => /(^|[#&?])type=invite(&|$)/.test(`${hash}&${search}`);
+
 /** Con VITE_SUPABASE_URL y la clave publicable → Supabase. Sin configurar: personas de prueba solo en desarrollo; en un build de producción, nada. */
 export function elegirIdentidad(env: { VITE_SUPABASE_URL?: string; VITE_SUPABASE_PUBLISHABLE_KEY?: string; DEV?: boolean }, urlDeRetorno: string): Identidad {
   if (env.VITE_SUPABASE_URL && env.VITE_SUPABASE_PUBLISHABLE_KEY) {
     const cliente = createClient(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_PUBLISHABLE_KEY, { auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: almacenDeSesion() } });
-    return crearIdentidadSupabase(cliente, urlDeRetorno);
+    const invitacion = typeof location !== 'undefined' && llegoPorInvitacion(location.hash, location.search);   // se lee antes de que Supabase limpie la dirección
+    return crearIdentidadSupabase(cliente, urlDeRetorno, { esInvitacion: invitacion });
   }
   return env.DEV ? crearIdentidadDesarrollo() : SIN_CONFIGURAR();
 }

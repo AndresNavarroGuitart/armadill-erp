@@ -8,6 +8,7 @@ import { crearPool, crearBdPg } from './bd_pg.mjs';
 import { crearJwks, crearVerificador } from './jwt.mjs';
 import { crearAutenticador } from './auth.mjs';
 import { crearApi } from './app.mjs';
+import { crearInvitador } from './invitaciones.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
 let config;
@@ -21,11 +22,12 @@ const bd = crearBdPg(pool);
 const jwks = config.jwt.jwksUrl ? crearJwks({ url: config.jwt.jwksUrl, registrarError: registrar }) : undefined;
 const verificador = crearVerificador({ secretoHS256: config.jwt.secretoHS256 ?? undefined, jwks, audiencia: config.jwt.audiencia, emisor: config.jwt.emisor });
 const autenticar = crearAutenticador({ bd, verificador, registrarError: (e) => registrar(e) });
-const manejador = crearApi({ bd, autenticar, origenesPermitidos: config.origenes, limitar: crearLimitador(config.limitePorMinuto, 60_000), saltosDeProxy: config.saltosDeProxy, registrarError: registrar });
+const invitador = config.invitaciones ? crearInvitador({ ...config.invitaciones, registrarError: registrar }) : null;
+const manejador = crearApi({ bd, autenticar, invitador, origenesPermitidos: config.origenes, limitar: crearLimitador(config.limitePorMinuto, 60_000), saltosDeProxy: config.saltosDeProxy, registrarError: registrar });
 
 const servidor = http.createServer(manejador);
 servidor.requestTimeout = 30_000; servidor.headersTimeout = 10_000; servidor.keepAliveTimeout = 5_000;
-servidor.listen(config.puerto, config.escucharEn, () => console.log(JSON.stringify({ nivel: 'info', mensaje: `API escuchando en ${config.escucharEn}:${config.puerto}`, origenes: config.origenes, verificacion: [config.jwt.jwksUrl && 'JWKS', config.jwt.secretoHS256 && 'HS256'].filter(Boolean) })));
+servidor.listen(config.puerto, config.escucharEn, () => console.log(JSON.stringify({ nivel: 'info', mensaje: `API escuchando en ${config.escucharEn}:${config.puerto}`, origenes: config.origenes, verificacion: [config.jwt.jwksUrl && 'JWKS', config.jwt.secretoHS256 && 'HS256'].filter(Boolean), invitaciones: !!config.invitaciones })));
 
 // Cierre ordenado: deja de aceptar pedidos, espera los que están en curso y recién entonces cierra la base.
 let cerrando = false;
