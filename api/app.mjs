@@ -16,6 +16,7 @@ import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, apl
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
+import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -218,6 +219,35 @@ const RUTAS = [
     return { estado: 201, cuerpo: { ...r.comprobante, avisos: r.avisos } };
   }],
   ['POST', '/api/compras/notas/:id/aplicar', 'compras.cargar', async ({ c, ctx, p, cuerpo }) => (await aplicarNotaCompra(c, ctx, p.id, cuerpo)).comprobante],
+  // --- Órdenes de compra (lo que se le pide a un proveedor; no mueven stock ni generan deuda) ---
+  ['GET', '/api/compras/ordenes', 'compras.ver', ({ c, q }) => listarOrdenes(c, q)],
+  ['POST', '/api/compras/ordenes/calcular', 'compras.cargar', ({ c, cuerpo }) => calcularOrden(c, cuerpo)],
+  ['POST', '/api/compras/ordenes', 'compras.cargar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await crearOrden(c, ctx, cuerpo), o = r.orden;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${o.estado === 'confirmado' ? 'Emitió' : 'Guardó como borrador'} la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · $ ${o.total}`, entidad: 'documento_comercial', entidadId: o.id, origen });
+    return { estado: 201, cuerpo: { ...o, avisos: r.avisos } };
+  }],
+  ['GET', '/api/compras/ordenes/:id', 'compras.ver', ({ c, p }) => detalleOrden(c, p.id)],
+  ['PUT', '/api/compras/ordenes/:id', 'compras.cargar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarOrden(c, ctx, p.id, cuerpo), o = r.orden;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${o.estado === 'confirmado' ? 'Emitió' : 'Modificó'} la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · $ ${o.total}`, entidad: 'documento_comercial', entidadId: o.id, origen });
+    return { ...o, avisos: r.avisos };
+  }],
+  ['POST', '/api/compras/ordenes/:id/emitir', 'compras.cargar', async ({ c, ctx, p, origen }) => {
+    const o = await confirmarOrden(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Emitió la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · $ ${o.total}`, entidad: 'documento_comercial', entidadId: o.id, origen });
+    return o;
+  }],
+  ['POST', '/api/compras/ordenes/:id/anular', 'compras.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularOrden(c, ctx, p.id, cuerpo), o = r.orden;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Anuló la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · motivo: ${r.motivo}`, entidad: 'documento_comercial', entidadId: o.id, origen });
+    return o;
+  }],
+  ['DELETE', '/api/compras/ordenes/:id', 'compras.cargar', async ({ c, ctx, p, origen }) => {
+    const o = await borrarOrden(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Borró el borrador de la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · $ ${o.total}`, origen });
+    return { estado: 200, cuerpo: { borrada: true } };
+  }],
   ['GET', '/api/compras/facturas/:id', 'compras.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'compra' })],
   ['POST', '/api/compras/facturas/:id/anular', 'compras.anular', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await anularComprobante(c, ctx, p.id, cuerpo, { sentido: 'compra' });

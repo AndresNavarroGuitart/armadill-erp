@@ -104,3 +104,12 @@ export type Ejercicio = { id: number; desde: string; hasta: string; cerrado: boo
 export type PreviaCierre = { ejercicio: Ejercicio; ingresos: string; egresos: string; resultado: string; cuentas_a_saldar: number; destino: string; bloqueos: string[]; avisos: string[]; puede_cerrar: boolean };
 
 export type Regimen = { id: number; tipo: 'iva' | 'ganancias' | 'iibb' | 'suss'; jurisdiccion_codigo: number | null; jurisdiccion: string | null; codigo_arca: string | null; descripcion: string; alicuota: string; activo: boolean };
+
+/* ---------- órdenes de compra ---------- */
+export type OrdenCompra = { id: number; numero_formateado: string; fecha: string; entrega_prevista: string | null; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; proveedor: string; total: string; pendiente_de_recibir: boolean };
+export type OrdenCompraDetalle = OrdenCompra & {
+  observaciones: string | null;
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; recibido: string; facturado: string; pendiente: string }[];
+  acciones: { modificar: boolean; emitir: boolean; borrar: boolean; anular: boolean };
+};
+export type PreviaOrden = { proveedor: { id: number; razon_social: string }; fecha: string; entrega_prevista: string | null; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string }[]; total: string; avisos: string[] };

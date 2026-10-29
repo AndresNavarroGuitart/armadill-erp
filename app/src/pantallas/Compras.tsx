@@ -7,6 +7,7 @@ import { aDecimal, cantidad as fmtCantidad, fecha, hoyISO, moneda } from '../for
 import type { Articulo, ComprobanteResumen, Cuenta, Deposito, Jurisdiccion, Pagina, PreviaCompra, Tercero } from '../tipos';
 import { Alerta, Buscador, Campo, Cargando, Etiqueta, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
+import { OrdenesCompra } from './OrdenesCompra';
 
 const POR_PAGINA = 25;
 
@@ -21,6 +22,7 @@ const NOMBRE: Record<Clase, { titulo: string; una: string; de: string; corto: st
 export function Compras() {
   const { puede } = useSesion();
   const [nueva, setNueva] = useState<{ clase: Clase; origen?: Origen } | null>(null);
+  const [pestana, setPestana] = useState<'facturas' | 'ordenes'>('facturas');
   const [estado, setEstado] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -43,11 +45,15 @@ export function Compras() {
     <>
       <div className="cabecera">
         <div><h1>Compras</h1><p>Facturas de proveedores: ingresan la mercadería, actualizan el costo y suman la deuda con el proveedor. Las notas de crédito la bajan y las de débito la suben.</p></div>
-        <div className="acciones">{puede('compras.cargar') && <>
+        <div className="acciones">{pestana === 'facturas' && puede('compras.cargar') && <>
           <button className="btn" onClick={() => setNueva({ clase: 'nota_debito' })}>Nota de débito</button>
           <button className="btn" onClick={() => setNueva({ clase: 'nota_credito' })}>Nota de crédito</button>
           <button className="btn primario" onClick={() => setNueva({ clase: 'factura' })}>Cargar factura de compra</button></>}</div>
       </div>
+      <div className="pestanas" role="tablist" aria-label="Compras">
+        {([['facturas', 'Facturas y notas'], ['ordenes', 'Órdenes de compra']] as ['facturas' | 'ordenes', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
+      </div>
+      {pestana === 'ordenes' ? <OrdenesCompra /> : <>
       <div className="herramientas">
         <Campo etiqueta="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /><Campo etiqueta="Hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
         <Selector etiqueta="Estado" value={estado} onChange={(e) => setEstado(e.target.value)}><option value="">Todos</option>{Object.entries(ESTADOS).map(([k, e]) => <option key={k} value={k}>{e.texto}</option>)}</Selector>
@@ -69,6 +75,7 @@ export function Compras() {
       )}
       {datos && total > POR_PAGINA && <div className="paginado"><span>Página {pagina + 1} de {paginas}</span><span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span></div>}
       {abierto !== null && <ComprobanteDetalle modo="compra" onNotaCompra={(c) => { setAbierto(null); setNueva({ clase: 'nota_credito', origen: { id: c.id, etiqueta: `${c.tipo} ${c.numero_formateado ?? ''}`.trim(), letra: c.letra, proveedor: { id: c.tercero_id, razon_social: c.cliente } } }); }} id={abierto} onCerrar={() => setAbierto(null)} onCambio={() => setRecarga((n) => n + 1)} onAbrir={(id) => setAbierto(id)} />}
+      </>}
     </>
   );
 }
