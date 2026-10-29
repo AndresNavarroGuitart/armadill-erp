@@ -13,7 +13,9 @@
     "asistente:dev": "node asistente/servidor_dev.mjs",
     "asistente:humo": "node asistente/probar_claude.mjs",
     "test:api": "node api/probar_api.mjs",
-    "api:dev": "node api/servidor_dev.mjs"
+    "api:dev": "node api/servidor_dev.mjs",
+    "app:dev": "npm --prefix app run dev",
+    "app:test": "npm --prefix app test"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13"

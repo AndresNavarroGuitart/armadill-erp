@@ -103,7 +103,7 @@ export function crearApi({ bd, autenticar, origenesPermitidos = [], limitar = cr
 
       if (ruta === '/api/yo' && req.method === 'GET') {
         const empresas = await bd.sinContexto((c) => c.consultar('select * from fn_empresas_de($1)', [ctx.usuarioId]));
-        return responder(200, { usuario: { id: ctx.usuarioId, nombre: ctx.nombre }, estudio_id: ctx.estudioId, empresa_activa: ctx.empresaId ? { id: ctx.empresaId, razon_social: ctx.empresa.razonSocial, cuit: ctx.empresa.cuit, rol: ctx.rol, permisos: [...ctx.permisos] } : null,
+        return responder(200, { usuario: { id: ctx.usuarioId, nombre: ctx.nombre }, estudio_id: ctx.estudioId, empresa_activa: ctx.empresaId ? { id: ctx.empresaId, razon_social: ctx.empresa.razonSocial, cuit: ctx.empresa.cuit, condicion_iva_codigo: Number(ctx.empresa.condicionIvaCodigo), rol: ctx.rol, permisos: [...ctx.permisos] } : null,
           empresas: empresas.map((e) => ({ id: e.empresa_id, razon_social: e.razon_social, cuit: e.cuit, condicion_iva_codigo: Number(e.condicion_iva_codigo), rol: e.rol })) });
       }
 

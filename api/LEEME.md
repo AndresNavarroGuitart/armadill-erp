@@ -52,4 +52,4 @@ Roles base (`fn_roles_base`): Administrador, Contador, Auxiliar, Consulta.
 - Adaptador de producción para `crearBd` con `pg` (hoy está el de PGlite) y la carga de `19_api.sql` en Supabase.
 - Si el proyecto de Supabase firma con clave asimétrica (ES256), hay que sumar la verificación por JWKS.
 - Anular y notas de crédito, compras, cobros y pagos, y la conexión con ARCA (CAE).
-- Que el front React use esta API en lugar de los datos del prototipo.
+- El front real (`app/`, React) ya usa esta API para ingreso, clientes, proveedores, artículos y factura de venta; ver [app/LEEME.md](../app/LEEME.md).

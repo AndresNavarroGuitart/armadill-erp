@@ -19,11 +19,19 @@ const S = await sembrarDemo(db);
 const bd = crearBd(db);
 const manejador = crearApi({
   bd, autenticar: crearAutenticador({ bd, secreto: SECRETO, emisor: EMISOR, registrarError: (e) => console.error('[error]', e.message) }),
-  origenesPermitidos: (process.env.ORIGENES || 'http://localhost:3007').split(',').map((s) => s.trim()).filter(Boolean),
+  origenesPermitidos: (process.env.ORIGENES || 'http://localhost:3007,http://localhost:3030').split(',').map((s) => s.trim()).filter(Boolean),
   limitar: crearLimitador(300, 60_000), registrarError: (e) => console.error('[error]', e.message),
 });
 const puerto = Number(process.env.PUERTO || 3020);
-http.createServer(manejador).listen(puerto, '127.0.0.1', () => {
+// Solo desarrollo: la pantalla de ingreso del front ofrece "entrar como…" con estos tokens. En producción el token lo da el proveedor de identidad.
+const PERSONAS = [['Administrador', 'Andrés (administrador) · empresas 1 y 2', { sub: 'sub-admin' }], ['Auxiliar', 'Matías (auxiliar) · primer ingreso por email verificado', { sub: 'sub-auxiliar-dev', email: 'auxiliar@estudio.test', email_verified: true }],
+  ['Consulta', 'Sofía (solo consulta)', { sub: 'sub-consulta' }], ['Otro estudio', 'Persona de otro estudio', { sub: 'sub-otro' }], ['Dada de baja', 'Debe ser rechazada', { sub: 'sub-baja' }]];
+const sesionesDev = () => PERSONAS.map(([clave, descripcion, datos]) => ({ clave, descripcion, token: firmarJwtHS256({ ...datos, aud: 'authenticated', iss: EMISOR, exp: Math.floor(Date.now() / 1000) + 8 * 3600 }, SECRETO) }));
+const servidor = http.createServer((req, res) => {
+  if (req.url === '/dev/sesiones' && req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(JSON.stringify(sesionesDev())); }
+  return manejador(req, res);
+});
+servidor.listen(puerto, '127.0.0.1', () => {
   console.log(`API en http://127.0.0.1:${puerto}/api/salud   (datos en memoria: se pierden al cortar)`);
   console.log(`Empresas: ${S.empresas.ri.nombre} = ${S.empresas.ri.id} (resp. inscripto), ${S.empresas.mt.nombre} = ${S.empresas.mt.id} (monotributo), ${S.empresas.ajena.nombre} = ${S.empresas.ajena.id} (de otro estudio)`);
   const exp = Math.floor(Date.now() / 1000) + 8 * 3600;

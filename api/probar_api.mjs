@@ -112,7 +112,7 @@ await prueba('Sesión: sin token, token inválido o vencido → 401; persona des
 });
 await prueba('Sesión: /api/yo muestra las empresas de la persona y, con X-Empresa-Id, sus permisos; no deja abrir empresas ajenas', async () => {
   const yo = await api('admin', 'GET', '/api/yo'); igual(yo.estado, 200, 'estado'); igual(yo.cuerpo.empresas.map((e) => e.id), [RI, MT], 'empresas'); igual(yo.cuerpo.empresa_activa, null, 'sin empresa activa');
-  const conEmpresa = await api('admin', 'GET', '/api/yo', { empresa: RI }); igual(conEmpresa.cuerpo.empresa_activa.rol, 'Administrador', 'rol'); verdad(conEmpresa.cuerpo.empresa_activa.permisos.includes('ventas.emitir'), 'permisos');
+  const conEmpresa = await api('admin', 'GET', '/api/yo', { empresa: RI }); igual(conEmpresa.cuerpo.empresa_activa.rol, 'Administrador', 'rol'); igual(conEmpresa.cuerpo.empresa_activa.condicion_iva_codigo, 1, 'condición de la empresa'); verdad(conEmpresa.cuerpo.empresa_activa.permisos.includes('ventas.emitir'), 'permisos');
   igual((await api('consulta', 'GET', '/api/yo', { empresa: MT })).estado, 403, 'empresa sin vínculo'); igual((await api('admin', 'GET', '/api/yo', { empresa: AJENA })).estado, 403, 'empresa de otro estudio');
   igual((await api('admin', 'GET', '/api/yo', { empresa: 99999 })).estado, 403, 'empresa inexistente'); igual((await api('admin', 'GET', '/api/yo', { empresa: '1 or 1=1' })).estado, 403, 'basura en el encabezado');
   igual((await api('otro', 'GET', '/api/yo')).cuerpo.empresas.map((e) => e.id), [AJENA], 'la otra persona ve solo la suya');
