@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react';
 import { obtener } from '../api';
-import { cantidad, fecha, moneda } from '../formato';
-import type { Comprobante, ComprobanteResumen, Pagina } from '../tipos';
-import { Alerta, Campo, Cargando, Etiqueta, Modal, Selector, Vacio } from '../ui';
+import { fecha, moneda } from '../formato';
+import type { ComprobanteResumen, Pagina } from '../tipos';
+import { Alerta, Campo, Cargando, Etiqueta, Selector, Vacio } from '../ui';
+import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
 
 const POR_PAGINA = 25;
-const ESTADOS: Record<string, { texto: string; tono: 'ok' | 'aviso' | 'malo' | 'neutro' }> = {
-  borrador: { texto: 'Borrador', tono: 'neutro' }, confirmado: { texto: 'Confirmado', tono: 'ok' }, autorizado: { texto: 'Autorizado', tono: 'ok' }, anulado: { texto: 'Anulado', tono: 'malo' },
-};
 
 export function Comprobantes() {
   const [desde, setDesde] = useState('');
@@ -17,6 +15,7 @@ export function Comprobantes() {
   const [datos, setDatos] = useState<Pagina<ComprobanteResumen> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<number | null>(null);
+  const [recarga, setRecarga] = useState(0);
 
   useEffect(() => { setPagina(0); }, [desde, hasta, estado]);
   useEffect(() => {
@@ -24,7 +23,7 @@ export function Comprobantes() {
     obtener<Pagina<ComprobanteResumen>>('/api/comprobantes', { desde, hasta, estado, limite: POR_PAGINA, desplazamiento: pagina * POR_PAGINA }, ctl.signal)
       .then(setDatos).catch((e) => { if ((e as Error).name !== 'AbortError') setError(e.message); });
     return () => ctl.abort();
-  }, [desde, hasta, estado, pagina]);
+  }, [desde, hasta, estado, pagina, recarga]);
 
   const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   return (
@@ -57,40 +56,7 @@ export function Comprobantes() {
       {datos && total > POR_PAGINA && (
         <div className="paginado"><span>Página {pagina + 1} de {paginas}</span><span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span></div>
       )}
-      {abierto !== null && <Detalle id={abierto} onCerrar={() => setAbierto(null)} />}
+      {abierto !== null && <ComprobanteDetalle id={abierto} onCerrar={() => setAbierto(null)} onCambio={() => setRecarga((n) => n + 1)} onAbrir={(id) => setAbierto(id)} />}
     </>
-  );
-}
-
-function Detalle({ id, onCerrar }: { id: number; onCerrar: () => void }) {
-  const [c, setC] = useState<Comprobante | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { obtener<Comprobante>(`/api/comprobantes/${id}`).then(setC).catch((e) => setError(e.message)); }, [id]);
-  return (
-    <Modal titulo={c ? `${c.tipo} ${c.numero_formateado ?? ''}` : 'Comprobante'} onCerrar={onCerrar} ancho={640}>
-      {error && <Alerta>{error}</Alerta>}
-      {!c && !error && <Cargando />}
-      {c && (
-        <>
-          <p style={{ marginTop: 0 }}><strong>{c.cliente}</strong> · {fecha(c.fecha)} · <Etiqueta tono={ESTADOS[c.estado]?.tono ?? 'neutro'}>{ESTADOS[c.estado]?.texto ?? c.estado}</Etiqueta></p>
-          <div className="tabla-caja">
-            <table>
-              <thead><tr><th>Descripción</th><th className="num">Cant.</th><th className="num">Precio</th><th className="num">Importe</th></tr></thead>
-              <tbody>{c.items.map((it, i) => <tr key={i}><td>{it.descripcion}</td><td className="num">{cantidad(it.cantidad)}</td><td className="num">{moneda(it.precio_unitario)}</td><td className="num">{moneda(it.importe_renglon)}</td></tr>)}</tbody>
-            </table>
-          </div>
-          <dl className="previa" style={{ marginTop: 12 }}>
-            <dl style={{ margin: 0 }}>
-              <dt>Neto gravado</dt><dd>{moneda(c.imp_neto)}</dd>
-              {c.ivas.filter((x) => Number(x.importe_iva) !== 0).map((x) => <><dt key={`t${x.alicuota}`}>IVA {x.alicuota.replace('.', ',')} %</dt><dd key={`d${x.alicuota}`}>{moneda(x.importe_iva)}</dd></>)}
-              {Number(c.imp_op_ex) > 0 && <><dt>Exento</dt><dd>{moneda(c.imp_op_ex)}</dd></>}
-              {Number(c.imp_tot_conc) > 0 && <><dt>No gravado</dt><dd>{moneda(c.imp_tot_conc)}</dd></>}
-              <dt className="total"><strong>Total</strong></dt><dd className="total"><strong>{moneda(c.imp_total)}</strong></dd>
-            </dl>
-          </dl>
-          <p className="muted">{c.cae ? `CAE ${c.cae}` : 'Sin CAE: numeración interna (ARCA se conecta en un próximo paso).'}{c.asiento ? ` · Asiento ${c.asiento.estado}` : ''}</p>
-        </>
-      )}
-    </Modal>
   );
 }

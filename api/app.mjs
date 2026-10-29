@@ -10,6 +10,7 @@ import { listarDepositos, crearDeposito, modificarDeposito, listarExistencias, l
 import { calcularFactura, emitirFactura, listarComprobantes, leerComprobante } from './ventas.mjs';
 import { registrarEvento } from './eventos.mjs';
 import { prepararInvitacion, leerEstudio, modificarEstudio, listarPermisos, listarRoles, crearRol, fijarPermisosRol, listarPersonas, leerPersona, crearPersona, modificarPersona, fijarAccesos, listarEmpresas, leerEmpresa, crearEmpresa, modificarEmpresa } from './estudio.mjs';
+import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from './anulaciones.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -125,7 +126,17 @@ const RUTAS = [
     return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.comprobante, avisos: r.avisos, repetido: r.repetido } };
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, q)],
-  ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => leerComprobante(c, p.id)],
+  ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id)],
+  ['POST', '/api/comprobantes/:id/anular', 'ventas.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularComprobante(c, ctx, p.id, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Anuló ${r.etiqueta}`, detalle: `${r.cliente} · $ ${r.total} · motivo: ${r.motivo}${r.stock ? ` · devolvió ${r.stock} movimientos de stock` : ''}`, entidad: 'comprobante', entidadId: p.id, origen });
+    return r.comprobante;
+  }],
+  ['POST', '/api/ventas/notas-credito/calcular', 'ventas.emitir', ({ c, ctx, cuerpo }) => calcularNota(c, ctx, cuerpo)],
+  ['POST', '/api/ventas/notas-credito', 'ventas.emitir', async ({ c, ctx, cuerpo, req }) => {
+    const r = await emitirNota(c, ctx, cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
+    return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.comprobante, avisos: r.avisos, repetido: r.repetido } };
+  }],
   // --- Trazabilidad del estudio (solo administradores). Las rutas fijas van ANTES de /:id ---
   ['GET', '/api/estudio/trazabilidad', '@estudio', ({ c, q }) => listarEventos(c, q)],
   ['GET', '/api/estudio/trazabilidad/exportar', '@estudio', async ({ c, ctx, q, origen }) => {

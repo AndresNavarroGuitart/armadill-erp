@@ -13,7 +13,7 @@ const RECEPTOR_CON_FACTURA_A = new Set([1, 6, 13, 16]);        // responsable in
 const EMISOR_FACTURA_C = new Set([4, 6, 13, 16]);              // exento y monotributistas
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const dias = (a, b) => Math.round((new Date(a + 'T12:00:00Z') - new Date(b + 'T12:00:00Z')) / 864e5);
-const numeroFormateado = (pv, n) => `${String(pv).padStart(4, '0')}-${String(n).padStart(8, '0')}`;
+export const numeroFormateado = (pv, n) => `${String(pv).padStart(4, '0')}-${String(n).padStart(8, '0')}`;
 
 const ESQUEMA = {
   tercero_id: { tipo: 'entero', min: 1, requerido: true },
@@ -110,10 +110,10 @@ export async function leerComprobante(c, id) {
   const f = await c.uno(`select c.id, c.sentido, c.tipo_comprobante_codigo, t.descripcion tipo, t.letra, c.punto_venta, c.numero, c.fecha::text fecha, c.tercero_id, te.razon_social cliente, c.condicion_iva_receptor_codigo,
       c.concepto_codigo, c.fecha_servicio_desde::text fecha_servicio_desde, c.fecha_servicio_hasta::text fecha_servicio_hasta, c.fecha_vto_pago::text fecha_vto_pago, c.moneda, c.desc_pie_pct::text desc_pie_pct,
       c.imp_desc_pie::text imp_desc_pie, c.imp_neto::text imp_neto, c.imp_iva::text imp_iva, c.imp_tot_conc::text imp_tot_conc, c.imp_op_ex::text imp_op_ex, c.imp_trib::text imp_trib, c.imp_total::text imp_total,
-      c.estado, c.cae, c.asiento_id, c.observaciones, c.creado_por, c.creado_en
+      c.estado, c.cae, c.asiento_id, c.observaciones, c.creado_por, c.creado_en, c.comprobante_origen_id, c.motivo_anulacion, c.anulado_en, c.anulado_por
     from comprobante c join arca_tipo_comprobante t on t.codigo = c.tipo_comprobante_codigo join tercero te on te.id = c.tercero_id where c.id = $1`, [id]);
   if (!f) throw noEncontrado('El comprobante');
-  const items = await c.consultar(`select i.orden, i.articulo_id, i.descripcion, i.cantidad::text cantidad, i.precio_unitario::text precio_unitario, i.desc_pct::text desc_pct, i.tratamiento_iva, i.alicuota_codigo, i.importe_renglon::text importe_renglon
+  const items = await c.consultar(`select i.id, i.orden, i.item_origen_id, i.articulo_id, i.descripcion, i.cantidad::text cantidad, i.precio_unitario::text precio_unitario, i.desc_pct::text desc_pct, i.tratamiento_iva, i.alicuota_codigo, i.importe_renglon::text importe_renglon
     from comprobante_item i where i.comprobante_id = $1 order by i.orden`, [id]);
   const ivas = await c.consultar(`select a.tasa * 100 as alicuota_pct, v.alicuota_codigo, v.base_imponible::text base_imponible, v.importe_iva::text importe_iva from comprobante_iva v join arca_alicuota_iva a on a.codigo = v.alicuota_codigo where v.comprobante_id = $1 order by a.tasa desc`, [id]);
   const asiento = f.asiento_id ? await c.uno('select id, numero, estado from asiento where id = $1', [f.asiento_id]) : null;

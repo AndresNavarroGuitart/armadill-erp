@@ -51,3 +51,18 @@ export type ResultadoAjuste = { aplicado: boolean; lista: string; base_lista_id:
 export type EventoTraza = { id: number; nro: number; codigo: string; en: string; empresa_id: number | null; empresa: string | null; usuario_id: number | null; usuario: string | null; categoria: string; accion: string; detalle: string | null; resultado: 'ok' | 'rechazo' | 'fallo'; entidad_tabla: string | null; entidad_id: number | null };
 export type EventoDetalle = EventoTraza & { cambios: { campo: string; antes: string | null; despues: string | null }[] | null; ip: string | null; dispositivo: string | null; huella_prev: string; huella: string; huella_ok: boolean; enlace_ok: boolean };
 export type VerificacionCadena = { integra: boolean; primer_evento_roto: number | null; eventos: number; cabeza: { nro: number; huella: string; en: string } | null; resguardo: { coincide: boolean; motivo: string } | null };
+
+/* ---------- anulaciones y notas de crédito ---------- */
+export type ComprobanteDetalle = Omit<Comprobante, 'items' | 'ivas' | 'asiento'> & {
+  clase: 'factura' | 'nota_debito' | 'nota_credito' | 'recibo'; observaciones: string | null; imp_desc_pie: string; saldo: string | null;
+  items: { id: number; orden: number; item_origen_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; desc_pct?: string; importe_renglon: string; acreditado: string; por_acreditar: string }[];
+  ivas: { alicuota: string; base_imponible: string; importe_iva: string }[]; asiento: { id: number; estado: string } | null;
+  anulacion: { motivo: string; en: string; por: string | null } | null; origen: { id: number; tipo: string; numero_formateado: string } | null;
+  notas: { id: number; tipo: string; numero_formateado: string | null; imp_total: string; estado: string }[];
+  acciones: { anular: string | null; nota_credito: string | null };
+};
+export type PreviaNota = {
+  letra: string; tipo_comprobante_codigo: number; punto_venta: number; fecha: string; origen: { id: number; etiqueta: string; total: string }; cliente: { id: number; razon_social: string };
+  items: { item_id: number; descripcion: string; cantidad: string; precio_unitario: string; importe_renglon: string; devuelve_stock: boolean }[];
+  ivas: { alicuota: string; base_imponible: string; importe_iva: string }[]; imp_neto: string; imp_iva: string; imp_tot_conc: string; imp_op_ex: string; imp_desc_pie: string; imp_total: string; saldo_factura: string; avisos: string[];
+};

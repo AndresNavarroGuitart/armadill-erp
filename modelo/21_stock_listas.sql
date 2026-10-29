@@ -1,5 +1,5 @@
 -- Stock y listas de precios desde la aplicación: permisos propios, stock mínimo por artículo, motivo de cada movimiento y reglas de depósitos.
--- Va DESPUÉS de 20 y ANTES de 22 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 20 y ANTES de 22.
 
 insert into permiso (clave, modulo, descripcion) values
   ('stock.ver',      'stock',    'Ver existencias y movimientos de stock'),

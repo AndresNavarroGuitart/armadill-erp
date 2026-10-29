@@ -9,7 +9,7 @@ React + TypeScript + Vite sobre la API de `../api` (ver [api/LEEME.md](../api/LE
 | Ingreso | Con Supabase configurado: email y contraseña, enlace por email y "olvidé mi contraseña" (con pantalla para elegir la nueva, mínimo 12 caracteres). Sin configurar y en desarrollo: personas de prueba (Administrador, Auxiliar, Consulta, otro estudio, dada de baja). Un build de producción sin configurar no deja ingresar |
 | Elegir empresa | Solo si la persona tiene más de una; con una sola entra directo |
 | Facturar | Cliente y artículos con búsqueda, vista previa **calculada por el servidor** (la letra A/B/C y todos los importes), descuento al pie, servicios con fechas, emisión con clave de idempotencia |
-| Comprobantes | Listado con filtros por fecha y estado, y detalle con renglones, IVA y asiento |
+| Comprobantes | Listado con filtros por fecha y estado, y detalle con renglones, IVA, saldo, lo acreditado y las notas; desde el detalle se **anula** (con motivo y aviso de lo que implica) o se **emite una nota de crédito** eligiendo renglones y cantidades, con vista previa. Lo que no se puede hacer aparece deshabilitado con su razón |
 | Clientes y proveedores | Alta, edición con cambios mínimos, baja lógica, búsqueda, saldo del cliente; errores del servidor campo por campo |
 | Artículos | Alta con precio y costo iniciales, IVA, precios por lista con fecha de vigencia |
 | Listas | Alta, nombre, orden y baja de las que nadie usa; **ajuste de precios por porcentaje** con vista previa exacta (base, redondeo, fecha de vigencia, aviso de lo que queda bajo el costo) |
