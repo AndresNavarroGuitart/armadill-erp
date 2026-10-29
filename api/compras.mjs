@@ -1,5 +1,5 @@
 // Notas de crédito y de débito de proveedores: se cargan igual que una factura (letra, número del proveedor, renglones, total del papel). La de crédito acredita
-// una factura (o una nota de débito) del mismo proveedor y letra, se aplica a su saldo (lo que sobra queda a favor y se puede aplicar a otra después) y, si se
+// una factura (o una nota de débito) del mismo proveedor y letra (si el proveedor la manda sin factura, como una bonificación, queda a favor), se aplica a su saldo (lo que sobra queda a favor y se puede aplicar a otra después) y, si se
 // pide, devuelve mercadería al proveedor (sale del depósito); la de débito es una deuda más, que se paga en una orden de pago. No tocan el costo del artículo.
 // Facturas de compra: se cargan los datos de la factura del proveedor (su letra, punto de venta y número) con sus renglones; el sistema calcula,
 // compara con el TOTAL que dice el papel (si no coincide, no se carga), registra el asiento, ingresa la mercadería al depósito y actualiza el costo.
@@ -43,7 +43,7 @@ const ESQUEMA = {
 
 /** La nota de crédito exige la factura que acredita y puede devolver mercadería renglón por renglón. */
 const esquemaDe = (clase) => (clase === 'nota_credito'
-  ? { ...ESQUEMA, comprobante_origen_id: { tipo: 'entero', min: 1, requerido: true }, items: { ...ESQUEMA.items, elemento: { ...ESQUEMA.items.elemento, devuelve_stock: { tipo: 'booleano' } } } }
+  ? { ...ESQUEMA, comprobante_origen_id: { tipo: 'entero', min: 1 }, items: { ...ESQUEMA.items, elemento: { ...ESQUEMA.items.elemento, devuelve_stock: { tipo: 'booleano' } } } }
   : ESQUEMA);
 
 /* Todo lo que se decide ANTES de escribir. `exigirTotal` es false en el cálculo previo: ahí se muestra la diferencia en vez de fallar. */
@@ -66,7 +66,7 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
   if (d.fecha_vto_pago && d.fecha_vto_pago < d.fecha) errores.fecha_vto_pago = `no puede ser anterior a la fecha de ${NOMBRE[clase].de}`;
 
   let origen = null, saldoOrigen = null;
-  if (clase === 'nota_credito') {
+  if (clase === 'nota_credito' && d.comprobante_origen_id) {
     origen = await c.uno(`select c.id, c.estado, c.sentido, c.tercero_id, c.fecha::text as fecha, c.punto_venta, c.numero, t.letra, t.clase, t.descripcion as tipo from comprobante c
       join arca_tipo_comprobante t on t.codigo = c.tipo_comprobante_codigo where c.id = $1`, [d.comprobante_origen_id]);
     if (!origen || origen.sentido !== 'compra') errores.comprobante_origen_id = 'la factura no existe';
@@ -80,6 +80,7 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
       if (d.fecha < origen.fecha) errores.fecha = 'la nota no puede ser anterior a la factura que acredita';
     }
   }
+  if (clase === 'nota_credito' && !d.comprobante_origen_id) avisos.push('Sin factura de origen: la nota queda a favor del proveedor hasta que la apliques a una factura.');
   const permiteNegativo = (await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p;
   const depositos = await c.consultar('select id from deposito where activo order by id');
   const items = [];

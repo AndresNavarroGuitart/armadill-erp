@@ -98,9 +98,9 @@ await prueba('Nota de crédito con devolución de mercadería: sale del depósit
 });
 await prueba('Validaciones de una nota de crédito: factura de origen, letra, fechas, mercadería, total y duplicados', async () => {
   const F2 = (await cargar(servicio(1300, '1210', '1000'))).cuerpo, FP2 = (await cargar({ ...servicio(1, '1210', '1000'), tercero_id: P2.id })).cuerpo, F3 = (await cargar(servicio(1301, '121', '100'))).cuerpo;
+  ids.FP2 = FP2.id;
   igual((await anular(F3.id)).estado, 200, 'una factura anulada para probar'); ids.F2 = F2.id;
-  const sin = baseNC(F1.id); delete sin.comprobante_origen_id; igual(campoN(await calcN('nota_credito', sin), 'comprobante_origen_id'), 'es obligatorio', 'la nota exige su factura');
-  igual(campoN(await calcN('nota_credito', baseNC(999999)), 'comprobante_origen_id'), 'la factura no existe', 'inexistente');
+    igual(campoN(await calcN('nota_credito', baseNC(999999)), 'comprobante_origen_id'), 'la factura no existe', 'inexistente');
   igual(campoN(await calcN('nota_credito', baseNC(FP2.id)), 'comprobante_origen_id'), 'la factura es de otro proveedor', 'otro proveedor');
   igual(campoN(await calcN('nota_credito', baseNC(ids.nc1)), 'comprobante_origen_id'), 'solo se acredita una factura o una nota de débito', 'no se acredita una nota de crédito');
   igual(campoN(await calcN('nota_credito', baseNC(F3.id)), 'comprobante_origen_id'), 'la factura está anulada: no hay nada que acreditar', 'factura anulada');
@@ -126,6 +126,15 @@ await prueba('Una nota mayor que el saldo de su factura: lo que sobra queda a fa
   const ok = await aplicar(ids.nc3, { factura_id: F1.id, importe: '605' }); igual([ok.estado, ok.cuerpo.saldo, await saldoComp(F1.id)], [200, '0.00', '602.50'], JSON.stringify(ok.cuerpo)); // 1812,50 - 484 - 121 (bonificación) - 605
   igual(campoN(await aplicar(ids.nc3, baseA), 'factura_id'), 'la nota ya está aplicada a esa factura: no se puede aplicar dos veces', 'una vez por factura'); igual((await ultimoEvento('Aplicó %')).detalle, '$ 605 a Factura A 0004-00001234', 'rastro');
   igual((await aplicar(F1.id, baseA)).estado, 404, 'aplicar algo que no es una nota de crédito');
+});
+await prueba('Nota de crédito sin factura de origen (una bonificación): se carga, queda a favor del proveedor y se aplica después a una factura', async () => {
+  const sin = { tercero_id: P1.id, letra: 'B', punto_venta: 4, numero: 90, fecha: hoy, total: '100', items: [{ descripcion: 'Bonificación por volumen', cantidad: '1', precio_unitario: '100' }] };
+  const antes = await saldoProv(P1.id), prev = await calcN('nota_credito', sin); igual(prev.estado, 200, JSON.stringify(prev.cuerpo)); verdad(prev.cuerpo.origen === null && prev.cuerpo.avisos.some((a) => /Sin factura de origen/.test(a)), JSON.stringify(prev.cuerpo.avisos));
+  const r = await nota('nota_credito', sin); igual(r.estado, 201, JSON.stringify(r.cuerpo)); ids.ncSin = r.cuerpo.id; igual([r.cuerpo.origen, r.cuerpo.saldo, r.cuerpo.imp_total], [null, '100.00', '100.00'], 'sin origen y entera a favor');
+  igual(Number(await saldoProv(P1.id)), Number(antes) - 100, 'el proveedor debe 100 menos'); igual(await lineas(r.cuerpo.asiento_id), ['2.1.1 D 100', '5.1.1 H 100'], 'asiento invertido');
+  const mal = await nota('nota_credito', { ...sin, numero: 91, letra: 'A', comprobante_origen_id: ids.FP2 }); igual(campoN(mal, 'comprobante_origen_id'), 'la factura es de otro proveedor', 'con origen valen las reglas de siempre');
+  const sF1 = Number(await saldoComp(F1.id)), ap = await aplicar(ids.ncSin, { factura_id: F1.id, importe: '100' }); igual([ap.estado, ap.cuerpo.saldo], [200, '0.00'], JSON.stringify(ap.cuerpo)); igual(Number(await saldoComp(F1.id)), sF1 - 100, 'la factura recibió la aplicación');
+  igual((await anular(ids.ncSin, 'Se cargó con otra letra')).estado, 200, 'se anula y deshace la aplicación');
 });
 await prueba('Nota de débito: es una deuda más (intereses, gastos) que se ve entre lo pendiente y se paga con una orden de pago', async () => {
   const nd = await nota('nota_debito', servicio(5, '121', '100', { items: [{ descripcion: 'Intereses por mora', cantidad: '1', precio_unitario: '100' }] })); igual(nd.estado, 201, JSON.stringify(nd.cuerpo)); ids.nd1 = nd.cuerpo.id;

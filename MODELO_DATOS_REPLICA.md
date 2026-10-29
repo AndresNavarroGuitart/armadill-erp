@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (29 archivos SQL)
+## 2. Módulos (30 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -49,7 +49,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 25 informes | permiso `informes.ver` (lo tienen los cuatro roles base). Los informes no guardan nada: se derivan de `v_libro_iva`, `v_posicion_iva`, `v_saldo_comprobante`, `v_saldo_tercero`, `retencion`, `asiento` y `asiento_linea` |
 | 26 cheques | permiso `cheques.gestionar`; índices que impiden cargar dos veces el mismo cheque (de un tercero: banco y número; propio: cuenta y número; el anulado libera el número); cuenta automática `cheques_a_pagar` (2.1.7) en el alta de empresa y en las existentes; el asiento de un pago manda el cheque a **Valores a depositar** (de un tercero) o **Cheques a pagar** (propio); `fn_pago_cheques` pasa los cheques de estado al confirmar o anular un cobro o un pago (y solo deja anular si el cheque no siguió su camino); `fn_cheque_pasar` hace depositar, acreditar, rechazar y debitar con sus fechas, asiento y movimiento del banco; un cheque rechazado entra en el saldo del cliente (`v_saldo_tercero`) |
 | 27 cierre de ejercicio | permisos `ejercicios.ver` y `ejercicios.cerrar`; `ejercicio.asiento_cierre_id`, `cerrado_en` y `cerrado_por`; cuentas **3.1.1 Capital** y **3.2.1 Resultados no asignados** (y su cuenta automática) en el alta de empresa y en las existentes; `fn_crear_ejercicio` (un ejercicio con sus períodos mensuales); `fn_cerrar_ejercicio` (asiento de cierre `origen_tipo = 'cierre'`, períodos cerrados, ejercicio marcado y ejercicio siguiente creado si faltaba) y `fn_reabrir_ejercicio` (anula el asiento de cierre y reabre, solo si el ejercicio siguiente no tiene movimientos) |
-| 28 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 28 nota de crédito de proveedor sin origen | `fn_verificar_comprobante` deja de exigir el comprobante de origen en las notas de crédito de **compra** (`nc_requiere_origen` pasa a valer solo para ventas): una bonificación del proveedor se carga sin factura y queda a favor. Con origen valen las reglas de siempre |
+| 29 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

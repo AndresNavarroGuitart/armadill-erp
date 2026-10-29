@@ -129,7 +129,7 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
     }));
     if (!items.length) return null;
     return {
-      ...(clase !== 'factura' ? { clase } : {}), ...(esNC ? { comprobante_origen_id: Number(origenSel) } : {}),
+      ...(clase !== 'factura' ? { clase } : {}), ...(esNC && origenSel !== 'sin' ? { comprobante_origen_id: Number(origenSel) } : {}),
       tercero_id: proveedor.id, letra, punto_venta: Number(pv), numero: Number(numero), fecha: fechaF, ...(vto && !esNC ? { fecha_vto_pago: vto } : {}), total: aDecimal(total) || '0', ...(observaciones.trim() ? { observaciones: observaciones.trim() } : {}), items,
       ...(tributos.length ? { tributos: tributos.filter((t) => t.importe.trim()).map((t) => ({ tipo: t.tipo, ...(t.tipo === 'percepcion_iibb' && t.jurisdiccion ? { jurisdiccion_codigo: Number(t.jurisdiccion) } : {}), importe: aDecimal(t.importe) })) } : {}),
     };
@@ -161,7 +161,7 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
 
   return (
     <>
-      <div className="cabecera"><div><h1>{nombre.titulo}</h1><p>Cargá los datos tal cual figuran en {nombre.de} del proveedor. El total tiene que coincidir.{esNC ? ' Se aplica a la factura que acredita.' : ''}</p></div><div className="acciones"><button className="btn" onClick={onVolver}>Volver</button></div></div>
+      <div className="cabecera"><div><h1>{nombre.titulo}</h1><p>Cargá los datos tal cual figuran en {nombre.de} del proveedor. El total tiene que coincidir.{esNC ? ' Se aplica a la factura que acredita, o queda a favor si no tiene.' : ''}</p></div><div className="acciones"><button className="btn" onClick={onVolver}>Volver</button></div></div>
       <form onSubmit={cargar} noValidate>
         <div className="factura">
           <div>
@@ -177,7 +177,7 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
                 <Campo etiqueta={`Fecha de ${nombre.de}`} type="date" value={fechaF} error={campos.fecha} onChange={(e) => setFechaF(e.target.value)} />
                 {!esNC && <Campo etiqueta="Vencimiento del pago" type="date" value={vto} error={campos.fecha_vto_pago} ayuda="Opcional: sin completar, se calcula con el plazo del proveedor." onChange={(e) => setVto(e.target.value)} />}
                 {esNC && <div className="ancho"><Selector etiqueta="Factura que acredita" value={origenSel} error={campos.comprobante_origen_id} disabled={!!origenInicial} onChange={(e) => setOrigenSel(e.target.value)}>
-                  <option value="">{proveedor ? 'Elegí la factura…' : 'Primero elegí el proveedor'}</option>{origenInicial && !facturas.some((f) => String(f.id) === origenSel) && <option value={origenSel}>{origenInicial.etiqueta}</option>}
+                  <option value="">{proveedor ? 'Elegí la factura…' : 'Primero elegí el proveedor'}</option>{proveedor && !origenInicial && <option value="sin">Sin factura (bonificación: queda a favor del proveedor)</option>}{origenInicial && !facturas.some((f) => String(f.id) === origenSel) && <option value={origenSel}>{origenInicial.etiqueta}</option>}
                   {facturas.filter((f) => f.letra === letra).map((f) => <option key={f.id} value={f.id}>{f.tipo} {f.numero_formateado} · {fecha(f.fecha)} · {moneda(f.imp_total)}</option>)}</Selector></div>}
               </div>
               {!discrimina && <Alerta tipo="info"><span style={{ display: 'block', marginTop: 0 }}>{letra === 'A' || letra === 'M' ? 'Esta empresa no es responsable inscripta: no toma crédito fiscal. ' : `En ${nombre.una} ${letra} el IVA no se discrimina. `}Cargá el <strong>precio final</strong> (con IVA incluido): todo va al costo.</span></Alerta>}

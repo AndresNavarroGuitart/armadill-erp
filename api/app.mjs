@@ -15,7 +15,7 @@ import { listarRegimenes, crearRegimen, modificarRegimen, listarCajas, crearCaja
 import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, aplicarNotaCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
-import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio } from './ejercicios.mjs';
+import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -238,6 +238,16 @@ const RUTAS = [
   }],
   // --- Ejercicios contables: previa, cierre (con su asiento) y reapertura ---
   ['GET', '/api/ejercicios', 'ejercicios.ver', ({ c }) => listarEjercicios(c)],
+  ['POST', '/api/ejercicios', 'ejercicios.cerrar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await crearEjercicio(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'contabilidad', accion: `Creó el ejercicio ${r.rotulo}`, entidad: 'ejercicio', entidadId: r.ejercicio.id, origen });
+    return { estado: 201, cuerpo: r.ejercicio };
+  }],
+  ['DELETE', '/api/ejercicios/:id', 'ejercicios.cerrar', async ({ c, ctx, p, origen }) => {
+    const r = await eliminarEjercicio(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'contabilidad', accion: `Borró el ejercicio ${r.rotulo}`, origen });
+    return { estado: 200, cuerpo: { borrado: true, ejercicio: r.rotulo } };
+  }],
   ['GET', '/api/ejercicios/:id/cierre', 'ejercicios.ver', ({ c, p }) => previaCierre(c, p.id)],
   ['POST', '/api/ejercicios/:id/cerrar', 'ejercicios.cerrar', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await cerrarEjercicio(c, ctx, p.id, cuerpo);

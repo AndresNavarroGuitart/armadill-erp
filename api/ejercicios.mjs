@@ -18,8 +18,9 @@ const SELECT = `select e.id, e.desde::text as desde, e.hasta::text as hasta, e.c
        join plan_cuenta pc on pc.id = l.cuenta_id where a.empresa_id = e.empresa_id and a.fecha between e.desde and e.hasta and a.origen_tipo is distinct from 'cierre' and pc.tipo in ('ingreso', 'egreso')), 0)::text as resultado
   from ejercicio e left join usuario u on u.id = e.cerrado_por`;
 
-export async function listarEjercicios(c) { return { datos: await c.consultar(`${SELECT} order by e.desde desc`) }; }
-async function leer(c, id) { const f = await c.uno(`${SELECT} where e.id = $1`, [id]); if (!f) throw noEncontrado('El ejercicio'); return f; }
+const normal = (f) => ({ ...f, resultado: texto(dec(f.resultado)) });                       // el resultado siempre con dos decimales
+export async function listarEjercicios(c) { return { datos: (await c.consultar(`${SELECT} order by e.desde desc`)).map(normal) }; }
+async function leer(c, id) { const f = await c.uno(`${SELECT} where e.id = $1`, [id]); if (!f) throw noEncontrado('El ejercicio'); return normal(f); }
 
 /** Todo lo que va a pasar al cerrar y lo que lo impide, para mostrarlo antes de confirmar. */
 export async function previaCierre(c, id) {
@@ -61,4 +62,31 @@ export async function reabrirEjercicio(c, ctx, id, cuerpo) {
   if (!antes.cerrado) throw new ErrorApi(422, 'no_se_puede_reabrir', 'El ejercicio no está cerrado.');
   await c.consultar('select fn_reabrir_ejercicio($1)', [id]);
   return { ejercicio: await leer(c, id), rotulo: `${fechaAR(antes.desde)} al ${fechaAR(antes.hasta)}`, motivo: d.motivo };
+}
+
+/* ====================== alta y baja de un ejercicio ====================== */
+const DIAS = 864e5;
+export async function crearEjercicio(c, ctx, cuerpo) {
+  const { valor: d } = validar({ desde: { tipo: 'fecha', requerido: true }, hasta: { tipo: 'fecha', requerido: true } }, cuerpo), errores = {};
+  const dias = (new Date(d.hasta + 'T12:00:00Z') - new Date(d.desde + 'T12:00:00Z')) / DIAS;
+  if (d.desde >= d.hasta) errores.hasta = 'tiene que ser posterior al inicio';
+  else if (dias > 366) errores.hasta = 'un ejercicio no dura más de un año';
+  if (d.desde < '2000-01-01') errores.desde = 'es demasiado antigua';
+  const pisa = !errores.hasta && !errores.desde && await c.uno(`select desde::text d, hasta::text h from ejercicio where daterange(desde, hasta, '[]') && daterange($1::date, $2::date, '[]') order by desde limit 1`, [d.desde, d.hasta]);
+  if (pisa) throw new ErrorApi(409, 'se_superpone', `Se superpone con el ejercicio del ${fechaAR(pisa.d)} al ${fechaAR(pisa.h)}.`);
+  if (Object.keys(errores).length) throw invalido(errores);
+  const id = (await c.uno('select fn_crear_ejercicio($1, $2, $3) id', [ctx.empresaId, d.desde, d.hasta])).id;
+  return { ejercicio: await leer(c, id), rotulo: `${fechaAR(d.desde)} al ${fechaAR(d.hasta)}` };
+}
+
+/* Solo se borra un ejercicio vacío y abierto (el que se cargó por error): sin asientos, comprobantes ni pagos con fecha adentro. */
+export async function eliminarEjercicio(c, ctx, id) {
+  const e = await leer(c, id), rotulo = `${fechaAR(e.desde)} al ${fechaAR(e.hasta)}`;
+  if (e.cerrado) throw new ErrorApi(422, 'no_se_puede_borrar', 'El ejercicio está cerrado: hay que reabrirlo antes.');
+  const usos = (await c.uno(`select (select count(*) from asiento where fecha between $1 and $2)::int as asientos, (select count(*) from comprobante where fecha between $1 and $2)::int as comprobantes, (select count(*) from pago where fecha between $1 and $2)::int as pagos`, [e.desde, e.hasta]));
+  const con = [['asiento', 'asientos', usos.asientos], ['comprobante', 'comprobantes', usos.comprobantes], ['cobro o pago', 'cobros o pagos', usos.pagos]].filter(([, , n]) => n > 0).map(([uno, varios, n]) => n + ' ' + (n === 1 ? uno : varios));
+  if (con.length) throw new ErrorApi(422, 'no_se_puede_borrar', `El ejercicio tiene movimientos (${con.join(', ')}): no se borra.`);
+  await c.consultar('delete from periodo where empresa_id = $1 and desde >= $2 and hasta <= $3', [ctx.empresaId, e.desde, e.hasta]);
+  await c.consultar('delete from ejercicio where id = $1', [id]);
+  return { rotulo };
 }

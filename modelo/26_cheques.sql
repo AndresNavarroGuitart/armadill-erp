@@ -3,7 +3,7 @@
 --   · al confirmar un cobro o un pago, sus cheques pasan de estado (recibido, entregado, emitido) y dejan su rastro;
 --   · al anular, vuelven atrás solo si todavía no siguieron su camino (un cheque depositado o debitado no se "desanula");
 --   · fn_cheque_pasar hace depositar, acreditar, rechazar y debitar, con sus fechas, su asiento y el movimiento del banco.
--- Va DESPUÉS de 25 y ANTES de 28 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 25 y ANTES de 29 (el endurecimiento de Supabase, que siempre es el último).
 
 insert into permiso (clave, modulo, descripcion) values
   ('cheques.gestionar', 'tesoreria', 'Depositar, acreditar y rechazar cheques de terceros, y debitar los propios');

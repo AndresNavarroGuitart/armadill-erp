@@ -2,11 +2,15 @@
 // movimientos nuevos; reabrir lo deshace mientras el ejercicio siguiente no tenga movimientos. La pantalla muestra la previa que arma el servidor (lo que lo
 // impide y lo que va a pasar): no decide nada por su cuenta.
 import { useEffect, useState, type FormEvent } from 'react';
-import { enviar, ErrorApi, obtener } from '../api';
+import { enviar, ErrorApi, llamar, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { fecha, fechaHora, moneda } from '../formato';
 import type { Ejercicio, PreviaCierre } from '../tipos';
 import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, useAviso, Vacio } from '../ui';
+
+/** El día anterior y el mismo día un año antes de un ejercicio: lo que sugiere el alta de uno histórico. */
+const diaAntes = (iso: string) => new Date(new Date(iso + 'T12:00:00Z').getTime() - 864e5).toISOString().slice(0, 10);
+const anioAntes = (iso: string) => `${Number(iso.slice(0, 4)) - 1}${iso.slice(4)}`;
 
 export function Ejercicios() {
   const { puede } = useSesion(), puedeCerrar = puede('ejercicios.cerrar');
@@ -15,13 +19,16 @@ export function Ejercicios() {
   const [recarga, setRecarga] = useState(0);
   const [cerrando, setCerrando] = useState<Ejercicio | null>(null);
   const [reabriendo, setReabriendo] = useState<Ejercicio | null>(null);
+  const [agregando, setAgregando] = useState(false);
+  const [borrando, setBorrando] = useState<Ejercicio | null>(null);
   useEffect(() => { obtener<{ datos: Ejercicio[] }>('/api/ejercicios').then((r) => { setDatos(r.datos); setError(null); }).catch((e) => setError(e.message)); }, [recarga]);
-  const hecho = () => { setCerrando(null); setReabriendo(null); setRecarga((n) => n + 1); };
+  const hecho = () => { setCerrando(null); setReabriendo(null); setAgregando(false); setBorrando(null); setRecarga((n) => n + 1); };
   // solo el último ejercicio cerrado se puede reabrir (el servidor lo vuelve a controlar)
   const ultimoCerrado = datos?.find((e) => e.cerrado)?.id;
   return (
     <>
-      <div className="cabecera"><div><h1>Ejercicios</h1><p>El resultado de cada año y su cierre. Al cerrar, la ganancia o pérdida pasa a Resultados no asignados y el año deja de aceptar movimientos.</p></div></div>
+      <div className="cabecera"><div><h1>Ejercicios</h1><p>El resultado de cada año y su cierre. Al cerrar, la ganancia o pérdida pasa a Resultados no asignados y el año deja de aceptar movimientos.</p></div>
+        <div className="acciones">{puedeCerrar && <button className="btn" onClick={() => setAgregando(true)}>Agregar ejercicio</button>}</div></div>
       {error && <Alerta>{error}</Alerta>}
       {!datos && !error && <Cargando />}
       {datos && datos.length === 0 && <div className="tarjeta"><Vacio titulo="Todavía no hay ejercicios" /></div>}
@@ -38,10 +45,13 @@ export function Ejercicios() {
               <td style={{ textAlign: 'right' }}>
                 {puedeCerrar && !e.cerrado && <button className="btn" onClick={() => setCerrando(e)}>Cerrar ejercicio</button>}
                 {puedeCerrar && e.cerrado && e.id === ultimoCerrado && <button className="btn" onClick={() => setReabriendo(e)}>Reabrir</button>}
+                {puedeCerrar && !e.cerrado && e.asientos === 0 && e.borradores === 0 && <button className="btn chico" onClick={() => setBorrando(e)}>Borrar</button>}
               </td>
             </tr>))}</tbody>
         </table></div>
       )}
+      {agregando && <Alta sugerido={datos && datos.length ? { desde: anioAntes(datos[datos.length - 1].desde), hasta: diaAntes(datos[datos.length - 1].desde) } : null} onCerrar={() => setAgregando(false)} onHecho={hecho} />}
+      {borrando && <Baja ejercicio={borrando} onCerrar={() => setBorrando(null)} onHecho={hecho} />}
       {cerrando && <Cierre ejercicio={cerrando} onCerrar={() => setCerrando(null)} onHecho={hecho} />}
       {reabriendo && <Reapertura ejercicio={reabriendo} onCerrar={() => setReabriendo(null)} onHecho={hecho} />}
     </>
@@ -107,6 +117,47 @@ function Reapertura({ ejercicio, onCerrar, onHecho }: { ejercicio: Ejercicio; on
         <Campo etiqueta="Motivo de la reapertura" value={motivo} error={campos.motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
         <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className="btn primario" disabled={trabajando || motivo.trim().length < 3}>{trabajando ? 'Reabriendo…' : 'Reabrir ejercicio'}</button></div>
       </form>
+    </Modal>
+  );
+}
+
+function Alta({ sugerido, onCerrar, onHecho }: { sugerido: { desde: string; hasta: string } | null; onCerrar: () => void; onHecho: () => void }) {
+  const avisar = useAviso();
+  const [desde, setDesde] = useState(sugerido?.desde ?? '');
+  const [hasta, setHasta] = useState(sugerido?.hasta ?? '');
+  const [error, setError] = useState<unknown>(null);
+  const [trabajando, setTrabajando] = useState(false);
+  const campos = error instanceof ErrorApi ? error.campos : {};
+  async function crear(ev: FormEvent) {
+    ev.preventDefault(); setTrabajando(true); setError(null);
+    try { await enviar('POST', '/api/ejercicios', { desde, hasta }); avisar('Ejercicio creado.'); onHecho(); } catch (e) { setError(e); } finally { setTrabajando(false); }
+  }
+  const general = resumenErrores(error, ['desde', 'hasta']);
+  return (
+    <Modal titulo="Agregar un ejercicio" onCerrar={onCerrar} ancho={500}>
+      <form onSubmit={crear} noValidate>
+        {general && <Alerta>{general}</Alerta>}
+        <p style={{ marginTop: 0 }}>Sirve para cargar años anteriores. Se crean sus períodos mensuales; no puede pisarse con otro ejercicio ni durar más de un año. Por defecto se propone el año anterior al más viejo.</p>
+        <div className="rejilla"><Campo etiqueta="Desde" type="date" value={desde} error={campos.desde} onChange={(e) => setDesde(e.target.value)} autoFocus /><Campo etiqueta="Hasta" type="date" value={hasta} error={campos.hasta} onChange={(e) => setHasta(e.target.value)} /></div>
+        <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className="btn primario" disabled={trabajando || !desde || !hasta}>{trabajando ? 'Creando…' : 'Crear ejercicio'}</button></div>
+      </form>
+    </Modal>
+  );
+}
+
+function Baja({ ejercicio, onCerrar, onHecho }: { ejercicio: Ejercicio; onCerrar: () => void; onHecho: () => void }) {
+  const avisar = useAviso();
+  const [error, setError] = useState<string | null>(null);
+  const [trabajando, setTrabajando] = useState(false);
+  async function borrar() {
+    setTrabajando(true); setError(null);
+    try { await llamar('DELETE', `/api/ejercicios/${ejercicio.id}`); avisar('Ejercicio borrado.'); onHecho(); } catch (e) { setError((e as Error).message); } finally { setTrabajando(false); }
+  }
+  return (
+    <Modal titulo={`Borrar el ejercicio ${fecha(ejercicio.desde)} al ${fecha(ejercicio.hasta)}`} onCerrar={onCerrar} ancho={500}>
+      {error && <Alerta>{error}</Alerta>}
+      <p style={{ marginTop: 0 }}>Se borran el ejercicio y sus períodos. Solo se puede si no tiene asientos, comprobantes ni cobros o pagos.</p>
+      <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn peligro" disabled={trabajando} onClick={() => void borrar()}>{trabajando ? 'Borrando…' : 'Borrar ejercicio'}</button></div>
     </Modal>
   );
 }
