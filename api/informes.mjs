@@ -169,8 +169,8 @@ async function retenciones(c, q) {
   if (q.tipo && !['iva', 'ganancias', 'iibb', 'suss'].includes(q.tipo)) errores.tipo = 'tiene que ser iva, ganancias, iibb o suss';
   if (Object.keys(errores).length) throw invalido(errores);
   const filas = await c.consultar(`select p.fecha::text as fecha, r.origen, r.tipo, j.nombre as jurisdiccion, r.base_imponible::text as base_imponible, r.alicuota::text as alicuota, r.importe::text as importe,
-      r.certificado_numero, r.certificado_fecha::text as certificado_fecha, te.razon_social, te.nro_documento, p.sentido, p.punto_venta, p.numero as numero_pago
-    from retencion r join pago p on p.id = r.pago_id and p.estado = 'confirmado' join tercero te on te.id = p.tercero_id left join arca_jurisdiccion j on j.codigo = r.jurisdiccion_codigo
+      r.certificado_numero, r.certificado_fecha::text as certificado_fecha, te.razon_social, te.tipo_documento_codigo, te.nro_documento, rr.codigo_arca as regimen_codigo, rr.descripcion as regimen, p.sentido, p.punto_venta, p.numero as numero_pago
+    from retencion r join pago p on p.id = r.pago_id and p.estado = 'confirmado' join tercero te on te.id = p.tercero_id left join arca_jurisdiccion j on j.codigo = r.jurisdiccion_codigo left join regimen_retencion rr on rr.id = r.regimen_id
     where p.fecha between $1 and $2 and ($3::text is null or r.origen = $3) and ($4::text is null or r.tipo = $4) order by p.fecha, p.id, r.id limit ${TOPE + 1}`, [desde, hasta, q.origen || null, q.tipo || null]);
   cortar(filas.length, 'El informe');
   const datos = filas.map(({ sentido, punto_venta, numero_pago, ...f }) => ({ ...f, comprobante: `${sentido === 'cobro' ? 'Recibo' : 'Orden de pago'} ${numeroFormateado(punto_venta, numero_pago)}` }));
@@ -178,7 +178,69 @@ async function retenciones(c, q) {
   for (const f of datos) { let r = resumen.find((x) => x.origen === f.origen && x.tipo === f.tipo); if (!r) resumen.push(r = { origen: f.origen, tipo: f.tipo, cantidad: 0, importe: '0.00' }); r.cantidad++; r.importe = texto(dec(r.importe) + dec(f.importe)); }
   return { desde, hasta, filas: datos, resumen, totales: sumas(datos, ['importe']), avisos: [] };
 }
-const columnasRetenciones = [['fecha', 'Fecha'], ['origen', 'Origen'], ['tipo', 'Impuesto'], ['jurisdiccion', 'Jurisdicción'], ['razon_social', 'Persona'], ['nro_documento', 'Documento'], ['comprobante', 'Comprobante'], ['certificado_numero', 'Certificado'], ['certificado_fecha', 'Fecha del certificado'], ['base_imponible', 'Base imponible'], ['alicuota', 'Alícuota'], ['importe', 'Importe']];
+const columnasRetenciones = [['fecha', 'Fecha'], ['origen', 'Origen'], ['tipo', 'Impuesto'], ['jurisdiccion', 'Jurisdicción'], ['razon_social', 'Persona'], ['tipo_documento_codigo', 'Tipo doc. (código ARCA)'], ['nro_documento', 'Documento'], ['regimen_codigo', 'Régimen (código)'], ['regimen', 'Régimen'], ['comprobante', 'Comprobante'], ['certificado_numero', 'Certificado'], ['certificado_fecha', 'Fecha del certificado'], ['base_imponible', 'Base imponible'], ['alicuota', 'Alícuota'], ['importe', 'Importe']];
+
+/* ====================== planillas fiscales ====================== */
+// Planillas de trabajo con los campos que piden los aplicativos de ARCA (Libro IVA Digital, SIFERE, SICORE). NO son el archivo de importación oficial: ese tiene un diseño de
+// registro propio que no está verificado acá. Sirven para controlar y para cargar o convertir. Las notas de crédito van en negativo, igual que en los libros.
+const AVISO_PLANILLA = 'Planilla de trabajo con los campos que piden los aplicativos de ARCA: no es el archivo de importación oficial (su diseño de registro no está verificado).';
+const MONTOS_DETALLE = ['total', 'no_gravado', 'exento', 'neto_gravado', 'iva_total', 'percepcion_iva', 'percepcion_iibb', 'percepcion_ganancias', 'otros_tributos'];
+async function ivaDetalle(c, sentido, q) {
+  const { desde, hasta } = rango(q);
+  const filas = await c.consultar(`select v.fecha::text as fecha, cb.tipo_comprobante_codigo, v.tipo, v.punto_venta, v.numero, te.tipo_documento_codigo, v.nro_documento, v.razon_social, cb.moneda, cb.cotizacion::text as cotizacion,
+      v.total::text as total, v.no_gravado::text as no_gravado, v.exento::text as exento, v.neto_gravado::text as neto_gravado, v.iva_total::text as iva_total,
+      v.percepcion_iva::text as percepcion_iva, v.percepcion_iibb::text as percepcion_iibb, v.percepcion_ganancias::text as percepcion_ganancias, v.otros_tributos::text as otros_tributos,
+      (select count(*)::int from comprobante_iva ci where ci.comprobante_id = v.comprobante_id) as cant_alicuotas
+    from v_libro_iva v join comprobante cb on cb.id = v.comprobante_id join tercero te on te.id = cb.tercero_id
+    where v.sentido = $1 and v.fecha between $2 and $3 order by v.fecha, v.punto_venta, v.numero, v.comprobante_id limit ${TOPE + 1}`, [sentido, desde, hasta]);
+  cortar(filas.length, 'La planilla');
+  const datos = filas.map((f) => ({ ...f, punto_venta: String(f.punto_venta).padStart(4, '0'), numero: f.numero == null ? '' : String(f.numero).padStart(8, '0') }));
+  return { desde, hasta, sentido, filas: datos, totales: sumas(filas, MONTOS_DETALLE), cantidad: datos.length, avisos: [AVISO_PLANILLA] };
+}
+const columnasIvaDetalle = [['fecha', 'Fecha'], ['tipo_comprobante_codigo', 'Tipo (código ARCA)'], ['tipo', 'Tipo'], ['punto_venta', 'Punto de venta'], ['numero', 'Número'], ['tipo_documento_codigo', 'Tipo doc. (código ARCA)'], ['nro_documento', 'Documento'],
+  ['razon_social', 'Razón social'], ['moneda', 'Moneda'], ['cotizacion', 'Cotización'], ['total', 'Total'], ['no_gravado', 'No gravado'], ['exento', 'Exento'], ['neto_gravado', 'Neto gravado'], ['iva_total', 'IVA'],
+  ['percepcion_iva', 'Percepción IVA'], ['percepcion_iibb', 'Percepción IIBB'], ['percepcion_ganancias', 'Percepción Ganancias'], ['otros_tributos', 'Otros tributos'], ['cant_alicuotas', 'Cant. de alícuotas']];
+
+async function ivaAlicuotas(c, sentido, q) {
+  const { desde, hasta } = rango(q);
+  const filas = await c.consultar(`select v.fecha::text as fecha, cb.tipo_comprobante_codigo, v.tipo, v.punto_venta, v.numero, v.nro_documento, v.razon_social, ci.alicuota_codigo, a.descripcion as alicuota,
+      (t.signo * ci.base_imponible)::text as neto_gravado, (t.signo * ci.importe_iva)::text as iva
+    from comprobante_iva ci join v_libro_iva v on v.comprobante_id = ci.comprobante_id join comprobante cb on cb.id = ci.comprobante_id join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
+      join arca_alicuota_iva a on a.codigo = ci.alicuota_codigo
+    where v.sentido = $1 and v.fecha between $2 and $3 order by v.fecha, v.punto_venta, v.numero, v.comprobante_id, ci.alicuota_codigo limit ${TOPE + 1}`, [sentido, desde, hasta]);
+  cortar(filas.length, 'La planilla');
+  const datos = filas.map((f) => ({ ...f, punto_venta: String(f.punto_venta).padStart(4, '0'), numero: f.numero == null ? '' : String(f.numero).padStart(8, '0') }));
+  return { desde, hasta, sentido, filas: datos, totales: sumas(filas, ['neto_gravado', 'iva']), cantidad: datos.length,
+    avisos: [AVISO_PLANILLA, 'Una fila por comprobante y alícuota. Los comprobantes sin IVA discriminado (exentos, no gravados) no tienen fila.'] };
+}
+const columnasIvaAlicuotas = [['fecha', 'Fecha'], ['tipo_comprobante_codigo', 'Tipo (código ARCA)'], ['tipo', 'Tipo'], ['punto_venta', 'Punto de venta'], ['numero', 'Número'], ['nro_documento', 'Documento'], ['razon_social', 'Razón social'],
+  ['alicuota_codigo', 'Alícuota (código ARCA)'], ['alicuota', 'Alícuota'], ['neto_gravado', 'Neto gravado'], ['iva', 'IVA']];
+
+const IMPUESTO_PERCEPCION = { iva: 'IVA', iibb: 'Ingresos Brutos', ganancias: 'Ganancias', suss: 'SUSS' };
+async function percepciones(c, q) {
+  const { desde, hasta } = rango(q), errores = {};
+  if (q.origen && !['sufrida', 'practicada'].includes(q.origen)) errores.origen = 'tiene que ser sufrida o practicada';
+  if (q.impuesto && !IMPUESTO_PERCEPCION[q.impuesto]) errores.impuesto = 'tiene que ser iva, iibb, ganancias o suss';
+  if (Object.keys(errores).length) throw invalido(errores);
+  const filas = await c.consultar(`select cb.fecha::text as fecha, case cb.sentido when 'compra' then 'sufrida' else 'practicada' end as origen, substr(ct.tipo, 12) as impuesto, j.nombre as jurisdiccion,
+      te.tipo_documento_codigo, te.nro_documento, te.razon_social, t.descripcion as tipo, cb.punto_venta, cb.numero,
+      (t.signo * coalesce(ct.base_imponible, 0))::text as base_imponible, ct.alicuota::text as alicuota, (t.signo * ct.importe)::text as importe
+    from comprobante_tributo ct join comprobante cb on cb.id = ct.comprobante_id and cb.estado in ('confirmado', 'autorizado') join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
+      join tercero te on te.id = cb.tercero_id left join arca_jurisdiccion j on j.codigo = ct.jurisdiccion_codigo
+    where ct.tipo like 'percepcion\\_%' and cb.fecha between $1 and $2 and ($3::text is null or cb.sentido = case $3 when 'sufrida' then 'compra' else 'venta' end) and ($4::text is null or ct.tipo = 'percepcion_' || $4)
+    order by cb.fecha, cb.id, ct.id limit ${TOPE + 1}`, [desde, hasta, q.origen || null, q.impuesto || null]);
+  cortar(filas.length, 'El informe');
+  const datos = filas.map(({ tipo, punto_venta, numero, impuesto, ...f }) => ({ ...f, impuesto: IMPUESTO_PERCEPCION[impuesto] ?? impuesto, comprobante: `${tipo} ${numero == null ? '' : numeroFormateado(punto_venta, numero)}`.trim() }));
+  const resumen = [];
+  for (const f of datos) {
+    let r = resumen.find((x) => x.origen === f.origen && x.impuesto === f.impuesto && x.jurisdiccion === f.jurisdiccion);
+    if (!r) resumen.push(r = { origen: f.origen, impuesto: f.impuesto, jurisdiccion: f.jurisdiccion, cantidad: 0, importe: '0.00' });
+    r.cantidad++; r.importe = texto(dec(r.importe) + dec(f.importe));
+  }
+  return { desde, hasta, filas: datos, resumen, totales: sumas(datos, ['base_imponible', 'importe']), avisos: [AVISO_PLANILLA, 'Las que se sufrieron son las de las facturas de compra; las practicadas, las de las ventas. Las notas de crédito restan.'] };
+}
+const columnasPercepciones = [['fecha', 'Fecha'], ['origen', 'Origen'], ['impuesto', 'Impuesto'], ['jurisdiccion', 'Jurisdicción'], ['razon_social', 'Persona'], ['tipo_documento_codigo', 'Tipo doc. (código ARCA)'], ['nro_documento', 'Documento'],
+  ['comprobante', 'Comprobante'], ['base_imponible', 'Base imponible'], ['alicuota', 'Alícuota'], ['importe', 'Importe']];
 
 /* ====================== catálogo y CSV ====================== */
 export const INFORMES = {
@@ -192,6 +254,11 @@ export const INFORMES = {
   'deuda-clientes': { titulo: 'Deuda de clientes por antigüedad', generar: (c, q) => antiguedad(c, 'cliente', q), columnas: columnasAntiguedad },
   'deuda-proveedores': { titulo: 'Deuda con proveedores por antigüedad', generar: (c, q) => antiguedad(c, 'proveedor', q), columnas: columnasAntiguedad },
   'retenciones': { titulo: 'Retenciones', generar: retenciones, columnas: columnasRetenciones },
+  'iva-ventas-detalle': { titulo: 'Planilla IVA ventas: comprobantes', generar: (c, q) => ivaDetalle(c, 'venta', q), columnas: columnasIvaDetalle },
+  'iva-ventas-alicuotas': { titulo: 'Planilla IVA ventas: alícuotas', generar: (c, q) => ivaAlicuotas(c, 'venta', q), columnas: columnasIvaAlicuotas },
+  'iva-compras-detalle': { titulo: 'Planilla IVA compras: comprobantes', generar: (c, q) => ivaDetalle(c, 'compra', q), columnas: columnasIvaDetalle },
+  'iva-compras-alicuotas': { titulo: 'Planilla IVA compras: alícuotas', generar: (c, q) => ivaAlicuotas(c, 'compra', q), columnas: columnasIvaAlicuotas },
+  'percepciones': { titulo: 'Percepciones', generar: percepciones, columnas: columnasPercepciones },
 };
 
 /** Una planilla abre como fórmula lo que empieza con = + - @; los importes negativos son números y se dejan como están. */
@@ -203,7 +270,7 @@ const celda = (v) => {
 export function aCsv(clave, r) {
   const inf = INFORMES[clave], filas = inf.filasCsv ? inf.filasCsv(r) : r.filas;
   const cuerpo = [inf.columnas.map(([, t]) => t), ...filas.map((f) => inf.columnas.map(([k]) => f[k]))];
-  if (r.totales && !inf.filasCsv && ['libro-iva-ventas', 'libro-iva-compras', 'posicion-iva', 'balance', 'retenciones', 'deuda-clientes', 'deuda-proveedores'].includes(clave)) {
+  if (r.totales && !inf.filasCsv && ['libro-iva-ventas', 'libro-iva-compras', 'posicion-iva', 'balance', 'retenciones', 'deuda-clientes', 'deuda-proveedores', 'iva-ventas-detalle', 'iva-ventas-alicuotas', 'iva-compras-detalle', 'iva-compras-alicuotas', 'percepciones'].includes(clave)) {
     const t = inf.columnas.map(([k], i) => (i === 0 ? 'Totales' : r.totales[k] ?? ''));
     cuerpo.push(t);
   }

@@ -184,6 +184,42 @@ await prueba('Los informes no escriben nada: el mismo informe dos veces da lo mi
   igual((await uno(`select count(*)::int n from evento where accion like 'Exportó el informe%'`)).n >= 3, true, 'cada descarga dejó rastro'); for (const e of [S.estudios.e1, S.estudios.e2]) igual((await uno('select fn_verificar_trazabilidad($1) v', [e])).v, null, `cadena ${e}`);
 });
 
+// ---------------------------------------------------------------------------
+// --- planillas fiscales: una compra con percepción de Ingresos Brutos
+const FCP = (await api('admin', 'POST', '/api/compras/facturas', { cuerpo: { tercero_id: P1.id, letra: 'A', punto_venta: 4, numero: 2000, fecha: hoy, total: '1260', items: [{ descripcion: 'Servicio', cantidad: '1', precio_unitario: '1000', alicuota: '21' }], tributos: [{ tipo: 'percepcion_iibb', jurisdiccion_codigo: 902, importe: '50' }] } })).cuerpo;
+if (!FCP?.id) throw new Error('compra con percepción: ' + JSON.stringify(FCP).slice(0, 300));
+await prueba('Planilla de IVA ventas (comprobantes): códigos de ARCA, documento y montos con la nota de crédito en negativo; coincide con el libro', async () => {
+  const p = (await inf('admin', 'iva-ventas-detalle', hoyRango)).cuerpo, libroV = (await inf('admin', 'libro-iva-ventas', hoyRango)).cuerpo;
+  igual(p.filas.length, 3, 'tres comprobantes'); const f1 = p.filas.find((f) => f.total === '2420.00'), nc = p.filas.find((f) => f.total === '-1210.00');
+  igual([f1.tipo_comprobante_codigo, f1.tipo_documento_codigo, f1.punto_venta, /^\d{8}$/.test(f1.numero), f1.moneda, f1.cant_alicuotas, f1.neto_gravado, f1.iva_total], [1, 80, '0001', true, 'PES', 1, '2000.00', '420.00'], 'una factura A');
+  igual([nc.tipo_comprobante_codigo, nc.neto_gravado, nc.iva_total], [3, '-1000.00', '-210.00'], 'la nota de crédito A (código 3), en negativo');
+  igual([p.totales.total, p.totales.neto_gravado, p.totales.iva_total], [libroV.totales.total, libroV.totales.neto_gravado, libroV.totales.iva_total], 'los mismos totales que el libro'); verdad(p.avisos.some((a) => /no es el archivo de importación oficial/.test(a)), 'avisa que no es el formato oficial');
+  igual((await inf('admin', 'iva-ventas-detalle', hoyRango, { empresa: MT })).cuerpo.filas.length, 0, 'otra empresa');
+});
+await prueba('Planilla de IVA (alícuotas): una fila por comprobante y alícuota, con su código de ARCA, y suma lo mismo que el libro', async () => {
+  const a = (await inf('admin', 'iva-ventas-alicuotas', hoyRango)).cuerpo, libroV = (await inf('admin', 'libro-iva-ventas', hoyRango)).cuerpo;
+  igual(a.filas.map((f) => [f.alicuota_codigo, f.alicuota]).every(([c, n]) => c === 5 && n === '21 %'), true, 'todo al 21 %'); igual(a.filas.length, 3, 'tres filas'); igual(a.filas.find((f) => f.iva === '-210.00').neto_gravado, '-1000.00', 'la nota resta');
+  igual([a.totales.neto_gravado, a.totales.iva], [libroV.totales.neto_gravado, libroV.totales.iva_21], 'coincide con el libro');
+  const c = (await inf('admin', 'iva-compras-alicuotas', hoyRango)).cuerpo, libroC = (await inf('admin', 'libro-iva-compras', hoyRango)).cuerpo; igual([c.filas.length, c.totales.iva], [2, libroC.totales.iva_21], 'compras: dos facturas al 21 %'); verdad(c.avisos.length === 2, 'con su aviso sobre los comprobantes sin IVA');
+  const d = (await inf('admin', 'iva-compras-detalle', hoyRango)).cuerpo, fp = d.filas.find((f) => f.total === '1260.00'); igual([d.filas.length, fp.percepcion_iibb, fp.tipo_comprobante_codigo, fp.punto_venta, fp.numero], [2, '50.00', 1, '0004', '00002000'], 'la compra con su percepción de IIBB y el número del proveedor');
+  igual(d.totales.percepcion_iibb, '50.00', 'total de percepciones');
+});
+await prueba('Percepciones: las sufridas salen de las compras, con jurisdicción, proveedor y comprobante; filtros y resumen', async () => {
+  const r = (await inf('admin', 'percepciones', hoyRango)).cuerpo, f = r.filas[0];
+  igual(r.filas.length, 1, 'una'); igual([f.origen, f.impuesto, f.importe, f.tipo_documento_codigo, f.comprobante, f.razon_social], ['sufrida', 'Ingresos Brutos', '50.00', 80, 'Factura A 0004-00002000', 'Molinos del Sur SA'], JSON.stringify(f)); verdad(f.jurisdiccion, 'con su jurisdicción');
+  igual(r.resumen.map((x) => [x.origen, x.impuesto, x.cantidad, x.importe]), [['sufrida', 'Ingresos Brutos', 1, '50.00']], 'resumen'); igual(r.totales.importe, '50.00', 'total');
+  igual((await inf('admin', 'percepciones', `${hoyRango}&origen=practicada`)).cuerpo.filas.length, 0, 'ninguna practicada'); igual((await inf('admin', 'percepciones', `${hoyRango}&impuesto=iva`)).cuerpo.filas.length, 0, 'ninguna de IVA'); igual((await inf('admin', 'percepciones', `${hoyRango}&impuesto=iibb&origen=sufrida`)).cuerpo.filas.length, 1, 'filtro que coincide');
+  igual((await inf('admin', 'percepciones', `${hoyRango}&origen=x`)).cuerpo.error.campos.origen, 'tiene que ser sufrida o practicada', 'origen inválido'); igual((await inf('admin', 'percepciones', `${hoyRango}&impuesto=x`)).cuerpo.error.campos.impuesto, 'tiene que ser iva, iibb, ganancias o suss', 'impuesto inválido');
+  igual((await inf('admin', 'percepciones', hoyRango, { empresa: MT })).cuerpo.filas.length, 0, 'otra empresa');
+  const ret = (await inf('admin', 'retenciones', hoyRango)).cuerpo.filas[0]; igual([ret.tipo_documento_codigo, 'regimen' in ret], [80, true], 'las retenciones ahora traen el tipo de documento y el régimen (vacío si el pago no lo indicó)');
+});
+await prueba('Las planillas se descargan a CSV con sus encabezados, el total, y queda constancia', async () => {
+  const d = await csv('iva-compras-detalle', hoyRango); igual(d.estado, 200, d.texto.slice(0, 120)); verdad(d.bom && d.texto.startsWith('Fecha,Tipo (código ARCA),Tipo,Punto de venta,Número,Tipo doc. (código ARCA),Documento,Razón social,Moneda,Cotización,Total'), d.texto.slice(0, 160));
+  const filas = d.texto.trim().split('\r\n'); igual(filas.length, 1 + 2 + 1, 'encabezado, dos facturas y totales'); verdad(filas.at(-1).startsWith('Totales,'), 'con su fila de totales');
+  const p = await csv('percepciones', hoyRango); verdad(p.texto.startsWith('Fecha,Origen,Impuesto,Jurisdicción,Persona,Tipo doc. (código ARCA),Documento,Comprobante,Base imponible,Alícuota,Importe') && /Ingresos Brutos/.test(p.texto), p.texto.slice(0, 200));
+  igual((await ultimoEvento('Exportó el informe Percepciones%')).accion, 'Exportó el informe Percepciones a CSV', 'rastro'); igual((await csv('iva-ventas-alicuotas', 'desde=malo')).estado, 422, 'fechas inválidas');
+});
+
 await srv.cerrar();
 await cerrarBase();
 console.log(`\n${correctas} pruebas correctas, ${fallas} con falla${MODO_PG ? ' (adaptador pg)' : ''}`);

@@ -28,6 +28,12 @@ const ANTIGUEDAD: Col[] = [
   { k: 'razon_social', t: 'Razón social' }, { k: 'nro_documento', t: 'Documento' }, { k: 'a_vencer', t: 'A vencer', imp: true }, { k: 'vencido_1_30', t: '1-30 días', imp: true }, { k: 'vencido_31_60', t: '31-60', imp: true },
   { k: 'vencido_61_90', t: '61-90', imp: true }, { k: 'vencido_mas_90', t: 'Más de 90', imp: true }, { k: 'deuda', t: 'Deuda', imp: true }, { k: 'sin_aplicar', t: 'Sin aplicar', imp: true, opc: true }, { k: 'saldo_neto', t: 'Saldo neto', imp: true },
 ];
+const IVA_DETALLE: Col[] = [
+  { k: 'fecha', t: 'Fecha', f: true }, { k: 'tipo', t: 'Tipo' }, { k: 'punto_venta', t: 'Pto. vta.' }, { k: 'numero', t: 'Número' }, { k: 'nro_documento', t: 'Documento' }, { k: 'razon_social', t: 'Razón social' },
+  { k: 'neto_gravado', t: 'Neto gravado', imp: true }, { k: 'no_gravado', t: 'No gravado', imp: true, opc: true }, { k: 'exento', t: 'Exento', imp: true, opc: true }, { k: 'iva_total', t: 'IVA', imp: true },
+  { k: 'percepcion_iva', t: 'Perc. IVA', imp: true, opc: true }, { k: 'percepcion_iibb', t: 'Perc. IIBB', imp: true, opc: true }, { k: 'percepcion_ganancias', t: 'Perc. Gcias.', imp: true, opc: true }, { k: 'otros_tributos', t: 'Otros', imp: true, opc: true }, { k: 'total', t: 'Total', imp: true },
+];
+const IVA_ALICUOTAS: Col[] = [{ k: 'fecha', t: 'Fecha', f: true }, { k: 'tipo', t: 'Tipo' }, { k: 'punto_venta', t: 'Pto. vta.' }, { k: 'numero', t: 'Número' }, { k: 'razon_social', t: 'Razón social' }, { k: 'alicuota', t: 'Alícuota' }, { k: 'neto_gravado', t: 'Neto gravado', imp: true }, { k: 'iva', t: 'IVA', imp: true }];
 const INFORMES: Record<string, { titulo: string; grupo: string; periodo: boolean; desdeAnio?: boolean; cols?: Col[]; ayuda: string }> = {
   'libro-iva-ventas': { titulo: 'Libro de IVA ventas', grupo: 'IVA', periodo: true, cols: IVA, ayuda: 'Comprobantes de venta del período. Las notas de crédito restan.' },
   'libro-iva-compras': { titulo: 'Libro de IVA compras', grupo: 'IVA', periodo: true, cols: IVA, ayuda: 'Facturas de proveedores del período, con el crédito fiscal y las percepciones.' },
@@ -43,6 +49,12 @@ const INFORMES: Record<string, { titulo: string; grupo: string; periodo: boolean
   'deuda-proveedores': { titulo: 'Deuda con proveedores', grupo: 'Cuentas corrientes', periodo: false, cols: ANTIGUEDAD, ayuda: 'Lo que se les debe a los proveedores hoy, según cuánto hace que venció cada factura.' },
   'retenciones': { titulo: 'Retenciones', grupo: 'Impuestos', periodo: true, ayuda: 'Retenciones sufridas (en cobros) y practicadas (en pagos), con su certificado.',
     cols: [{ k: 'fecha', t: 'Fecha', f: true }, { k: 'origen', t: 'Origen' }, { k: 'tipo', t: 'Impuesto' }, { k: 'jurisdiccion', t: 'Jurisdicción' }, { k: 'razon_social', t: 'Persona' }, { k: 'comprobante', t: 'Comprobante' }, { k: 'certificado_numero', t: 'Certificado' }, { k: 'base_imponible', t: 'Base', imp: true, opc: true }, { k: 'importe', t: 'Importe', imp: true }] },
+  'iva-ventas-detalle': { titulo: 'IVA ventas: comprobantes', grupo: 'Planillas fiscales', periodo: true, cols: IVA_DETALLE, ayuda: 'Una fila por comprobante de venta con los códigos de ARCA, para controlar y cargar en los aplicativos. Al descargarla trae todos los campos.' },
+  'iva-ventas-alicuotas': { titulo: 'IVA ventas: alícuotas', grupo: 'Planillas fiscales', periodo: true, cols: IVA_ALICUOTAS, ayuda: 'Una fila por comprobante de venta y alícuota de IVA.' },
+  'iva-compras-detalle': { titulo: 'IVA compras: comprobantes', grupo: 'Planillas fiscales', periodo: true, cols: IVA_DETALLE, ayuda: 'Una fila por factura de compra con los códigos de ARCA, para controlar y cargar en los aplicativos. Al descargarla trae todos los campos.' },
+  'iva-compras-alicuotas': { titulo: 'IVA compras: alícuotas', grupo: 'Planillas fiscales', periodo: true, cols: IVA_ALICUOTAS, ayuda: 'Una fila por factura de compra y alícuota de IVA.' },
+  'percepciones': { titulo: 'Percepciones', grupo: 'Planillas fiscales', periodo: true, ayuda: 'Percepciones sufridas (en las compras) y practicadas (en las ventas), por impuesto y jurisdicción.',
+    cols: [{ k: 'fecha', t: 'Fecha', f: true }, { k: 'origen', t: 'Origen' }, { k: 'impuesto', t: 'Impuesto' }, { k: 'jurisdiccion', t: 'Jurisdicción' }, { k: 'razon_social', t: 'Persona' }, { k: 'nro_documento', t: 'Documento' }, { k: 'comprobante', t: 'Comprobante' }, { k: 'base_imponible', t: 'Base', imp: true, opc: true }, { k: 'importe', t: 'Importe', imp: true }] },
 };
 const GRUPOS = [...new Set(Object.values(INFORMES).map((i) => i.grupo))];
 const ORIGEN: Record<string, string> = { sufrida: 'Sufrida', practicada: 'Practicada' }, IMPUESTO: Record<string, string> = { iva: 'IVA', ganancias: 'Ganancias', iibb: 'Ingresos Brutos', suss: 'SUSS' };
@@ -68,7 +80,7 @@ export function Informes() {
   const [bajando, setBajando] = useState(false);
 
   const cambiarInforme = (c: string) => { setClave(c); setPagina(0); setDatos(null); setError(null); const m = INFORMES[c]; setDesde(m.desdeAnio ? `${hoy.slice(0, 4)}-01-01` : primeroDeMes(hoy)); setHasta(hoy); };
-  const filtros = () => ({ ...(meta.periodo ? { desde, hasta } : {}), ...(clave === 'mayor' ? { cuenta_id: cuenta?.id } : {}), ...(clave === 'retenciones' ? { origen, tipo } : {}), ...(clave === 'diario' ? { limite: POR_PAGINA, desplazamiento: pagina * POR_PAGINA } : {}) });
+  const filtros = () => ({ ...(meta.periodo ? { desde, hasta } : {}), ...(clave === 'mayor' ? { cuenta_id: cuenta?.id } : {}), ...(clave === 'retenciones' ? { origen, tipo } : {}), ...(clave === 'percepciones' ? { origen, impuesto: tipo } : {}), ...(clave === 'diario' ? { limite: POR_PAGINA, desplazamiento: pagina * POR_PAGINA } : {}) });
   const lista = clave === 'mayor' && !cuenta ? null : JSON.stringify([clave, filtros()]);
 
   useEffect(() => { setPagina(0); }, [desde, hasta, cuenta, origen, tipo]);
@@ -97,7 +109,7 @@ export function Informes() {
         </Selector>
         {meta.periodo && <><Campo etiqueta="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /><Campo etiqueta="Hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
           <span className="acciones"><button className="btn chico" onClick={mes}>Este mes</button><button className="btn chico" onClick={mesAnterior}>Mes anterior</button><button className="btn chico" onClick={anio}>Este año</button></span></>}
-        {clave === 'retenciones' && <>
+        {(clave === 'retenciones' || clave === 'percepciones') && <>
           <Selector etiqueta="Origen" value={origen} onChange={(e) => setOrigen(e.target.value)}><option value="">Todas</option><option value="sufrida">Sufridas</option><option value="practicada">Practicadas</option></Selector>
           <Selector etiqueta="Impuesto" value={tipo} onChange={(e) => setTipo(e.target.value)}><option value="">Todos</option>{Object.entries(IMPUESTO).map(([k, n]) => <option key={k} value={k}>{n}</option>)}</Selector></>}
         <div style={{ flex: 1 }} /><button className="btn" disabled={bajando || !lista || !datos} onClick={() => void bajar()}>{bajando ? 'Descargando…' : 'Descargar CSV'}</button>
@@ -144,7 +156,7 @@ function Tabla({ clave, cols, d }: { clave: string; cols: Col[]; d: Informe }) {
       {clave === 'retenciones' && Array.isArray(d.resumen) && (d.resumen as { origen: string; tipo: string; cantidad: number; importe: string }[]).length > 0 && (
         <p className="muted" style={{ marginTop: 10 }}>{(d.resumen as { origen: string; tipo: string; cantidad: number; importe: string }[]).map((r) => `${ORIGEN[r.origen]} de ${IMPUESTO[r.tipo]}: ${r.cantidad} por ${moneda(r.importe)}`).join(' · ')}</p>
       )}
-      {typeof d.cantidad === 'number' && <p className="muted" style={{ marginTop: 10 }}>{d.cantidad} comprobante{d.cantidad === 1 ? '' : 's'}.</p>}
+      {typeof d.cantidad === 'number' && <p className="muted" style={{ marginTop: 10 }}>{d.cantidad} {clave.endsWith('alicuotas') ? 'fila' : 'comprobante'}{d.cantidad === 1 ? '' : 's'}.</p>}
     </>
   );
 }
