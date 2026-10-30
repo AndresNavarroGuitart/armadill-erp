@@ -17,6 +17,7 @@ import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './t
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
+import { calcularPedido, crearPedido, modificarPedido, confirmarPedido, anularPedido, borrarPedido, detallePedido, listarPedidos } from './pedidos_venta.mjs';
 import { pendientesDeFacturarVenta, calcularRemitoVenta, crearRemitoVenta, modificarRemitoVenta, confirmarRemitoVenta, anularRemitoVenta, borrarRemitoVenta, detalleRemitoVenta, listarRemitosVenta } from './remitos_venta.mjs';
 import { pendientesDeFacturar, calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
@@ -135,6 +136,35 @@ const RUTAS = [
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, { ...q, sentido: 'venta' })],      // las compras tienen su propio permiso y su propia ruta
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'venta' })],
+  // --- Pedidos de venta (lo que pide el cliente: no mueven stock ni reservan, no generan cobro ni asiento) ---
+  ['GET', '/api/ventas/pedidos', 'ventas.ver', ({ c, q }) => listarPedidos(c, q)],
+  ['POST', '/api/ventas/pedidos/calcular', 'ventas.emitir', ({ c, cuerpo }) => calcularPedido(c, cuerpo)],
+  ['POST', '/api/ventas/pedidos', 'ventas.emitir', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await crearPedido(c, ctx, cuerpo), x = r.pedido;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Confirmó el pedido de venta' : 'Guardó como borrador el pedido de venta'} ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: { ...x, avisos: r.avisos } };
+  }],
+  ['GET', '/api/ventas/pedidos/:id', 'ventas.ver', ({ c, p }) => detallePedido(c, p.id)],
+  ['PUT', '/api/ventas/pedidos/:id', 'ventas.emitir', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarPedido(c, ctx, p.id, cuerpo), x = r.pedido;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Confirmó el pedido de venta' : 'Modificó el pedido de venta'} ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { ...x, avisos: r.avisos };
+  }],
+  ['POST', '/api/ventas/pedidos/:id/confirmar', 'ventas.emitir', async ({ c, ctx, p, origen }) => {
+    const x = await confirmarPedido(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Confirmó el pedido de venta ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['POST', '/api/ventas/pedidos/:id/anular', 'ventas.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularPedido(c, ctx, p.id, cuerpo), x = r.pedido;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Anuló el pedido de venta ${x.numero_formateado}`, detalle: `${x.cliente} · motivo: ${r.motivo}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['DELETE', '/api/ventas/pedidos/:id', 'ventas.emitir', async ({ c, ctx, p, origen }) => {
+    const x = await borrarPedido(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Borró el borrador del pedido de venta ${x.numero_formateado}`, detalle: x.cliente, origen });
+    return { estado: 200, cuerpo: { borrado: true } };
+  }],
   // --- Remitos de salida (la mercadería que se entregó: descuentan stock, no generan cobro ni asiento) ---
   ['GET', '/api/ventas/remitos', 'ventas.ver', ({ c, q }) => listarRemitosVenta(c, q)],
   ['POST', '/api/ventas/remitos/calcular', 'ventas.emitir', ({ c, ctx, cuerpo }) => calcularRemitoVenta(c, ctx, cuerpo)],

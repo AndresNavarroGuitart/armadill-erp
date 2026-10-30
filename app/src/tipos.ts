@@ -126,14 +126,23 @@ export type RemitoCompraDetalle = RemitoCompra & {
 export type PreviaRemito = { proveedor: { id: number; razon_social: string }; fecha: string; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string; mueve_stock: boolean }[]; total: string; avisos: string[] };
 
 /* ---------- remitos de salida ---------- */
-export type RemitoVenta = { id: number; numero_formateado: string; fecha: string; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; total: string };
+export type RemitoVenta = { id: number; numero_formateado: string; fecha: string; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; pedido: { id: number; numero_formateado: string } | null; total: string };
 export type RemitoVentaDetalle = RemitoVenta & {
   observaciones: string | null;
-  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; mueve_stock: boolean; facturado: string }[];
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; mueve_stock: boolean; facturado: string }[];
   facturas: { id: number; tipo: string; numero_formateado: string }[];
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean };
 };
 export type PreviaRemitoVenta = { cliente: { id: number; razon_social: string }; fecha: string; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string; mueve_stock: boolean }[]; total: string; avisos: string[] };
+/* ---------- pedidos de venta ---------- */
+export type PedidoVenta = { id: number; numero_formateado: string; fecha: string; entrega_prevista: string | null; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; total: string; pendiente_de_remitir: boolean };
+export type PedidoVentaDetalle = PedidoVenta & {
+  observaciones: string | null;
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; remitado: string; facturado: string; pendiente: string }[];
+  remitos: { id: number; numero_formateado: string; fecha: string; estado: string }[];
+  acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean; remitir: boolean };
+};
+export type PreviaPedidoVenta = { cliente: { id: number; razon_social: string }; fecha: string; entrega_prevista: string | null; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string }[]; total: string; avisos: string[] };
 export type PendienteRemitoVenta = { remito_id: number; remito: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; entregado: string; precio: string; facturado: string; facturable: string };
 
 export type PendienteRemito = { remito_id: number; remito: string; numero_externo: string | null; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; llego: string; precio: string; facturado: string; facturable: string };
