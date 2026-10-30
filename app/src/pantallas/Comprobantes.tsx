@@ -4,6 +4,7 @@ import { fecha, moneda } from '../formato';
 import type { ComprobanteResumen, Pagina } from '../tipos';
 import { Alerta, Campo, Cargando, Etiqueta, Selector, Vacio } from '../ui';
 import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
+import { RemitosVenta } from './RemitosVenta';
 
 const POR_PAGINA = 25;
 
@@ -16,6 +17,7 @@ export function Comprobantes() {
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<number | null>(null);
   const [recarga, setRecarga] = useState(0);
+  const [pestana, setPestana] = useState<'facturas' | 'remitos'>('facturas');
 
   useEffect(() => { setPagina(0); }, [desde, hasta, estado]);
   useEffect(() => {
@@ -28,7 +30,11 @@ export function Comprobantes() {
   const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   return (
     <>
-      <div className="cabecera"><div><h1>Comprobantes</h1><p>{datos ? `${total} ${total === 1 ? 'comprobante' : 'comprobantes'}` : 'Buscando…'}</p></div></div>
+      <div className="cabecera"><div><h1>Comprobantes</h1><p>{pestana === 'remitos' ? 'Mercadería entregada a los clientes: sale del stock y se factura después.' : datos ? `${total} ${total === 1 ? 'comprobante' : 'comprobantes'}` : 'Buscando…'}</p></div></div>
+      <div className="pestanas" role="tablist" aria-label="Comprobantes">
+        {([['facturas', 'Facturas y notas'], ['remitos', 'Remitos de salida']] as ['facturas' | 'remitos', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
+      </div>
+      {pestana === 'remitos' ? <RemitosVenta /> : <>
       <div className="herramientas">
         <Campo etiqueta="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
         <Campo etiqueta="Hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
@@ -56,6 +62,7 @@ export function Comprobantes() {
       {datos && total > POR_PAGINA && (
         <div className="paginado"><span>Página {pagina + 1} de {paginas}</span><span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span></div>
       )}
+      </>}
       {abierto !== null && <ComprobanteDetalle id={abierto} onCerrar={() => setAbierto(null)} onCambio={() => setRecarga((n) => n + 1)} onAbrir={(id) => setAbierto(id)} />}
     </>
   );

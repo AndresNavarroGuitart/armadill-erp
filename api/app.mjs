@@ -17,6 +17,7 @@ import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './t
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
+import { pendientesDeFacturarVenta, calcularRemitoVenta, crearRemitoVenta, modificarRemitoVenta, confirmarRemitoVenta, anularRemitoVenta, borrarRemitoVenta, detalleRemitoVenta, listarRemitosVenta } from './remitos_venta.mjs';
 import { pendientesDeFacturar, calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
@@ -134,6 +135,36 @@ const RUTAS = [
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, { ...q, sentido: 'venta' })],      // las compras tienen su propio permiso y su propia ruta
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'venta' })],
+  // --- Remitos de salida (la mercadería que se entregó: descuentan stock, no generan cobro ni asiento) ---
+  ['GET', '/api/ventas/remitos', 'ventas.ver', ({ c, q }) => listarRemitosVenta(c, q)],
+  ['POST', '/api/ventas/remitos/calcular', 'ventas.emitir', ({ c, ctx, cuerpo }) => calcularRemitoVenta(c, ctx, cuerpo)],
+  ['POST', '/api/ventas/remitos', 'ventas.emitir', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await crearRemitoVenta(c, ctx, cuerpo), x = r.remito;
+    await registrarEvento(c, ctx, { categoria: x.estado === 'confirmado' ? 'stock' : 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Entregó mercadería con el remito' : 'Guardó como borrador el remito'} ${x.numero_formateado}`, detalle: x.cliente, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: { ...x, avisos: r.avisos } };
+  }],
+  ['GET', '/api/ventas/remitos/pendientes-facturar', 'ventas.ver', ({ c, q }) => pendientesDeFacturarVenta(c, q)],
+  ['GET', '/api/ventas/remitos/:id', 'ventas.ver', ({ c, p }) => detalleRemitoVenta(c, p.id)],
+  ['PUT', '/api/ventas/remitos/:id', 'ventas.emitir', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarRemitoVenta(c, ctx, p.id, cuerpo), x = r.remito;
+    await registrarEvento(c, ctx, { categoria: x.estado === 'confirmado' ? 'stock' : 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Entregó mercadería con el remito' : 'Modificó el remito'} ${x.numero_formateado}`, detalle: x.cliente, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { ...x, avisos: r.avisos };
+  }],
+  ['POST', '/api/ventas/remitos/:id/confirmar', 'ventas.emitir', async ({ c, ctx, p, origen }) => {
+    const x = await confirmarRemitoVenta(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Entregó mercadería con el remito ${x.numero_formateado}`, detalle: x.cliente, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['POST', '/api/ventas/remitos/:id/anular', 'ventas.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularRemitoVenta(c, ctx, p.id, cuerpo), x = r.remito;
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Anuló el remito de salida ${x.numero_formateado}`, detalle: `${x.cliente} · motivo: ${r.motivo}${r.stock ? ` · devolvió ${r.stock} movimientos de stock` : ''}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['DELETE', '/api/ventas/remitos/:id', 'ventas.emitir', async ({ c, ctx, p, origen }) => {
+    const x = await borrarRemitoVenta(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Borró el borrador del remito ${x.numero_formateado}`, detalle: x.cliente, origen });
+    return { estado: 200, cuerpo: { borrado: true } };
+  }],
   // --- Tesorería: cajas y bancos ---
   ['GET', '/api/tesoreria/cajas', 'tesoreria.ver', ({ c }) => listarCajas(c)],
   ['POST', '/api/tesoreria/cajas', 'tesoreria.administrar', async ({ c, ctx, cuerpo, origen }) => {

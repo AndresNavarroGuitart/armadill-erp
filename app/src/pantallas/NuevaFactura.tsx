@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { enviar, ErrorApi, nuevaClave, obtener } from '../api';
 import { aDecimal, cantidad as fmtCantidad, fecha, hoyISO, moneda, nombreCondicion } from '../formato';
-import type { Articulo, Comprobante, Deposito, Lista, Pagina, PedidoFactura, PreviaFactura, Tercero } from '../tipos';
-import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useRetraso } from '../ui';
+import type { Articulo, Comprobante, Deposito, Lista, Pagina, PedidoFactura, PendienteRemitoVenta, PreviaFactura, Tercero } from '../tipos';
+import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useRetraso, Vacio } from '../ui';
 
-type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; deposito: string };
+type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; deposito: string; remitoItemId?: number; remito?: string };
 let contador = 0;
 const nuevaLinea = (): Linea => ({ uid: ++contador, articulo: null, texto: '', cantidad: '1', precio: '', desc: '', deposito: '' });
 
@@ -27,6 +27,7 @@ export function NuevaFactura() {
   const [error, setError] = useState<unknown>(null);
   const [emitiendo, setEmitiendo] = useState(false);
   const [emitida, setEmitida] = useState<Comprobante | null>(null);
+  const [traer, setTraer] = useState(false);
   const intento = useRef<{ huella: string; clave: string } | null>(null);
 
   useEffect(() => { obtener<{ datos: Lista[] }>('/api/listas-precio').then((r) => setListas(r.datos)).catch(() => setListas([])); }, []);
@@ -37,7 +38,9 @@ export function NuevaFactura() {
   /* Lo que se manda a la API: solo lo que la persona escribió. Sin precio escrito, el servidor usa el de la lista. */
   const pedido: PedidoFactura | null = useMemo(() => {
     if (!cliente) return null;
-    const items = lineas.filter((l) => l.articulo && l.cantidad.trim()).map((l) => ({
+    const items = lineas.filter((l) => (l.articulo || l.remitoItemId) && l.cantidad.trim()).map((l) => l.remitoItemId ? ({
+      documento_item_id: l.remitoItemId, cantidad: aDecimal(l.cantidad), ...(l.precio.trim() ? { precio_unitario: aDecimal(l.precio) } : {}), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
+    }) : ({
       articulo_id: l.articulo!.id, cantidad: aDecimal(l.cantidad), ...(variosDepositos && l.articulo!.controla_stock ? { deposito_id: Number(l.deposito || depositos[0].id) } : {}), ...(l.precio.trim() ? { precio_unitario: aDecimal(l.precio) } : {}), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
     }));
     if (items.length === 0) return null;
@@ -76,9 +79,9 @@ export function NuevaFactura() {
     setEmitida(null); setCliente(null); setClienteTexto(''); setLineas([nuevaLinea()]); setPrevia(null); setErrorPrevia(null); setError(null); setDescPie(''); setObservaciones(''); setFechaEmision(hoyISO()); setConcepto('1'); intento.current = null;
   }
 
-  const visibles = ['tercero_id', 'fecha', 'fecha_servicio_desde', 'fecha_servicio_hasta', 'fecha_vto_pago', 'desc_pie_pct', 'observaciones', ...lineas.flatMap((_, i) => ['articulo_id', 'cantidad', 'precio_unitario', 'desc_pct', 'deposito_id'].map((c) => `items[${i}].${c}`))];
+  const visibles = ['tercero_id', 'fecha', 'fecha_servicio_desde', 'fecha_servicio_hasta', 'fecha_vto_pago', 'desc_pie_pct', 'observaciones', ...lineas.flatMap((_, i) => ['articulo_id', 'documento_item_id', 'cantidad', 'precio_unitario', 'desc_pct', 'deposito_id'].map((c) => `items[${i}].${c}`))];
   const general = resumenErrores(error, visibles);
-  const indiceDeLinea = (uid: number) => lineas.filter((l) => l.articulo && l.cantidad.trim()).findIndex((l) => l.uid === uid);   // la API numera solo los renglones completos
+  const indiceDeLinea = (uid: number) => lineas.filter((l) => (l.articulo || l.remitoItemId) && l.cantidad.trim()).findIndex((l) => l.uid === uid);   // la API numera solo los renglones completos
   const errLinea = (uid: number, c: string) => { const i = indiceDeLinea(uid); return i >= 0 ? campos[`items[${i}].${c}`] : undefined; };
 
   return (
@@ -107,17 +110,17 @@ export function NuevaFactura() {
             </div>
           </div>
           <div className="tarjeta">
-            <h2 style={{ marginBottom: 6 }}>Renglones</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><h2 style={{ marginBottom: 6 }}>Renglones</h2>{cliente && <button type="button" className="btn chico" onClick={() => setTraer(true)}>Traer del remito</button>}</div>
             {lineas.map((l, i) => (
               <div className={`renglon${variosDepositos ? ' con-deposito' : ''}`} key={l.uid}>
-                <Buscador<Articulo> etiqueta={i === 0 ? 'Artículo' : `Artículo ${i + 1}`} texto={l.texto} error={errLinea(l.uid, 'articulo_id')}
+                {l.remitoItemId ? <div><span className="muted">{i === 0 ? 'Artículo' : `Artículo ${i + 1}`}</span><div><strong>{l.texto}</strong><div className="muted">{l.remito} · ya salió del stock</div></div></div> : <Buscador<Articulo> etiqueta={i === 0 ? 'Artículo' : `Artículo ${i + 1}`} texto={l.texto} error={errLinea(l.uid, 'articulo_id')}
                   placeholder="Código o nombre" onTexto={(t) => cambiarLinea(l.uid, { articulo: null, texto: t })}
                   buscar={(q) => obtener<Pagina<Articulo>>('/api/articulos', { q: q || undefined, activo: 'true', lista_id: listaId, limite: 8 }).then((r) => r.datos.filter((a) => a.tipo !== 'gasto'))}
                   mostrar={(a) => <><span>{a.codigo} · {a.nombre}</span><span className="muted">{a.precio_neto ? moneda(a.precio_neto) : 'sin precio'}</span></>}
-                  onElegir={(a) => cambiarLinea(l.uid, { articulo: a, texto: `${a.codigo} · ${a.nombre}` })} />
+                  onElegir={(a) => cambiarLinea(l.uid, { articulo: a, texto: `${a.codigo} · ${a.nombre}` })} />}
                 <Campo etiqueta="Cantidad" inputMode="decimal" value={l.cantidad} error={errLinea(l.uid, 'cantidad')} onChange={(e) => cambiarLinea(l.uid, { cantidad: e.target.value })} />
-                <Campo etiqueta="Precio neto" inputMode="decimal" value={l.precio} placeholder={l.articulo?.precio_neto ? fmtCantidad(l.articulo.precio_neto) : 'de la lista'} error={errLinea(l.uid, 'precio_unitario')} onChange={(e) => cambiarLinea(l.uid, { precio: e.target.value })} />
-                {variosDepositos && <Selector etiqueta="Sale de" value={l.articulo?.controla_stock ? (l.deposito || String(depositos[0].id)) : ''} disabled={!l.articulo?.controla_stock} error={errLinea(l.uid, 'deposito_id')} onChange={(e) => cambiarLinea(l.uid, { deposito: e.target.value })}>{l.articulo?.controla_stock ? depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>) : <option value="">—</option>}</Selector>}
+                <Campo etiqueta="Precio neto" inputMode="decimal" value={l.precio} placeholder={l.remitoItemId ? 'del remito' : l.articulo?.precio_neto ? fmtCantidad(l.articulo.precio_neto) : 'de la lista'} error={errLinea(l.uid, 'precio_unitario')} onChange={(e) => cambiarLinea(l.uid, { precio: e.target.value })} />
+                {variosDepositos && <Selector etiqueta="Sale de" value={l.articulo?.controla_stock && !l.remitoItemId ? (l.deposito || String(depositos[0].id)) : ''} disabled={!l.articulo?.controla_stock || !!l.remitoItemId} error={errLinea(l.uid, 'deposito_id')} onChange={(e) => cambiarLinea(l.uid, { deposito: e.target.value })}>{l.articulo?.controla_stock ? depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>) : <option value="">—</option>}</Selector>}
                 <Campo etiqueta="Desc. %" inputMode="decimal" value={l.desc} error={errLinea(l.uid, 'desc_pct')} onChange={(e) => cambiarLinea(l.uid, { desc: e.target.value })} />
                 <button type="button" className="icono" style={{ marginTop: 22 }} aria-label={`Quitar renglón ${i + 1}`} disabled={lineas.length === 1} onClick={() => setLineas((ls) => ls.filter((x) => x.uid !== l.uid))}>×</button>
               </div>
@@ -143,6 +146,8 @@ export function NuevaFactura() {
           </div>
         </aside>
       </div>
+      {traer && cliente && <TraerRemito clienteId={cliente.id} yaTomados={lineas.filter((l) => l.remitoItemId).map((l) => l.remitoItemId!)} onCerrar={() => setTraer(false)}
+        onElegir={(filas) => { setTraer(false); setLineas((ls) => [...ls.filter((l) => l.articulo || l.texto.trim() || l.remitoItemId), ...filas.map((f) => ({ ...nuevaLinea(), remitoItemId: f.item_id, remito: `Remito ${f.remito}`, articulo: null, texto: f.descripcion, cantidad: f.cantidad }))]); }} />}
       {emitida && <Emitida c={emitida} onNueva={reiniciar} />}
     </>
   );
@@ -183,6 +188,37 @@ function Emitida({ c, onNueva }: { c: Comprobante; onNueva: () => void }) {
       <Alerta tipo="info">Todavía sin CAE: la conexión con ARCA se agrega en un próximo paso. El asiento contable ya se registró{c.items.length ? ' y, si había artículos con stock, también su movimiento' : ''}.</Alerta>
       {c.avisos?.map((a) => <Alerta key={a} tipo="aviso">{a}</Alerta>)}
       <div className="pie-form"><a className="btn" href="#/comprobantes">Ver comprobantes</a><button className="btn primario" onClick={onNueva} autoFocus>Hacer otra factura</button></div>
+    </Modal>
+  );
+}
+
+/* Los renglones de los remitos de salida del cliente a los que todavía les falta facturar algo: la mercadería ya salió del depósito, la factura la valoriza y genera la cuenta corriente. */
+function TraerRemito({ clienteId, yaTomados, onCerrar, onElegir }: { clienteId: number; yaTomados: number[]; onCerrar: () => void; onElegir: (filas: { item_id: number; remito: string; descripcion: string; cantidad: string }[]) => void }) {
+  const [datos, setDatos] = useState<PendienteRemitoVenta[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [marcados, setMarcados] = useState<Record<number, string>>({});
+  useEffect(() => { obtener<{ datos: PendienteRemitoVenta[] }>('/api/ventas/remitos/pendientes-facturar', { tercero_id: clienteId }).then((r) => setDatos(r.datos.filter((x) => !yaTomados.includes(x.item_id)))).catch((e) => setError(e.message)); }, [clienteId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const elegidas = (datos ?? []).filter((x) => marcados[x.item_id] !== undefined && Number(aDecimal(marcados[x.item_id])) > 0);
+  return (
+    <Modal titulo="Traer mercadería de un remito" onCerrar={onCerrar} ancho={760}>
+      {error && <Alerta>{error}</Alerta>}
+      {!datos && !error && <Cargando />}
+      {datos && datos.length === 0 && <Vacio titulo="No hay remitos para facturar">Todo lo que se entregó a este cliente ya está facturado, o todavía no registraste remitos de salida.</Vacio>}
+      {datos && datos.length > 0 && (
+        <>
+          <p style={{ marginTop: 0 }}>Elegí lo que vas a facturar. La mercadería ya salió del stock con el remito: la factura no la vuelve a descontar, y toma el precio del remito.</p>
+          <div className="tabla-caja"><table>
+            <thead><tr><th /><th>Remito</th><th>Descripción</th><th className="num">Falta facturar</th><th className="num">Facturar</th></tr></thead>
+            <tbody>{datos.map((x) => (
+              <tr key={x.item_id}>
+                <td><input type="checkbox" aria-label={`Tomar ${x.descripcion} del remito ${x.remito}`} checked={marcados[x.item_id] !== undefined} onChange={(e) => setMarcados((m) => { const n = { ...m }; if (e.target.checked) n[x.item_id] = fmtCantidad(x.facturable); else delete n[x.item_id]; return n; })} /></td>
+                <td>{x.remito}<div className="muted">{fecha(x.fecha)}</div></td><td>{x.descripcion}</td><td className="num">{fmtCantidad(x.facturable)}</td>
+                <td className="num" style={{ width: 120 }}><input aria-label={`Cantidad a facturar de ${x.descripcion}`} inputMode="decimal" disabled={marcados[x.item_id] === undefined} value={marcados[x.item_id] ?? ''} style={{ width: 100, textAlign: 'right' }} onChange={(e) => setMarcados((m) => ({ ...m, [x.item_id]: e.target.value }))} /></td>
+              </tr>))}</tbody>
+          </table></div>
+        </>
+      )}
+      <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn primario" disabled={!elegidas.length} onClick={() => onElegir(elegidas.map((x) => ({ item_id: x.item_id, remito: x.remito, descripcion: x.descripcion, cantidad: aDecimal(marcados[x.item_id]) })))}>Traer a la factura</button></div>
     </Modal>
   );
 }

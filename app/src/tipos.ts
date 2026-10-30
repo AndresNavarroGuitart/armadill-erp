@@ -15,11 +15,11 @@ export type Articulo = {
   id: number; codigo: string; nombre: string; tipo: 'bien' | 'servicio' | 'gasto' | 'bien_de_uso'; tratamiento_iva_venta: 'gravado' | 'exento' | 'no_gravado';
   alicuota_venta: string | null; controla_stock: boolean; stock_minimo?: string | null; activo: boolean; precio_neto?: string | null; costo?: string | null;
 };
-export type ItemFactura = { articulo_id: number; descripcion?: string; cantidad: string; precio_unitario?: string; desc_pct?: string };
+export type ItemFactura = { articulo_id?: number; documento_item_id?: number; descripcion?: string; cantidad: string; precio_unitario?: string; desc_pct?: string };
 export type PedidoFactura = { tercero_id: number; punto_venta?: number; fecha?: string; concepto?: number; fecha_servicio_desde?: string; fecha_servicio_hasta?: string; fecha_vto_pago?: string; desc_pie_pct?: string; observaciones?: string; items: ItemFactura[] };
 export type PreviaFactura = {
   letra: 'A' | 'B' | 'C'; tipo_comprobante_codigo: number; punto_venta: number; fecha: string; cliente: { id: number; razon_social: string; condicion_iva_codigo: number };
-  items: { articulo_id: number; descripcion: string; cantidad: string; precio_unitario: string; desc_pct: string; importe_renglon: string }[];
+  items: { articulo_id: number; descripcion: string; cantidad: string; precio_unitario: string; desc_pct: string; importe_renglon: string; del_remito?: boolean }[];
   ivas: { alicuota: string; base_imponible: string; importe_iva: string }[];
   imp_neto: string; imp_iva: string; imp_tot_conc: string; imp_op_ex: string; imp_desc_pie: string; imp_total: string; avisos: string[];
 };
@@ -124,5 +124,16 @@ export type RemitoCompraDetalle = RemitoCompra & {
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean };
 };
 export type PreviaRemito = { proveedor: { id: number; razon_social: string }; fecha: string; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string; mueve_stock: boolean }[]; total: string; avisos: string[] };
+
+/* ---------- remitos de salida ---------- */
+export type RemitoVenta = { id: number; numero_formateado: string; fecha: string; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; total: string };
+export type RemitoVentaDetalle = RemitoVenta & {
+  observaciones: string | null;
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; mueve_stock: boolean; facturado: string }[];
+  facturas: { id: number; tipo: string; numero_formateado: string }[];
+  acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean };
+};
+export type PreviaRemitoVenta = { cliente: { id: number; razon_social: string }; fecha: string; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string; mueve_stock: boolean }[]; total: string; avisos: string[] };
+export type PendienteRemitoVenta = { remito_id: number; remito: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; entregado: string; precio: string; facturado: string; facturable: string };
 
 export type PendienteRemito = { remito_id: number; remito: string; numero_externo: string | null; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; llego: string; precio: string; facturado: string; facturable: string };

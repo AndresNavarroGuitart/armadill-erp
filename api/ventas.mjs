@@ -25,7 +25,8 @@ const ESQUEMA = {
   desc_pie_pct: { tipo: 'porcentaje' },
   observaciones: { tipo: 'texto', max: 500 },
   items: { tipo: 'lista', min: 1, max: 100, requerido: true, elemento: {
-    articulo_id: { tipo: 'entero', min: 1, requerido: true },
+    articulo_id: { tipo: 'entero', min: 1 },
+    documento_item_id: { tipo: 'entero', min: 1 },            // un renglón puede tomar mercadería de un remito de salida: ya salió del depósito con el remito
     descripcion: { tipo: 'texto', max: 200 },
     cantidad: { tipo: 'importe', min: 0.0001, max: 99999999, requerido: true },
     precio_unitario: { tipo: 'importe', min: 0, max: 999999999999 },
@@ -66,14 +67,30 @@ export async function prepararFactura(c, ctx, cuerpo) {
   let listaId = d.lista_id ?? tercero.lista_precio_id;
   if (!listaId) listaId = (await c.uno('select id from lista_precio order by orden, id limit 1'))?.id ?? null;
   const depositos = await c.consultar('select id from deposito where activo order by id');
-  const items = [];
+  const items = [], remitosUsados = new Set();
   for (const [i, it] of d.items.entries()) {
-    const a = await c.uno('select id, nombre, tipo, activo, tratamiento_iva_venta, alicuota_venta_codigo, controla_stock, cuenta_venta_id from articulo where id = $1', [it.articulo_id]);
     const campo = (k) => `items[${i}].${k}`;
+    if (!it.articulo_id && !it.documento_item_id) { errores[campo('articulo_id')] = 'indicá el artículo'; continue; }
+    let rem = null;
+    if (it.documento_item_id) {                                                    // la factura valoriza lo que ya se entregó con el remito, pero no vuelve a descontarlo del stock
+      rem = await c.uno(`select di.id, di.articulo_id, di.cantidad::text as entregado, di.precio_unitario::text as precio, d.estado, d.tipo, d.tercero_id, d.punto_venta, d.numero,
+          coalesce((select sum(x.cantidad) from comprobante_item x join comprobante k on k.id = x.comprobante_id and k.estado in ('confirmado', 'autorizado') where x.documento_item_id = di.id), 0)::text as facturado
+        from documento_item di join documento_comercial d on d.id = di.documento_id where di.id = $1`, [it.documento_item_id]);
+      if (!rem || rem.tipo !== 'remito_venta') { errores[campo('documento_item_id')] = 'el renglón del remito no existe'; continue; }
+      if (rem.tercero_id !== tercero.id) { errores[campo('documento_item_id')] = 'el remito es de otro cliente'; continue; }
+      if (rem.estado !== 'confirmado') { errores[campo('documento_item_id')] = rem.estado === 'anulado' ? 'el remito está anulado' : 'el remito no está confirmado'; continue; }
+      if (remitosUsados.has(rem.id)) { errores[campo('documento_item_id')] = 'ese renglón del remito está repetido'; continue; }
+      remitosUsados.add(rem.id);
+      if (it.articulo_id && it.articulo_id !== rem.articulo_id) { errores[campo('articulo_id')] = 'no es el artículo del remito'; continue; }
+      const facturable = dec(rem.entregado) - dec(rem.facturado), cantidad = (x) => texto(dec(x), 4).replace(/\.?0+$/, '');
+      if (dec(it.cantidad) > facturable) { errores[campo('cantidad')] = facturable <= 0n ? 'ese renglón del remito ya está facturado por completo' : `del remito solo se pueden facturar ${cantidad(texto(facturable, 4))} (se entregaron ${cantidad(rem.entregado)}, ya se facturaron ${cantidad(rem.facturado)})`; continue; }
+    }
+    const a = await c.uno('select id, nombre, tipo, activo, tratamiento_iva_venta, alicuota_venta_codigo, controla_stock, cuenta_venta_id from articulo where id = $1', [rem ? rem.articulo_id : it.articulo_id]);
     if (!a) { errores[campo('articulo_id')] = 'el artículo no existe'; continue; }
     if (!a.activo) errores[campo('articulo_id')] = 'el artículo está dado de baja';
     if (a.tipo === 'gasto') errores[campo('articulo_id')] = 'un artículo de tipo gasto no se vende';
     let precio = it.precio_unitario;
+    if (precio === undefined && rem && dec(rem.precio) > 0n) precio = texto(dec(rem.precio), 4);          // el precio acordado en el remito
     if (precio === undefined) {
       precio = listaId ? await precioVigente(c, a.id, listaId, fecha) : null;
       if (precio === null) errores[campo('precio_unitario')] = 'el artículo no tiene precio en la lista del cliente: indicá el precio';
@@ -85,8 +102,8 @@ export async function prepararFactura(c, ctx, cuerpo) {
     }
     const sinIva = letra === 'C';
     let deposito = null;
-    if (a.controla_stock) { deposito = it.deposito_id ?? (depositos.length === 1 ? depositos[0].id : null); if (!deposito) errores[campo('deposito_id')] = 'indicá de qué depósito sale la mercadería'; else if (!depositos.some((x) => x.id === deposito)) errores[campo('deposito_id')] = 'el depósito no existe o está inactivo'; }
-    items.push({ articuloId: a.id, nombre: a.nombre, descripcion: it.descripcion ?? a.nombre, cantidad: it.cantidad, precio, descPct: it.desc_pct ?? '0', cuentaId: a.cuenta_venta_id, controlaStock: a.controla_stock, depositoId: deposito,
+    if (a.controla_stock && !rem) { deposito = it.deposito_id ?? (depositos.length === 1 ? depositos[0].id : null); if (!deposito) errores[campo('deposito_id')] = 'indicá de qué depósito sale la mercadería'; else if (!depositos.some((x) => x.id === deposito)) errores[campo('deposito_id')] = 'el depósito no existe o está inactivo'; }
+    items.push({ articuloId: a.id, nombre: a.nombre, descripcion: it.descripcion ?? a.nombre, cantidad: it.cantidad, precio, descPct: it.desc_pct ?? '0', cuentaId: a.cuenta_venta_id, controlaStock: a.controla_stock && !rem, depositoId: deposito, remitoItemId: rem?.id ?? null,
       tratamiento: sinIva ? 'gravado' : a.tratamiento_iva_venta, alicuota: sinIva ? '0' : alicuota });
   }
   if (Object.keys(errores).length) throw invalido(errores);
@@ -95,12 +112,13 @@ export async function prepararFactura(c, ctx, cuerpo) {
   if (dec(calculo.impTotal) <= 0n) throw invalido({ items: 'el total de la factura tiene que ser mayor que cero' });
   const saldo = Number((await c.uno(`select coalesce((select saldo from v_saldo_tercero where tercero_id = $1 and rol = 'cliente'), 0)::text s`, [tercero.id])).s);
   if (Number(tercero.limite) > 0 && saldo + Number(calculo.impTotal) > Number(tercero.limite)) avisos.push(`Con esta factura el cliente supera su límite de crédito (${tercero.limite}).`);
+  if (items.some((x) => x.remitoItemId)) avisos.push('La mercadería tomada de un remito ya salió del depósito con ese remito: la factura no la vuelve a descontar.');
   return { d, fecha, concepto, letra, tipoCodigo: TIPO_COMPROBANTE[letra], tercero, pv, items, calculo, avisos, listaId };
 }
 
 function presentarPrevia(p) {
   return { letra: p.letra, tipo_comprobante_codigo: p.tipoCodigo, punto_venta: p.pv.numero, fecha: p.fecha, cliente: { id: p.tercero.id, razon_social: p.tercero.razon_social, condicion_iva_codigo: Number(p.tercero.condicion_iva_codigo) },
-    items: p.items.map((x, i) => ({ articulo_id: x.articuloId, descripcion: x.descripcion, cantidad: x.cantidad, precio_unitario: x.precio, desc_pct: x.descPct, importe_renglon: p.calculo.items[i].importeRenglon })),
+    items: p.items.map((x, i) => ({ articulo_id: x.articuloId, descripcion: x.descripcion, cantidad: x.cantidad, precio_unitario: x.precio, desc_pct: x.descPct, importe_renglon: p.calculo.items[i].importeRenglon, del_remito: !!x.remitoItemId })),
     ivas: p.calculo.ivas.map((v) => ({ alicuota: v.alicuota, base_imponible: v.base, importe_iva: v.iva })),
     imp_neto: p.calculo.impNeto, imp_iva: p.calculo.impIva, imp_tot_conc: p.calculo.impTotConc, imp_op_ex: p.calculo.impOpEx, imp_desc_pie: p.calculo.impDescPie, imp_total: p.calculo.impTotal, avisos: p.avisos };
 }
@@ -163,9 +181,9 @@ export async function emitirFactura(c, ctx, cuerpo, { claveIdempotencia } = {}) 
      pie, k.impDescPie, k.impNeto, k.impIva, k.impTotConc, k.impOpEx, k.impTotal, p.d.observaciones ?? null, ctx.usuarioId]);
   const idsItems = [];
   for (const [i, it] of p.items.entries()) {
-    const r = await c.uno(`insert into comprobante_item (empresa_id, comprobante_id, orden, articulo_id, descripcion, cantidad, precio_unitario, desc_pct, tratamiento_iva, alicuota_codigo, importe_renglon, cuenta_id, deposito_id)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
-      [ctx.empresaId, cab.id, i + 1, it.articuloId, it.descripcion, it.cantidad, it.precio, texto(mul(dec(it.descPct), dec('0.01')), 4), it.tratamiento, it.tratamiento === 'gravado' ? CODIGO_ALICUOTA[it.alicuota] : null, k.items[i].importeRenglon, it.cuentaId, it.depositoId]);
+    const r = await c.uno(`insert into comprobante_item (empresa_id, comprobante_id, orden, articulo_id, descripcion, cantidad, precio_unitario, desc_pct, tratamiento_iva, alicuota_codigo, importe_renglon, cuenta_id, deposito_id, documento_item_id)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,
+      [ctx.empresaId, cab.id, i + 1, it.articuloId, it.descripcion, it.cantidad, it.precio, texto(mul(dec(it.descPct), dec('0.01')), 4), it.tratamiento, it.tratamiento === 'gravado' ? CODIGO_ALICUOTA[it.alicuota] : null, k.items[i].importeRenglon, it.cuentaId, it.depositoId, it.remitoItemId]);
     idsItems.push(r.id);
   }
   for (const v of k.ivas) await c.consultar('insert into comprobante_iva (empresa_id, comprobante_id, alicuota_codigo, base_imponible, importe_iva) values ($1,$2,$3,$4,$5)', [ctx.empresaId, cab.id, v.codigo, v.base, v.iva]);
