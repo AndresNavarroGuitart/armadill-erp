@@ -1,7 +1,7 @@
 -- Notas de crédito de proveedores sin factura de origen: una bonificación o un ajuste que el proveedor manda por su cuenta. La exigencia de comprobante de origen
 -- (empresa_parametro.nc_requiere_origen) pasa a valer solo para las ventas: quien factura sí tiene que decir qué acredita; la nota de un proveedor se carga como
 -- viene y queda a favor hasta que se aplique a una factura (ver /api/compras/notas/:id/aplicar). Si trae origen, las reglas de siempre (mismo tercero, letra y moneda).
--- Va DESPUÉS de 27 y ANTES de 30 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 27 y ANTES de 31 (el endurecimiento de Supabase, que siempre es el último).
 
 create or replace function fn_verificar_comprobante(p_id bigint) returns void language plpgsql as
 $$

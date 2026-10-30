@@ -17,7 +17,7 @@ import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './t
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
-import { calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
+import { pendientesDeFacturar, calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -257,6 +257,7 @@ const RUTAS = [
     await registrarEvento(c, ctx, { categoria: x.estado === 'confirmado' ? 'stock' : 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Recibió mercadería con el remito' : 'Guardó como borrador el remito'} ${x.numero_formateado}`, detalle: `${x.proveedor}${x.numero_externo ? ` · remito del proveedor ${x.numero_externo}` : ''}${x.orden ? ` · orden ${x.orden.numero_formateado}` : ''}`, entidad: 'documento_comercial', entidadId: x.id, origen });
     return { estado: 201, cuerpo: { ...x, avisos: r.avisos } };
   }],
+  ['GET', '/api/compras/remitos/pendientes-facturar', 'compras.ver', ({ c, q }) => pendientesDeFacturar(c, q)],
   ['GET', '/api/compras/remitos/:id', 'compras.ver', ({ c, p }) => detalleRemito(c, p.id)],
   ['PUT', '/api/compras/remitos/:id', 'compras.cargar', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await modificarRemito(c, ctx, p.id, cuerpo), x = r.remito;

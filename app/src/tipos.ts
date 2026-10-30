@@ -119,7 +119,10 @@ export type PreviaOrden = { proveedor: { id: number; razon_social: string }; fec
 export type RemitoCompra = { id: number; numero_formateado: string; numero_externo: string | null; fecha: string; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; proveedor: string; orden: { id: number; numero_formateado: string } | null; total: string };
 export type RemitoCompraDetalle = RemitoCompra & {
   observaciones: string | null;
-  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; mueve_stock: boolean }[];
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; mueve_stock: boolean; facturado: string }[];
+  facturas: { id: number; tipo: string; numero_formateado: string }[];
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean };
 };
 export type PreviaRemito = { proveedor: { id: number; razon_social: string }; fecha: string; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string; mueve_stock: boolean }[]; total: string; avisos: string[] };
+
+export type PendienteRemito = { remito_id: number; remito: string; numero_externo: string | null; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; llego: string; precio: string; facturado: string; facturable: string };

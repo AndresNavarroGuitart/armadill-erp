@@ -14,6 +14,7 @@ import { detalleComprobante } from './anulaciones.mjs';
 import { dec, mul, redondear, texto } from '../reglas/calculo.mjs';
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
+const cant = (x) => texto(dec(x), 4).replace(/\.?0+$/, '');
 const TIPO = { A: 1, B: 6, C: 11, M: 51 };
 const TIPOS = { factura: TIPO, nota_credito: { A: 3, B: 8, C: 13, M: 53 }, nota_debito: { A: 2, B: 7, C: 12, M: 52 } };
 const NOMBRE = { factura: { de: 'la factura', una: 'una factura', etiqueta: 'Factura' }, nota_credito: { de: 'la nota de crédito', una: 'una nota de crédito', etiqueta: 'Nota de crédito' }, nota_debito: { de: 'la nota de débito', una: 'una nota de débito', etiqueta: 'Nota de débito' } };
@@ -44,6 +45,7 @@ const ESQUEMA = {
 /** La nota de crédito exige la factura que acredita y puede devolver mercadería renglón por renglón. */
 const esquemaDe = (clase) => (clase === 'nota_credito'
   ? { ...ESQUEMA, comprobante_origen_id: { tipo: 'entero', min: 1 }, items: { ...ESQUEMA.items, elemento: { ...ESQUEMA.items.elemento, devuelve_stock: { tipo: 'booleano' } } } }
+  : clase === 'factura' ? { ...ESQUEMA, items: { ...ESQUEMA.items, elemento: { ...ESQUEMA.items.elemento, documento_item_id: { tipo: 'entero', min: 1 } } } }   // una factura puede tomar renglones de un remito de entrada
   : ESQUEMA);
 
 /* Todo lo que se decide ANTES de escribir. `exigirTotal` es false en el cálculo previo: ahí se muestra la diferencia en vez de fallar. */
@@ -83,12 +85,30 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
   if (clase === 'nota_credito' && !d.comprobante_origen_id) avisos.push('Sin factura de origen: la nota queda a favor del proveedor hasta que la apliques a una factura.');
   const permiteNegativo = (await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p;
   const depositos = await c.consultar('select id from deposito where activo order by id');
-  const items = [];
+  const items = [], remitosUsados = new Set();
   for (const [i, it] of d.items.entries()) {
-    const a = it.articulo_id ? await c.uno('select id, codigo, nombre, tipo, activo, controla_stock, tratamiento_iva_compra, alicuota_compra_codigo from articulo where id = $1', [it.articulo_id]) : null;
-    if (it.articulo_id && !a) { errores[`items[${i}].articulo_id`] = 'el artículo no existe'; continue; }
+    // un renglón puede tomar mercadería de un remito de entrada: ya ingresó con el remito, así que la factura la valoriza pero no la vuelve a ingresar
+    let rem = null;
+    if (it.documento_item_id) {
+      const k = `items[${i}].`;
+      rem = await c.uno(`select di.id, di.articulo_id, di.descripcion, di.cantidad::text as llego, d.estado, d.tipo, d.tercero_id, d.punto_venta, d.numero,
+          coalesce((select sum(x.cantidad) from comprobante_item x join comprobante k on k.id = x.comprobante_id and k.estado in ('confirmado', 'autorizado') where x.documento_item_id = di.id), 0)::text as facturado
+        from documento_item di join documento_comercial d on d.id = di.documento_id where di.id = $1`, [it.documento_item_id]);
+      if (!rem || rem.tipo !== 'remito_compra') { errores[k + 'documento_item_id'] = 'el renglón del remito no existe'; continue; }
+      if (rem.tercero_id !== tercero.id) { errores[k + 'documento_item_id'] = 'el remito es de otro proveedor'; continue; }
+      if (rem.estado !== 'confirmado') { errores[k + 'documento_item_id'] = rem.estado === 'anulado' ? 'el remito está anulado' : 'el remito no está confirmado'; continue; }
+      if (remitosUsados.has(rem.id)) { errores[k + 'documento_item_id'] = 'ese renglón del remito está repetido'; continue; }
+      remitosUsados.add(rem.id);
+      if (it.articulo_id && it.articulo_id !== rem.articulo_id) { errores[k + 'articulo_id'] = 'no es el artículo del remito'; continue; }
+      const facturable = dec(rem.llego) - dec(rem.facturado);
+      if (dec(it.cantidad) > facturable) errores[k + 'cantidad'] = facturable <= 0n ? 'ese renglón del remito ya está facturado por completo' : `del remito solo se pueden facturar ${cant(texto(facturable, 4))} (llegaron ${cant(rem.llego)}, ya se facturaron ${cant(rem.facturado)})`;
+      rem.etiqueta = `Remito ${numeroFormateado(rem.punto_venta, rem.numero)}`;
+    }
+    const artId = rem ? rem.articulo_id : it.articulo_id;
+    const a = artId ? await c.uno('select id, codigo, nombre, tipo, activo, controla_stock, tratamiento_iva_compra, alicuota_compra_codigo from articulo where id = $1', [artId]) : null;
+    if (artId && !a) { errores[`items[${i}].articulo_id`] = 'el artículo no existe'; continue; }
     if (a && !a.activo) { errores[`items[${i}].articulo_id`] = 'el artículo está dado de baja'; continue; }
-    const descripcion = it.descripcion ?? a?.nombre;
+    const descripcion = it.descripcion ?? (rem && !a ? rem.descripcion : a?.nombre);
     if (!descripcion) { errores[`items[${i}].descripcion`] = 'indicá un artículo o una descripción'; continue; }
     let tratamiento = 'no_gravado', alicuota;
     if (discrimina) {
@@ -97,7 +117,7 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
       else if (it.alicuota) errores[`items[${i}].alicuota`] = `un renglón ${tratamiento === 'exento' ? 'exento' : 'no gravado'} no lleva alícuota`;
     }
     if (it.cuenta_id && !(await c.uno('select 1 x from plan_cuenta where id = $1 and imputable and activa', [it.cuenta_id]))) errores[`items[${i}].cuenta_id`] = 'la cuenta no existe o no es imputable';
-    const controla = !!a?.controla_stock, ingresaStock = clase === 'factura' && controla, devuelveStock = clase === 'nota_credito' && it.devuelve_stock === true && controla;
+    const controla = !!a?.controla_stock, ingresaStock = clase === 'factura' && controla && !rem, devuelveStock = clase === 'nota_credito' && it.devuelve_stock === true && controla;
     if (it.devuelve_stock === true && !controla) errores[`items[${i}].devuelve_stock`] = 'solo se devuelve mercadería de un artículo con control de stock';
     let depositoId = null;
     if (ingresaStock || devuelveStock) {
@@ -109,7 +129,7 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
         if (dec(hay) < dec(it.cantidad)) errores[`items[${i}].cantidad`] = `no hay tanta mercadería en el depósito para devolver (hay ${texto(dec(hay), 4).replace(/\.?0+$/, '')})`;
       }
     }
-    items.push({ articulo: a, articuloId: a?.id ?? null, descripcion, cantidad: it.cantidad, precio: it.precio_unitario, descPct: it.desc_pct ?? '0', tratamiento, alicuota, cuentaId: it.cuenta_id ?? null, depositoId, ingresaStock, devuelveStock });
+    items.push({ articulo: a, articuloId: a?.id ?? null, descripcion, cantidad: it.cantidad, precio: it.precio_unitario, descPct: it.desc_pct ?? '0', tratamiento, alicuota, cuentaId: it.cuenta_id ?? null, depositoId, ingresaStock, devuelveStock, remitoItemId: rem?.id ?? null, remitoEtiqueta: rem?.etiqueta ?? null });
   }
 
   const tributos = [];
@@ -125,6 +145,7 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
   const diferencia = informado - totalCalculado, coincide = (diferencia < 0n ? -diferencia : diferencia) <= TOLERANCIA;
   if (!coincide && exigirTotal) throw invalido({ total: `el total calculado es $ ${texto(totalCalculado)} y la factura dice $ ${d.total}: revisá los precios, cantidades, alícuotas o percepciones` });
   if (origen && saldoOrigen != null && informado > dec(saldoOrigen)) avisos.push(dec(saldoOrigen) <= 0n ? `${origen.etiqueta} no tiene saldo: la nota queda como saldo a favor con el proveedor.` : `La nota supera el saldo de ${origen.etiqueta} ($ ${saldoOrigen}): la diferencia queda a favor con el proveedor.`);
+  if (items.some((x) => x.remitoItemId && x.articulo?.controla_stock)) avisos.push('La mercadería tomada de un remito ya ingresó al stock con ese remito: la factura no la vuelve a ingresar.');
   if (!coincide) avisos.push(`El total calculado ($ ${texto(totalCalculado)}) no coincide con el de la factura ($ ${d.total}): diferencia de $ ${texto(diferencia)}.`);
 
   // Costo: se avisa si se aparta mucho del último costo conocido.
@@ -141,7 +162,7 @@ export async function calcularCompra(c, ctx, cuerpo, clase = 'factura') {
   const p = await prepararCompra(c, ctx, cuerpo, { exigirTotal: false, clase }), k = p.calculo;
   return {
     clase, origen: p.origen ? { id: p.origen.id, etiqueta: p.origen.etiqueta, saldo: p.saldoOrigen } : null, letra: p.d.letra, tipo_comprobante_codigo: p.tipoCodigo, proveedor: { id: p.tercero.id, razon_social: p.tercero.razon_social }, fecha: p.d.fecha, discrimina_iva: p.discrimina,
-    items: p.items.map((x, i) => ({ descripcion: x.descripcion, cantidad: x.cantidad, precio_unitario: x.precio, tratamiento: x.tratamiento, alicuota: x.alicuota ?? null, importe_renglon: k.items[i].importeRenglon, ingresa_stock: x.ingresaStock, devuelve_stock: x.devuelveStock })),
+    items: p.items.map((x, i) => ({ descripcion: x.descripcion, cantidad: x.cantidad, precio_unitario: x.precio, tratamiento: x.tratamiento, alicuota: x.alicuota ?? null, importe_renglon: k.items[i].importeRenglon, ingresa_stock: x.ingresaStock, devuelve_stock: x.devuelveStock, remito: x.remitoEtiqueta })),
     ivas: k.ivas.map((v) => ({ alicuota: v.alicuota, base_imponible: v.base, importe_iva: v.iva })), imp_neto: k.impNeto, imp_iva: k.impIva, imp_tot_conc: k.impTotConc, imp_op_ex: k.impOpEx, imp_trib: p.impTrib,
     total_calculado: p.totalCalculado, total_informado: p.d.total, diferencia: p.diferencia, coincide: p.coincide, avisos: p.avisos,
   };
@@ -158,9 +179,9 @@ export async function cargarCompra(c, ctx, cuerpo, clase = 'factura') {
     [ctx.empresaId, p.tipoCodigo, d.punto_venta, d.numero, d.fecha, p.tercero.id, p.vto, k.impNeto, k.impIva, k.impTotConc, k.impOpEx, p.impTrib, total, d.observaciones ?? null, ctx.usuarioId, p.origen?.id ?? null]);
   const idsItems = [];
   for (const [i, x] of p.items.entries()) {
-    const r = await c.uno(`insert into comprobante_item (empresa_id, comprobante_id, orden, articulo_id, descripcion, cantidad, precio_unitario, desc_pct, tratamiento_iva, alicuota_codigo, importe_renglon, cuenta_id, deposito_id)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning id`,
-      [ctx.empresaId, cab.id, i + 1, x.articuloId, x.descripcion, x.cantidad, x.precio, texto(mul(dec(x.descPct), dec('0.01')), 4), x.tratamiento, x.tratamiento === 'gravado' ? CODIGO_ALICUOTA[x.alicuota] : null, k.items[i].importeRenglon, x.cuentaId, x.depositoId]);
+    const r = await c.uno(`insert into comprobante_item (empresa_id, comprobante_id, orden, articulo_id, descripcion, cantidad, precio_unitario, desc_pct, tratamiento_iva, alicuota_codigo, importe_renglon, cuenta_id, deposito_id, documento_item_id)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) returning id`,
+      [ctx.empresaId, cab.id, i + 1, x.articuloId, x.descripcion, x.cantidad, x.precio, texto(mul(dec(x.descPct), dec('0.01')), 4), x.tratamiento, x.tratamiento === 'gravado' ? CODIGO_ALICUOTA[x.alicuota] : null, k.items[i].importeRenglon, x.cuentaId, x.depositoId, x.remitoItemId ?? null]);
     idsItems.push(r.id);
   }
   for (const v of k.ivas) await c.consultar('insert into comprobante_iva (empresa_id, comprobante_id, alicuota_codigo, base_imponible, importe_iva) values ($1,$2,$3,$4,$5)', [ctx.empresaId, cab.id, v.codigo, v.base, v.iva]);
@@ -181,7 +202,7 @@ export async function cargarCompra(c, ctx, cuerpo, clase = 'factura') {
   }
   const cbte = await detalleComprobante(c, cab.id);
   await c.consultar(`select fn_registrar_evento('comprobantes', $1, $2, 'ok', $3, 'comprobante', $4)`,
-    [`Cargó ${NOMBRE[clase].etiqueta} ${d.letra} ${numeroFormateado(d.punto_venta, d.numero)} de ${p.tercero.razon_social}`, `$ ${cbte.imp_total}${p.items.some((x) => x.ingresaStock) ? ' · ingresó mercadería al stock' : ''}${p.items.some((x) => x.devuelveStock) ? ' · devolvió mercadería al proveedor' : ''}${p.origen ? ` · acredita ${p.origen.etiqueta}${aplicado !== '0.00' ? ` (aplicó $ ${aplicado})` : ''}` : ''}`, ctx.empresaId, cab.id]);
+    [`Cargó ${NOMBRE[clase].etiqueta} ${d.letra} ${numeroFormateado(d.punto_venta, d.numero)} de ${p.tercero.razon_social}`, `$ ${cbte.imp_total}${p.items.some((x) => x.ingresaStock) ? ' · ingresó mercadería al stock' : ''}${p.items.some((x) => x.devuelveStock) ? ' · devolvió mercadería al proveedor' : ''}${p.items.some((x) => x.remitoItemId) ? ` · facturó mercadería de ${[...new Set(p.items.filter((x) => x.remitoItemId).map((x) => x.remitoEtiqueta))].join(', ')}` : ''}${p.origen ? ` · acredita ${p.origen.etiqueta}${aplicado !== '0.00' ? ` (aplicó $ ${aplicado})` : ''}` : ''}`, ctx.empresaId, cab.id]);
   return { comprobante: cbte, avisos: p.avisos };
 }
 

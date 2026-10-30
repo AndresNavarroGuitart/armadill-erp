@@ -195,10 +195,11 @@ function Detalle({ id, onCerrar, onCambio, onModificar }: { id: number; onCerrar
           <dl className="ficha" style={{ margin: '0 0 8px' }}><dt>Del proveedor</dt><dd>{r.numero_externo ?? '—'}</dd><dt>Orden</dt><dd>{r.orden?.numero_formateado ?? 'Suelto (sin orden)'}</dd></dl>
           {r.observaciones && <p className="muted" style={{ whiteSpace: 'pre-line', margin: '0 0 8px' }}>{r.observaciones}</p>}
           <div className="tabla-caja"><table>
-            <thead><tr><th>Descripción</th><th className="num">Cantidad</th><th className="num">Precio</th><th className="num">Valor</th><th>Entra en</th></tr></thead>
-            <tbody>{r.items.map((i) => <tr key={i.id}><td>{i.descripcion}</td><td className="num">{fmtCantidad(i.cantidad)}</td><td className="num">{moneda(i.precio_unitario)}</td><td className="num">{moneda(i.importe)}</td><td>{i.mueve_stock ? i.deposito ?? '—' : <span className="muted">No mueve stock</span>}</td></tr>)}</tbody>
-            <tfoot><tr><td style={{ fontWeight: 600 }}>Valor (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(r.total)}</td><td /></tr></tfoot>
+            <thead><tr><th>Descripción</th><th className="num">Cantidad</th><th className="num">Precio</th><th className="num">Valor</th><th>Entra en</th>{r.estado === 'confirmado' && <th className="num">Facturado</th>}</tr></thead>
+            <tbody>{r.items.map((i) => <tr key={i.id}><td>{i.descripcion}</td><td className="num">{fmtCantidad(i.cantidad)}</td><td className="num">{moneda(i.precio_unitario)}</td><td className="num">{moneda(i.importe)}</td><td>{i.mueve_stock ? i.deposito ?? '—' : <span className="muted">No mueve stock</span>}</td>{r.estado === 'confirmado' && <td className="num">{fmtCantidad(i.facturado)}</td>}</tr>)}</tbody>
+            <tfoot><tr><td style={{ fontWeight: 600 }}>Valor (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(r.total)}</td><td />{r.estado === 'confirmado' && <td />}</tr></tfoot>
           </table></div>
+          {(r.facturas ?? []).length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Facturado en: {(r.facturas ?? []).map((f) => `${f.tipo} ${f.numero_formateado}`).join(' · ')}</p>}
           {anulando && (
             <form onSubmit={(e) => { e.preventDefault(); void accion(() => enviar<RemitoCompraDetalle>('POST', `/api/compras/remitos/${id}/anular`, { motivo: motivo.trim() }), 'Remito anulado: la mercadería salió del stock.'); }} noValidate style={{ marginTop: 12 }}>
               <Alerta tipo="aviso">La mercadería que entró con este remito sale del stock, y la orden vuelve a figurar como pendiente de recibir.</Alerta>

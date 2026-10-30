@@ -1,6 +1,6 @@
 -- Remito de entrada: el número del remito del proveedor (el del papel que llega con la mercadería). El número interno lo sigue dando el sistema; el del proveedor sirve para
 -- encontrar el remito y para que el mismo papel no se cargue dos veces. Una vez confirmado el documento, el número no se cambia (se agrega a la guardia).
--- Va DESPUÉS de 28 y ANTES de 30 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 28 y ANTES de 31 (el endurecimiento de Supabase, que siempre es el último).
 
 alter table documento_comercial add column numero_externo text check (numero_externo is null or length(btrim(numero_externo)) between 1 and 30);
 create unique index documento_numero_externo_unico on documento_comercial (empresa_id, tipo, tercero_id, lower(numero_externo)) where numero_externo is not null and estado <> 'anulado';

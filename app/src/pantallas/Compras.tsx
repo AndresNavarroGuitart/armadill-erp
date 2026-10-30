@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { aDecimal, cantidad as fmtCantidad, fecha, hoyISO, moneda } from '../formato';
-import type { Articulo, ComprobanteResumen, Cuenta, Deposito, Jurisdiccion, Pagina, PreviaCompra, Tercero } from '../tipos';
-import { Alerta, Buscador, Campo, Cargando, Etiqueta, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
+import type { Articulo, ComprobanteResumen, Cuenta, Deposito, Jurisdiccion, Pagina, PendienteRemito, PreviaCompra, Tercero } from '../tipos';
+import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
 import { OrdenesCompra } from './OrdenesCompra';
 import { RemitosCompra } from './RemitosCompra';
@@ -83,7 +83,7 @@ export function Compras() {
 }
 
 /* ====================== Cargar una factura ====================== */
-type Linea = { uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; alicuota: string; tratamiento: string; cuenta: string; deposito: string; devuelve: boolean };
+type Linea = { remitoItemId?: number; remito?: string; uid: number; articulo: Articulo | null; texto: string; cantidad: string; precio: string; desc: string; alicuota: string; tratamiento: string; cuenta: string; deposito: string; devuelve: boolean };
 type Tributo = { uid: number; tipo: string; jurisdiccion: string; importe: string };
 let contador = 0;
 const nuevaLinea = (): Linea => ({ uid: ++contador, articulo: null, texto: '', cantidad: '1', precio: '', desc: '', alicuota: '21', tratamiento: 'gravado', cuenta: '', deposito: '', devuelve: false });
@@ -105,6 +105,7 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
   const [fechaF, setFechaF] = useState(hoyISO());
   const [vto, setVto] = useState('');
   const [lineas, setLineas] = useState<Linea[]>([nuevaLinea()]);
+  const [traer, setTraer] = useState(false);
   const [tributos, setTributos] = useState<Tributo[]>([]);
   const [total, setTotal] = useState('');
   const [observaciones, setObservaciones] = useState('');
@@ -131,10 +132,10 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
   const pedido = useMemo(() => {
     if (!proveedor || !pv.trim() || !numero.trim() || (esNC && !origenSel)) return null;
     const items = lineas.filter((l) => (l.articulo || l.texto.trim()) && l.cantidad.trim() && l.precio.trim()).map((l) => ({
-      ...(l.articulo ? { articulo_id: l.articulo.id } : { descripcion: l.texto.trim() }), cantidad: aDecimal(l.cantidad), precio_unitario: aDecimal(l.precio), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
+      ...(l.remitoItemId ? { documento_item_id: l.remitoItemId } : l.articulo ? { articulo_id: l.articulo.id } : { descripcion: l.texto.trim() }), cantidad: aDecimal(l.cantidad), precio_unitario: aDecimal(l.precio), ...(l.desc.trim() ? { desc_pct: aDecimal(l.desc) } : {}),
       ...(discrimina ? { tratamiento: l.tratamiento, ...(l.tratamiento === 'gravado' && !l.articulo ? { alicuota: l.alicuota } : {}) } : {}),
       ...(l.cuenta && !l.articulo ? { cuenta_id: Number(l.cuenta) } : {}), ...(esNC && l.devuelve && l.articulo?.controla_stock ? { devuelve_stock: true } : {}),
-      ...(variosDepositos && l.articulo?.controla_stock && (clase === 'factura' || l.devuelve) ? { deposito_id: Number(l.deposito || depositos[0].id) } : {}),
+      ...(variosDepositos && l.articulo?.controla_stock && !l.remitoItemId && (clase === 'factura' || l.devuelve) ? { deposito_id: Number(l.deposito || depositos[0].id) } : {}),
     }));
     if (!items.length) return null;
     return {
@@ -171,6 +172,8 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
   return (
     <>
       <div className="cabecera"><div><h1>{nombre.titulo}</h1><p>Cargá los datos tal cual figuran en {nombre.de} del proveedor. El total tiene que coincidir.{esNC ? ' Se aplica a la factura que acredita, o queda a favor si no tiene.' : ''}</p></div><div className="acciones"><button className="btn" onClick={onVolver}>Volver</button></div></div>
+      {traer && proveedor && <TraerRemito proveedorId={proveedor.id} yaTomados={lineas.filter((l) => l.remitoItemId).map((l) => l.remitoItemId!)} onCerrar={() => setTraer(false)}
+        onElegir={(filas) => { setTraer(false); setLineas((ls) => [...ls.filter((l) => l.articulo || l.texto.trim() || l.remitoItemId), ...filas.map((f) => ({ ...nuevaLinea(), remitoItemId: f.item_id, remito: `Remito ${f.remito}`, articulo: f.articulo_id ? ({ id: f.articulo_id, controla_stock: true } as Articulo) : null, texto: f.descripcion, cantidad: f.cantidad, precio: String(Number(f.precio)) }))]); }} />}
       <form onSubmit={cargar} noValidate>
         <div className="factura">
           <div>
@@ -192,12 +195,12 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
               {!discrimina && <Alerta tipo="info"><span style={{ display: 'block', marginTop: 0 }}>{letra === 'A' || letra === 'M' ? 'Esta empresa no es responsable inscripta: no toma crédito fiscal. ' : `En ${nombre.una} ${letra} el IVA no se discrimina. `}Cargá el <strong>precio final</strong> (con IVA incluido): todo va al costo.</span></Alerta>}
             </div>
             <div className="tarjeta">
-              <h2 style={{ marginBottom: 6 }}>Renglones</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}><h2 style={{ marginBottom: 6, flex: 1 }}>Renglones</h2>{clase === 'factura' && proveedor && <button type="button" className="btn chico" onClick={() => setTraer(true)}>Traer del remito</button>}</div>
               {lineas.map((l, i) => (
                 <div className={`renglon renglon-compra`} key={l.uid}>
-                  <Buscador<Articulo> etiqueta={i === 0 ? 'Artículo o descripción' : `Renglón ${i + 1}`} texto={l.texto} placeholder="Elegí un artículo o escribí una descripción" error={errLinea(l.uid, 'articulo_id') ?? errLinea(l.uid, 'descripcion')}
+                  {l.remitoItemId ? <div><span className="muted">{i === 0 ? 'Artículo o descripción' : `Renglón ${i + 1}`}</span><div><strong>{l.texto}</strong><div className="muted">{l.remito} · ya ingresó al stock</div></div></div> : <Buscador<Articulo> etiqueta={i === 0 ? 'Artículo o descripción' : `Renglón ${i + 1}`} texto={l.texto} placeholder="Elegí un artículo o escribí una descripción" error={errLinea(l.uid, 'articulo_id') ?? errLinea(l.uid, 'descripcion')}
                     onTexto={(t) => cambiarLinea(l.uid, { articulo: null, texto: t })} buscar={(q) => obtener<Pagina<Articulo>>('/api/articulos', { q: q || undefined, activo: 'true', limite: 8 }).then((r) => r.datos)}
-                    mostrar={(a) => <><span>{a.codigo} · {a.nombre}</span><span className="muted">{a.controla_stock ? 'con stock' : a.tipo}</span></>} onElegir={(a) => cambiarLinea(l.uid, { articulo: a, texto: `${a.codigo} · ${a.nombre}` })} />
+                    mostrar={(a) => <><span>{a.codigo} · {a.nombre}</span><span className="muted">{a.controla_stock ? 'con stock' : a.tipo}</span></>} onElegir={(a) => cambiarLinea(l.uid, { articulo: a, texto: `${a.codigo} · ${a.nombre}` })} />}
                   <Campo etiqueta="Cantidad" inputMode="decimal" value={l.cantidad} error={errLinea(l.uid, 'cantidad')} onChange={(e) => cambiarLinea(l.uid, { cantidad: e.target.value })} />
                   <Campo etiqueta={discrimina ? 'Precio neto' : 'Precio final'} inputMode="decimal" value={l.precio} error={errLinea(l.uid, 'precio_unitario')} onChange={(e) => cambiarLinea(l.uid, { precio: e.target.value })} />
                   <Campo etiqueta="Desc. %" inputMode="decimal" value={l.desc} error={errLinea(l.uid, 'desc_pct')} onChange={(e) => cambiarLinea(l.uid, { desc: e.target.value })} />
@@ -257,3 +260,34 @@ function NuevaCompra({ clase, origen: origenInicial, onVolver, onCargada }: { cl
   );
 }
 const Fila = ({ k, v }: { k: string; v: string }) => <><dt>{k}</dt><dd>{v}</dd></>;
+
+/* Los renglones de los remitos de entrada del proveedor a los que todavía les falta facturar algo: la mercadería ya está en el stock, la factura la valoriza y genera la deuda. */
+function TraerRemito({ proveedorId, yaTomados, onCerrar, onElegir }: { proveedorId: number; yaTomados: number[]; onCerrar: () => void; onElegir: (filas: { item_id: number; remito: string; articulo_id: number | null; descripcion: string; cantidad: string; precio: string }[]) => void }) {
+  const [datos, setDatos] = useState<PendienteRemito[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [marcados, setMarcados] = useState<Record<number, string>>({});
+  useEffect(() => { obtener<{ datos: PendienteRemito[] }>('/api/compras/remitos/pendientes-facturar', { tercero_id: proveedorId }).then((r) => setDatos(r.datos.filter((x) => !yaTomados.includes(x.item_id)))).catch((e) => setError(e.message)); }, [proveedorId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const elegidas = (datos ?? []).filter((x) => marcados[x.item_id] !== undefined && Number(aDecimal(marcados[x.item_id])) > 0);
+  return (
+    <Modal titulo="Traer mercadería de un remito" onCerrar={onCerrar} ancho={760}>
+      {error && <Alerta>{error}</Alerta>}
+      {!datos && !error && <Cargando />}
+      {datos && datos.length === 0 && <Vacio titulo="No hay remitos para facturar">Todo lo que llegó de este proveedor ya está facturado, o todavía no registraste remitos de entrada.</Vacio>}
+      {datos && datos.length > 0 && (
+        <>
+          <p style={{ marginTop: 0 }}>Elegí lo que viene en la factura. La mercadería ya entró al stock con el remito: la factura no la vuelve a ingresar.</p>
+          <div className="tabla-caja"><table>
+            <thead><tr><th /><th>Remito</th><th>Descripción</th><th className="num">Falta facturar</th><th className="num">Facturar</th></tr></thead>
+            <tbody>{datos.map((x) => (
+              <tr key={x.item_id}>
+                <td><input type="checkbox" aria-label={`Tomar ${x.descripcion} del remito ${x.remito}`} checked={marcados[x.item_id] !== undefined} onChange={(e) => setMarcados((m) => { const n = { ...m }; if (e.target.checked) n[x.item_id] = fmtCantidad(x.facturable); else delete n[x.item_id]; return n; })} /></td>
+                <td>{x.remito}{x.numero_externo && <div className="muted">{x.numero_externo}</div>}<div className="muted">{fecha(x.fecha)}</div></td><td>{x.descripcion}</td><td className="num">{fmtCantidad(x.facturable)}</td>
+                <td className="num" style={{ width: 120 }}><input aria-label={`Cantidad a facturar de ${x.descripcion}`} inputMode="decimal" disabled={marcados[x.item_id] === undefined} value={marcados[x.item_id] ?? ''} style={{ width: 100, textAlign: 'right' }} onChange={(e) => setMarcados((m) => ({ ...m, [x.item_id]: e.target.value }))} /></td>
+              </tr>))}</tbody>
+          </table></div>
+        </>
+      )}
+      <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn primario" disabled={!elegidas.length} onClick={() => onElegir(elegidas.map((x) => ({ item_id: x.item_id, remito: x.remito, articulo_id: x.articulo_id, descripcion: x.descripcion, cantidad: aDecimal(marcados[x.item_id]), precio: x.precio })))}>Traer a la factura</button></div>
+    </Modal>
+  );
+}

@@ -142,7 +142,10 @@ export async function detalleRemito(c, id) {
   const items = await c.consultar(`select i.id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text as cantidad, i.precio_unitario::text as precio_unitario, round(i.cantidad * i.precio_unitario, 2)::text as importe, i.deposito_id, dp.nombre as deposito, i.item_origen_id,
       (a.controla_stock is true) as mueve_stock
     from documento_item i left join deposito dp on dp.id = i.deposito_id left join articulo a on a.id = i.articulo_id where i.documento_id = $1 order by i.orden`, [id]);
-  return { ...f, items, acciones: { modificar: f.estado === 'borrador', confirmar: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado' } };
+  const facturado = items.length ? await c.consultar(`select ci.documento_item_id as id, sum(ci.cantidad)::text as cantidad from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') where ci.documento_item_id = any($1::bigint[]) group by ci.documento_item_id`, [items.map((i) => i.id)]) : [];
+  const facturas = items.length ? await c.consultar(`select distinct cb.id, t.descripcion as tipo, cb.punto_venta, cb.numero from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
+    where ci.documento_item_id = any($1::bigint[]) order by cb.id`, [items.map((i) => i.id)]) : [];
+  return { ...f, items: items.map((i) => ({ ...i, facturado: facturado.find((x) => x.id === i.id)?.cantidad ?? '0' })), facturas: facturas.map(({ punto_venta, numero, ...x }) => ({ ...x, numero_formateado: numeroFormateado(punto_venta, numero) })), acciones: { modificar: f.estado === 'borrador', confirmar: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado' } };
 }
 
 export async function listarRemitos(c, { estado, tercero_id, orden_id, q, desde, hasta, limite = 50, desplazamiento = 0 } = {}) {
@@ -157,4 +160,15 @@ export async function listarRemitos(c, { estado, tercero_id, orden_id, q, desde,
   const filas = await c.consultar(`${CAB} and ${filtros} order by d.fecha desc, d.id desc limit ${lim} offset ${des}`, p);
   const total = (await c.uno(`select count(*)::int n from documento_comercial d where d.tipo = 'remito_compra' and ${filtros}`, p)).n;
   return { datos: filas.map(dar), total, limite: lim, desplazamiento: des };
+}
+
+/* Los renglones de remitos confirmados de un proveedor a los que todavía les falta facturar algo (para armar la factura de compra). */
+export async function pendientesDeFacturar(c, { tercero_id } = {}) {
+  if (!tercero_id || !/^\d{1,15}$/.test(String(tercero_id))) throw invalido({ tercero_id: 'indicá el proveedor' });
+  const filas = await c.consultar(`select * from (
+      select d.id as remito_id, d.punto_venta, d.numero, d.numero_externo, d.fecha::text as fecha, i.id as item_id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text as llego, i.precio_unitario::text as precio,
+             coalesce((select sum(ci.cantidad) from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') where ci.documento_item_id = i.id), 0)::text as facturado
+        from documento_item i join documento_comercial d on d.id = i.documento_id and d.tipo = 'remito_compra' and d.estado = 'confirmado' where d.tercero_id = $1) x
+    where facturado::numeric < llego::numeric order by fecha, remito_id, orden`, [Number(tercero_id)]);
+  return { datos: filas.map(({ punto_venta, numero, ...f }) => ({ ...f, remito: numeroFormateado(punto_venta, numero), facturable: texto(dec(f.llego) - dec(f.facturado), 4) })) };
 }
