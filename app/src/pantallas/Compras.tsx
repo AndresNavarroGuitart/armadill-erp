@@ -8,6 +8,7 @@ import type { Articulo, ComprobanteResumen, Cuenta, Deposito, Jurisdiccion, Pagi
 import { Alerta, Buscador, Campo, Cargando, Etiqueta, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
 import { OrdenesCompra } from './OrdenesCompra';
+import { RemitosCompra } from './RemitosCompra';
 
 const POR_PAGINA = 25;
 
@@ -22,7 +23,8 @@ const NOMBRE: Record<Clase, { titulo: string; una: string; de: string; corto: st
 export function Compras() {
   const { puede } = useSesion();
   const [nueva, setNueva] = useState<{ clase: Clase; origen?: Origen } | null>(null);
-  const [pestana, setPestana] = useState<'facturas' | 'ordenes'>('facturas');
+  const [pestana, setPestana] = useState<'facturas' | 'ordenes' | 'remitos'>('facturas');
+  const [ordenARecibir, setOrdenARecibir] = useState<number | null>(null);
   const [estado, setEstado] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -51,9 +53,9 @@ export function Compras() {
           <button className="btn primario" onClick={() => setNueva({ clase: 'factura' })}>Cargar factura de compra</button></>}</div>
       </div>
       <div className="pestanas" role="tablist" aria-label="Compras">
-        {([['facturas', 'Facturas y notas'], ['ordenes', 'Órdenes de compra']] as ['facturas' | 'ordenes', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
+        {([['facturas', 'Facturas y notas'], ['ordenes', 'Órdenes de compra'], ['remitos', 'Remitos de entrada']] as ['facturas' | 'ordenes' | 'remitos', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
       </div>
-      {pestana === 'ordenes' ? <OrdenesCompra /> : <>
+      {pestana === 'ordenes' ? <OrdenesCompra onRecibir={(id) => { setOrdenARecibir(id); setPestana('remitos'); }} /> : pestana === 'remitos' ? <RemitosCompra ordenInicial={ordenARecibir} onConsumida={() => setOrdenARecibir(null)} /> : <>
       <div className="herramientas">
         <Campo etiqueta="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /><Campo etiqueta="Hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
         <Selector etiqueta="Estado" value={estado} onChange={(e) => setEstado(e.target.value)}><option value="">Todos</option>{Object.entries(ESTADOS).map(([k, e]) => <option key={k} value={k}>{e.texto}</option>)}</Selector>

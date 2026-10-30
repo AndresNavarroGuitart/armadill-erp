@@ -1,6 +1,6 @@
 -- Administración del estudio: quién puede administrarlo, alta de empresas ya listas para facturar y reglas que la base impone
 -- (no la API) para que el estudio no quede sin administrador ni mezcle personas, roles y empresas de distintos estudios.
--- Va DESPUÉS de 19 y ANTES de 29 (que cierra las funciones: lo que acá no se conceda a app_usuario queda cerrado para la aplicación).
+-- Va DESPUÉS de 19 y ANTES de 30 (que cierra las funciones: lo que acá no se conceda a app_usuario queda cerrado para la aplicación).
 
 -- Administrador del estudio = quien gestiona personas, accesos, roles y empresas del estudio completo. No depende de una empresa:
 -- es una marca de la persona. Los permisos por empresa (rol) siguen siendo aparte.

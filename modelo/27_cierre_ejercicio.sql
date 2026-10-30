@@ -4,7 +4,7 @@
 --   · si no existe, crea el ejercicio siguiente con sus períodos.
 -- Las cuentas patrimoniales no se "reabren" con un asiento de apertura: sus saldos pasan solos, porque los saldos se derivan de los asientos.
 -- Reabrir deshace todo, pero solo si el ejercicio siguiente todavía no tiene movimientos. Los informes muestran los resultados del año sin el asiento de cierre.
--- Va DESPUÉS de 26 y ANTES de 29 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 26 y ANTES de 30 (el endurecimiento de Supabase, que siempre es el último).
 
 insert into permiso (clave, modulo, descripcion) values
   ('ejercicios.ver',    'contabilidad', 'Ver los ejercicios contables y su resultado'),

@@ -1,6 +1,6 @@
 -- Informes contables desde la aplicación: un permiso de solo lectura. Los informes se derivan de las vistas y tablas que ya existen (libro de IVA,
 -- posición de IVA, asientos, saldos de los comprobantes, retenciones); no se guarda nada nuevo.
--- Va DESPUÉS de 24 y ANTES de 29 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 24 y ANTES de 30 (el endurecimiento de Supabase, que siempre es el último).
 
 insert into permiso (clave, modulo, descripcion) values
   ('informes.ver', 'informes', 'Ver y exportar los informes contables (libros de IVA, balance, mayor, diario, antigüedad de deuda, retenciones)');

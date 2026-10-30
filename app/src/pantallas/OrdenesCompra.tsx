@@ -10,7 +10,7 @@ import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Sel
 const POR_PAGINA = 25;
 const ESTADO: Record<string, { texto: string; tono: 'neutro' | 'ok' | 'malo' }> = { borrador: { texto: 'Borrador', tono: 'neutro' }, confirmado: { texto: 'Emitida', tono: 'ok' }, anulado: { texto: 'Anulada', tono: 'malo' } };
 
-export function OrdenesCompra() {
+export function OrdenesCompra({ onRecibir }: { onRecibir: (ordenId: number) => void }) {
   const { puede } = useSesion();
   const [estado, setEstado] = useState('');
   const [desde, setDesde] = useState('');
@@ -52,7 +52,7 @@ export function OrdenesCompra() {
       )}
       {datos && total > POR_PAGINA && <div className="paginado"><span>Página {pagina + 1} de {paginas}</span><span className="acciones"><button className="btn chico" disabled={pagina === 0} onClick={() => setPagina(pagina - 1)}>Anterior</button><button className="btn chico" disabled={pagina + 1 >= paginas} onClick={() => setPagina(pagina + 1)}>Siguiente</button></span></div>}
       {formulario && <FormOrden orden={formulario === 'nueva' ? null : formulario} onCerrar={() => setFormulario(null)} onHecha={(id) => { setFormulario(null); setRecarga((n) => n + 1); setAbierta(id); }} />}
-      {abierta !== null && !formulario && <Detalle id={abierta} onCerrar={() => setAbierta(null)} onCambio={() => setRecarga((n) => n + 1)} onModificar={(o) => { setAbierta(null); setFormulario(o); }} />}
+      {abierta !== null && !formulario && <Detalle id={abierta} onCerrar={() => setAbierta(null)} onCambio={() => setRecarga((n) => n + 1)} onModificar={(o) => { setAbierta(null); setFormulario(o); }} onRecibir={(id) => { setAbierta(null); onRecibir(id); }} />}
     </>
   );
 }
@@ -144,7 +144,7 @@ function FormOrden({ orden, onCerrar, onHecha }: { orden: OrdenCompraDetalle | n
   );
 }
 
-function Detalle({ id, onCerrar, onCambio, onModificar }: { id: number; onCerrar: () => void; onCambio: () => void; onModificar: (o: OrdenCompraDetalle) => void }) {
+function Detalle({ id, onCerrar, onCambio, onModificar, onRecibir }: { id: number; onCerrar: () => void; onCambio: () => void; onModificar: (o: OrdenCompraDetalle) => void; onRecibir: (id: number) => void }) {
   const { puede } = useSesion(), avisar = useAviso();
   const [o, setO] = useState<OrdenCompraDetalle | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +172,7 @@ function Detalle({ id, onCerrar, onCambio, onModificar }: { id: number; onCerrar
               {o.estado === 'confirmado' && <><td className="num">{fmtCantidad(i.recibido)}</td><td className="num">{fmtCantidad(i.facturado)}</td><td className="num">{fmtCantidad(i.pendiente)}</td></>}</tr>)}</tbody>
             <tfoot><tr><td style={{ fontWeight: 600 }}>Total (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(o.total)}</td>{o.estado === 'confirmado' && <td colSpan={3} />}</tr></tfoot>
           </table></div>
+          {o.remitos.length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Remitos de entrada: {o.remitos.map((r) => `${r.numero_formateado}${r.numero_externo ? ` (${r.numero_externo})` : ''}${r.estado === 'anulado' ? ' anulado' : r.estado === 'borrador' ? ' borrador' : ''}`).join(' · ')}</p>}
           {anulando && (
             <form onSubmit={(e) => { e.preventDefault(); void accion(async () => (await enviar<OrdenCompraDetalle>('POST', `/api/compras/ordenes/${id}/anular`, { motivo: motivo.trim() })), 'Orden anulada.'); }} noValidate style={{ marginTop: 12 }}>
               <Campo etiqueta="Motivo de la anulación" value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
@@ -184,6 +185,7 @@ function Detalle({ id, onCerrar, onCambio, onModificar }: { id: number; onCerrar
               {puedeCargar && o.acciones.modificar && <button className="btn" onClick={() => onModificar(o)}>Modificar</button>}
               {puedeCargar && o.acciones.emitir && <button className="btn primario" disabled={trabajando} onClick={() => void accion(() => enviar<OrdenCompraDetalle>('POST', `/api/compras/ordenes/${id}/emitir`, {}), 'Orden emitida.')}>Emitir orden</button>}
               {puedeAnular && o.acciones.anular && <button className="btn peligro" onClick={() => setAnulando(true)}>Anular</button>}
+              {puedeCargar && o.estado === 'confirmado' && o.pendiente_de_recibir && <button className="btn primario" onClick={() => onRecibir(id)}>Registrar recepción</button>}
             </div>
           )}
         </>

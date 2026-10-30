@@ -117,9 +117,11 @@ export async function detalleOrden(c, id) {
   const items = await c.consultar(`select i.id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text as cantidad, i.precio_unitario::text as precio_unitario, round(i.cantidad * i.precio_unitario, 2)::text as importe, i.deposito_id, dp.nombre as deposito,
       coalesce(v.remitado, 0)::text as recibido, coalesce(v.facturado, 0)::text as facturado, coalesce(v.pendiente_remitir, i.cantidad)::text as pendiente
     from documento_item i left join deposito dp on dp.id = i.deposito_id left join v_documento_pendiente v on v.item_id = i.id where i.documento_id = $1 order by i.orden`, [id]);
+  const remitos = (await c.consultar(`select d.id, d.punto_venta, d.numero, d.numero_externo, d.fecha::text as fecha, d.estado from documento_comercial d where d.documento_origen_id = $1 and d.tipo = 'remito_compra' order by d.id`, [id]))
+    .map(({ punto_venta, numero, ...r }) => ({ ...r, numero_formateado: numeroFormateado(punto_venta, numero) }));
   const { punto_venta, numero, ...resto } = f;
   const pendiente = f.estado === 'confirmado' && items.some((i) => dec(i.pendiente) > 0n);
-  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), items, pendiente_de_recibir: pendiente, total: texto(dec(f.total)),
+  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), items, remitos, pendiente_de_recibir: pendiente, total: texto(dec(f.total)),
     acciones: { modificar: f.estado === 'borrador', emitir: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado' } };
 }
 

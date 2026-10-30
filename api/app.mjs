@@ -17,6 +17,7 @@ import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './t
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
+import { calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
 import { crearLimitador } from '../asistente/http.mjs';
 
@@ -247,6 +248,35 @@ const RUTAS = [
     const o = await borrarOrden(c, ctx, p.id);
     await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Borró el borrador de la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · $ ${o.total}`, origen });
     return { estado: 200, cuerpo: { borrada: true } };
+  }],
+  // --- Remitos de entrada (la mercadería que llegó: mueven stock, no generan deuda ni asiento) ---
+  ['GET', '/api/compras/remitos', 'compras.ver', ({ c, q }) => listarRemitos(c, q)],
+  ['POST', '/api/compras/remitos/calcular', 'compras.cargar', ({ c, cuerpo }) => calcularRemito(c, cuerpo)],
+  ['POST', '/api/compras/remitos', 'compras.cargar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await crearRemito(c, ctx, cuerpo), x = r.remito;
+    await registrarEvento(c, ctx, { categoria: x.estado === 'confirmado' ? 'stock' : 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Recibió mercadería con el remito' : 'Guardó como borrador el remito'} ${x.numero_formateado}`, detalle: `${x.proveedor}${x.numero_externo ? ` · remito del proveedor ${x.numero_externo}` : ''}${x.orden ? ` · orden ${x.orden.numero_formateado}` : ''}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: { ...x, avisos: r.avisos } };
+  }],
+  ['GET', '/api/compras/remitos/:id', 'compras.ver', ({ c, p }) => detalleRemito(c, p.id)],
+  ['PUT', '/api/compras/remitos/:id', 'compras.cargar', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarRemito(c, ctx, p.id, cuerpo), x = r.remito;
+    await registrarEvento(c, ctx, { categoria: x.estado === 'confirmado' ? 'stock' : 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Recibió mercadería con el remito' : 'Modificó el remito'} ${x.numero_formateado}`, detalle: x.proveedor, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { ...x, avisos: r.avisos };
+  }],
+  ['POST', '/api/compras/remitos/:id/confirmar', 'compras.cargar', async ({ c, ctx, p, origen }) => {
+    const x = await confirmarRemito(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Recibió mercadería con el remito ${x.numero_formateado}`, detalle: x.proveedor, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['POST', '/api/compras/remitos/:id/anular', 'compras.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularRemito(c, ctx, p.id, cuerpo), x = r.remito;
+    await registrarEvento(c, ctx, { categoria: 'stock', accion: `Anuló el remito de entrada ${x.numero_formateado}`, detalle: `${x.proveedor} · motivo: ${r.motivo}${r.stock ? ` · sacó ${r.stock} movimientos de stock` : ''}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['DELETE', '/api/compras/remitos/:id', 'compras.cargar', async ({ c, ctx, p, origen }) => {
+    const x = await borrarRemito(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Borró el borrador del remito ${x.numero_formateado}`, detalle: x.proveedor, origen });
+    return { estado: 200, cuerpo: { borrado: true } };
   }],
   ['GET', '/api/compras/facturas/:id', 'compras.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'compra' })],
   ['POST', '/api/compras/facturas/:id/anular', 'compras.anular', async ({ c, ctx, p, cuerpo, origen }) => {
