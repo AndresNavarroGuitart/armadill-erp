@@ -352,7 +352,11 @@ export async function cuentaCorriente(c, terceroId, rolTercero) {
       union all
       select ev.fecha::text, ch.id, 'cheque', ch.id, 'Cheque ' || ch.numero || coalesce(' (' || ch.banco || ')', '') || ' rechazado', ch.importe::text
         from cheque ch join lateral (select max(fecha) as fecha from cheque_evento where cheque_id = ch.id and estado_nuevo = 'rechazado') ev on true
-       where ch.tercero_id = $1 and ch.origen = 'tercero' and ch.estado = 'rechazado' and $2 = 'venta') x order by fecha, case clase when 'comprobante' then 1 when 'pago' then 2 else 3 end, orden`, [terceroId, sentido, tipoPago]);
+       where ch.tercero_id = $1 and ch.origen = 'tercero' and ch.estado = 'rechazado' and $2 = 'venta'
+      union all
+      select ev.fecha::text, ch.id, 'cheque', ch.id, 'Cheque ' || ch.numero || coalesce(' (' || ch.banco || ')', '') || ' devuelto por rebote (se lo habíamos endosado)', ch.importe::text
+        from cheque ch join lateral (select max(fecha) as fecha from cheque_evento where cheque_id = ch.id and estado_nuevo = 'rechazado') ev on true
+       where ch.rebotado_proveedor_id = $1 and ch.origen = 'tercero' and ch.estado = 'rechazado' and $2 = 'compra') x order by fecha, case clase when 'comprobante' then 1 when 'pago' then 2 else 3 end, orden`, [terceroId, sentido, tipoPago]);
   let acumulado = 0n;
   const movimientos = filas.map((f) => { acumulado += dec(f.importe); return { fecha: f.fecha, clase: f.clase, id: f.ref, detalle: f.detalle, importe: f.importe, saldo: texto(acumulado) }; });
   return { tercero: t, saldo: texto(acumulado), movimientos };

@@ -472,6 +472,7 @@ const ACCION_CHEQUE: Record<string, { boton: string; titulo: string; ayuda: stri
   acreditar: { boton: 'Acreditar', titulo: 'Acreditar el cheque', ayuda: 'Confirmá que el banco ya lo acreditó: la plata entra en la cuenta bancaria.' },
   rechazar: { boton: 'Rechazar', titulo: 'Registrar el rechazo', ayuda: 'El cheque rebotó: el cliente vuelve a deber ese importe.' },
   debitar: { boton: 'Registrar débito', titulo: 'Registrar el débito', ayuda: 'El banco debitó el cheque de la cuenta: la plata sale de la cuenta bancaria.' },
+  rebotar: { boton: 'Registrar rebote', titulo: 'Registrar el rebote del cheque', ayuda: 'El proveedor al que se lo entregaste te lo devolvió porque su banco lo rechazó: volvés a deberle ese importe y el cliente que te lo dio vuelve a deberte. Después le pagás al proveedor (a cuenta) y le cobrás al cliente.' },
   aceptar: { boton: 'Aceptar ECHEQ', titulo: 'Aceptar el ECHEQ', ayuda: 'Registrá que ya lo aceptaste en el banco: recién ahí se puede depositar o entregar. El sistema no se conecta al banco, la aceptación se anota a mano.' },
 };
 const cobrableDesde = (c: Cheque) => c.fecha_pago ?? c.fecha_emision;
@@ -543,13 +544,15 @@ function DetalleCheque({ id, puedeGestionar, onCerrar, onCambio }: { id: number;
             {c.origen === 'tercero' && <><dt>Banco</dt><dd>{c.banco ?? '—'}{c.cuit_librador ? ` · librador CUIT ${c.cuit_librador}` : ''}</dd></>}
             {c.origen === 'tercero' && c.cuenta_banco && <><dt>Depositado en</dt><dd>{c.cuenta_banco}{c.cuenta_numero ? ` ${c.cuenta_numero}` : ''}</dd></>}
             {c.origen === 'propio' && c.tercero && <><dt>Entregado a</dt><dd>{c.tercero}</dd></>}
+            {c.origen === 'tercero' && c.entregado_a && ['entregado', 'rechazado'].includes(c.estado) && <><dt>Endosado a</dt><dd>{c.entregado_a}</dd></>}
+            {c.rebotado_proveedor && <><dt>Devuelto por</dt><dd>{c.rebotado_proveedor} (rebotó después del endoso)</dd></>}
             <dt>Emisión</dt><dd>{fecha(c.fecha_emision)}</dd><dt>Fecha de pago</dt><dd>{fecha(c.fecha_pago)}</dd>
             {c.es_echeq && <><dt>ECHEQ</dt><dd>{c.echeq_codigo} · {c.caracter === 'no_a_la_orden' ? 'no a la orden' : 'a la orden'}{c.cruzado ? ' · cruzado' : ''}</dd>{c.origen === 'tercero' && <><dt>Aceptación</dt><dd>{c.aceptado_en ? `Aceptado el ${fecha(c.aceptado_en)}` : 'Pendiente de aceptar'}</dd></>}</>}
           </dl>
           {c.es_echeq && <p className="muted" style={{ margin: '8px 0 0' }}>Datos cargados a mano: el sistema no está conectado al banco ni a la Cámara.</p>}
           <h3 style={{ margin: '16px 0 6px' }}>Historial</h3>
           <ul style={{ margin: 0, paddingLeft: 18 }}>{c.eventos.map((e) => <li key={e.id}>{fecha(e.fecha)} · <strong>{ESTADO_CHEQUE[e.estado_nuevo]?.texto ?? e.estado_nuevo}</strong>{e.nota ? ` — ${e.nota}` : ''}</li>)}</ul>
-          {puedeGestionar && c.acciones.length > 0 && <div className="pie-form">{c.acciones.map((a) => <button key={a} className={a === 'rechazar' ? 'btn peligro' : 'btn primario'} onClick={() => setAccion(a)}>{ACCION_CHEQUE[a].boton}</button>)}</div>}
+          {puedeGestionar && c.acciones.length > 0 && <div className="pie-form">{c.acciones.map((a) => <button key={a} className={a === 'rechazar' || a === 'rebotar' ? 'btn peligro' : 'btn primario'} onClick={() => setAccion(a)}>{ACCION_CHEQUE[a].boton}</button>)}</div>}
         </>
       )}
       {c && accion && <AccionCheque cheque={c} accion={accion} onCerrar={() => setAccion(null)} onHecho={(nuevo) => { setC(nuevo); setAccion(null); onCambio(); }} />}
@@ -570,7 +573,7 @@ function AccionCheque({ cheque, accion, onCerrar, onHecho }: { cheque: ChequeDet
   async function enviarAccion(ev: FormEvent) {
     ev.preventDefault(); setTrabajando(true); setError(null);
     try {
-      const r = await enviar<ChequeDetalle>('POST', `/api/cheques/${cheque.id}/${accion}`, { fecha: fechaA, ...(accion === 'depositar' ? { cuenta_bancaria_id: Number(cuenta) || undefined } : {}), ...(accion === 'rechazar' ? { motivo: motivo.trim() } : {}) });
+      const r = await enviar<ChequeDetalle>('POST', `/api/cheques/${cheque.id}/${accion}`, { fecha: fechaA, ...(accion === 'depositar' ? { cuenta_bancaria_id: Number(cuenta) || undefined } : {}), ...(accion === 'rechazar' || accion === 'rebotar' ? { motivo: motivo.trim() } : {}) });
       avisar(`Cheque ${cheque.numero}: ${ESTADO_CHEQUE[r.estado]?.texto.toLowerCase() ?? r.estado}.`); onHecho(r);
     } catch (e) { setError(e); } finally { setTrabajando(false); }
   }
@@ -582,11 +585,11 @@ function AccionCheque({ cheque, accion, onCerrar, onHecho }: { cheque: ChequeDet
         <p style={{ marginTop: 0 }}>Cheque <strong>{cheque.numero}</strong> por <strong>{moneda(cheque.importe)}</strong>. {def.ayuda}</p>
         <div className="rejilla">
           {accion === 'depositar' && <div className="ancho"><Selector etiqueta="Cuenta bancaria" value={cuenta} error={campos.cuenta_bancaria_id} onChange={(e) => setCuenta(e.target.value)}><option value="">Elegí…</option>{bancos.map((b) => <option key={b.id} value={b.id}>{b.banco}{b.numero_cuenta ? ` · ${b.numero_cuenta}` : ''}</option>)}</Selector></div>}
-          {accion === 'rechazar' && <div className="ancho"><Campo etiqueta="Motivo del rechazo" value={motivo} error={campos.motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus /></div>}
+          {(accion === 'rechazar' || accion === 'rebotar') && <div className="ancho"><Campo etiqueta={accion === 'rebotar' ? 'Motivo del rebote' : 'Motivo del rechazo'} value={motivo} error={campos.motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus /></div>}
           <Campo etiqueta="Fecha" type="date" value={fechaA} error={campos.fecha} onChange={(e) => setFechaA(e.target.value)} />
         </div>
         {accion === 'depositar' && bancos.length === 0 && <Alerta tipo="aviso">Todavía no hay cuentas bancarias: cargá una en “Cajas y bancos”.</Alerta>}
-        <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className={accion === 'rechazar' ? 'btn peligro' : 'btn primario'} disabled={trabajando || (accion === 'rechazar' && motivo.trim().length < 3)}>{trabajando ? 'Guardando…' : def.boton}</button></div>
+        <div className="pie-form"><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="submit" className={accion === 'rechazar' || accion === 'rebotar' ? 'btn peligro' : 'btn primario'} disabled={trabajando || ((accion === 'rechazar' || accion === 'rebotar') && motivo.trim().length < 3)}>{trabajando ? 'Guardando…' : def.boton}</button></div>
       </form>
     </Modal>
   );

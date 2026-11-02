@@ -161,11 +161,43 @@ await prueba('Endosar: un cheque de la cartera paga a un proveedor (sale de la c
   const dosVeces = await api('admin', 'POST', '/api/pagos/calcular', { cuerpo: { tercero_id: P1.id, medios: [{ medio: 'cheque', cheque_id: ids.ch2 }, { medio: 'cheque', cheque_id: ids.ch2 }] } }); igual(campo(dosVeces, 'medios[1].cheque_id'), 'ese cheque está repetido', 'repetido');
   const p = await pagar({ tercero_id: P1.id, imputaciones: [{ comprobante_id: FC1.id, importe: '1210' }], medios: [{ medio: 'cheque', cheque_id: ids.ch2 }] }); igual(p.estado, 201, JSON.stringify(p.cuerpo)); ids.pagoEndoso = p.cuerpo.id;
   igual([p.cuerpo.medios[0].importe, p.cuerpo.medios[0].destino, await saldoComp(FC1.id)], ['1210.00', 'Cheque 00099001 · Banco Galicia', '605.00'], 'el pago toma el importe del cheque');
-  const ch = await verCheque(ids.ch2); igual([ch.estado, ch.acciones, ch.eventos.at(-1).nota.startsWith('Entregado en Orden de pago')], ['entregado', [], true], 'entregado');
+  const ch = await verCheque(ids.ch2); igual([ch.estado, ch.acciones, ch.eventos.at(-1).nota.startsWith('Entregado en Orden de pago'), ch.entregado_a], ['entregado', ['rebotar'], true, 'Molinos del Sur SA'], 'entregado: lo único que puede pasarle es que rebote');
   igual(await lin(p.cuerpo.asiento.id), ['1.1.2 H 1210', '2.1.1 D 1210'], 'asiento: proveedores / valores a depositar'); igual(Number(await saldoCaja(CAJA.id)), 1210, 'la caja (solo lo del cobro a cuenta) no se tocó');
   igual((await pasar('admin', ids.ch2, 'depositar', { cuenta_bancaria_id: BANCO.id, fecha: hoy })).estado, 422, 'uno entregado no se deposita');
   const an = await anularPago(ids.pagoEndoso); igual(an.estado, 200, JSON.stringify(an.cuerpo));
   const v = await verCheque(ids.ch2); igual([v.estado, v.acciones, v.eventos.at(-1).nota.startsWith('Vuelve a la cartera')], ['en_cartera', ['depositar'], true], 'vuelve a la cartera'); igual(await saldoComp(FC1.id), '1815.00', 'la compra vuelve a deberse');
+});
+await prueba('Rebote tras el endoso: el proveedor devuelve el cheque, se le vuelve a deber, el cliente vuelve a deber y el asiento repone ambas deudas', async () => {
+  const c = await cobrar({ tercero_id: C2.id, medios: [{ medio: 'cheque', importe: '1210', cheque: cheque('00066666') }] }); igual(c.estado, 201, JSON.stringify(c.cuerpo)); const id = c.cuerpo.medios[0].cheque_id; const deudaCli = Number(await saldoCli(C2.id));
+  const p = await pagar({ tercero_id: P1.id, medios: [{ medio: 'cheque', cheque_id: id }] }); igual(p.estado, 201, JSON.stringify(p.cuerpo)); ids.pagoReb = p.cuerpo.id;
+  const debeProv = Number(await saldoProv(P1.id));
+  for (const q_ of ['auxiliar', 'consulta']) igual((await pasar(q_, id, 'rebotar', { motivo: 'Sin fondos' })).estado, 403, `${q_} no registra rebotes`);
+  igual(campo(await pasar('admin', id, 'rebotar'), 'motivo'), 'indicá el motivo del rebote', 'pide el motivo'); igual(campo(await pasar('admin', id, 'rebotar', { motivo: 'x' }), 'motivo'), 'tiene que tener al menos 3 caracteres', 'motivo corto');
+  igual((await pasar('admin', ids.ch1, 'rebotar', { motivo: 'Sin fondos' })).estado, 422, 'uno acreditado no rebota por acá'); igual((await pasar('admin', ids.ch3, 'rebotar', { motivo: 'Sin fondos' })).estado, 422, 'ni uno ya rechazado');
+  igual((await pasar('admin', id, 'rebotar', { motivo: 'Sin fondos', fecha: dias(5) })).estado, 422, 'la fecha no puede ser futura');
+  const r = await pasar('admin', id, 'rebotar', { motivo: 'Rechazado por el banco del proveedor: sin fondos' }); igual([r.estado, r.cuerpo.estado, r.cuerpo.acciones, r.cuerpo.rebotado_proveedor, r.cuerpo.entregado_a], [200, 'rechazado', [], 'Molinos del Sur SA', 'Molinos del Sur SA'], JSON.stringify(r.cuerpo));
+  igual(await lin(await asientoDe('cheque', id)), ['1.1.3 D 1210', '2.1.1 H 1210'], 'asiento: deudores / proveedores (al endosarlo ya había salido de valores a depositar)');
+  igual([Number(await saldoCli(C2.id)) - deudaCli, Number(await saldoProv(P1.id)) - debeProv], [1210, 1210], 'el cliente vuelve a deber y al proveedor se le vuelve a deber');
+  const ccP = (await api('admin', 'GET', `/api/proveedores/${P1.id}/cuenta-corriente`)).cuerpo; igual([ccP.movimientos.at(-1).detalle, ccP.movimientos.at(-1).importe, ccP.saldo], ['Cheque 00066666 (Banco Galicia) devuelto por rebote (se lo habíamos endosado)', '1210.00', String(Number(await saldoProv(P1.id)).toFixed(2))], 'cuenta corriente del proveedor');
+  const ccC = (await api('admin', 'GET', `/api/clientes/${C2.id}/cuenta-corriente`)).cuerpo; igual(ccC.movimientos.at(-1).detalle, 'Cheque 00066666 (Banco Galicia) rechazado', 'cuenta corriente del cliente');
+  const ev = (await verCheque(id)).eventos.at(-1); igual([ev.estado_anterior, ev.estado_nuevo, ev.nota, ev.comprobante?.startsWith('Orden de pago')], ['entregado', 'rechazado', 'Rechazado por el banco del proveedor: sin fondos', true], JSON.stringify(ev));
+  const e = await ultimoEvento('Registró como rebotado%'); igual([e.categoria, e.detalle.includes('Sin fondos') || e.detalle.includes('sin fondos')], ['tesoreria', true], JSON.stringify(e));
+  const an = await anularPago(ids.pagoReb); igual([an.estado, /ya está rechazado/.test(an.cuerpo.error.mensaje)], [422, true], 'la orden de pago con un cheque rebotado no se anula: ' + JSON.stringify(an.cuerpo));
+  igual((await verCheque(id)).estado, 'rechazado', 'el cheque no volvió a la cartera');
+  igual((await pasar('admin', id, 'rebotar', { motivo: 'Otra vez' })).estado, 422, 'no se rebota dos veces');
+  const pagoACuenta = await pagar({ tercero_id: P1.id, medios: [{ medio: 'efectivo', caja_id: CAJA.id, importe: '1210' }] }); igual(pagoACuenta.estado, 201, 'se le paga a cuenta lo que se le vuelve a deber: ' + JSON.stringify(pagoACuenta.cuerpo));
+  igual(Number(await saldoProv(P1.id)), debeProv, 'queda como estaba antes del rebote'); const cobroACuenta = await cobrar({ tercero_id: C2.id, medios: [{ medio: 'efectivo', caja_id: CAJA.id, importe: '1210' }] }); igual(cobroACuenta.estado, 201, JSON.stringify(cobroACuenta.cuerpo)); igual(Number(await saldoCli(C2.id)), deudaCli, 'y el cliente salda lo que volvió a deber');
+  const rest = await uno(`select count(*)::int n from cheque where rebotado_proveedor_id is not null`); igual(rest.n, 1, 'la base marca a quién se le había endosado');
+});
+await prueba('Rebote tras el endoso: las defensas de la base (estado, motivo, orden de pago vigente)', async () => {
+  const msg = async (sql) => { try { await q(sql); return ''; } catch (e) { return e.message; } };
+  const c = await cobrar({ tercero_id: C1.id, medios: [{ medio: 'cheque', importe: '500', cheque: cheque('00077788') }] }); const id = c.cuerpo.medios[0].cheque_id;
+  verdad(/Solo rebota un cheque de un tercero que esté entregado/.test(await msg(`select fn_cheque_rebotar(${id}, current_date, 'Sin fondos')`)), 'uno en cartera no rebota');
+  const p = await pagar({ tercero_id: P1.id, medios: [{ medio: 'cheque', cheque_id: id }] }); igual(p.estado, 201, JSON.stringify(p.cuerpo));
+  verdad(/Indicá el motivo del rebote/.test(await msg(`select fn_cheque_rebotar(${id}, current_date, '')`)), 'pide motivo'); verdad(/fecha no puede ser futura/.test(await msg(`select fn_cheque_rebotar(${id}, current_date + 1, 'Sin fondos')`)), 'fecha futura');
+  verdad(/cheque_rebote_coherente/.test(await msg(`update cheque set rebotado_proveedor_id = ${P1.id} where id = ${id}`)), 'no se marca el rebote sin pasar por rechazado');
+  const r = await pasar('admin', id, 'rebotar', { motivo: 'Sin fondos' }); igual(r.estado, 200, JSON.stringify(r.cuerpo));
+  const mA = await msg(`update pago set estado = 'anulado', motivo_anulacion = 'Se anula la orden', anulado_en = now() where id = ${p.cuerpo.id}`); verdad(/el proveedor lo devolvió o siguió su camino/.test(mA), 'la base impide anular la orden de pago del cheque rebotado: ' + mA);
 });
 await prueba('Cheque propio: se emite en un pago (Cheques a pagar), el banco lo debita después y el asiento pasa al Banco', async () => {
   const bad = (m) => api('admin', 'POST', '/api/pagos/calcular', { cuerpo: { tercero_id: P1.id, imputaciones: [{ comprobante_id: FC1.id, importe: '1815' }], medios: [m] } });

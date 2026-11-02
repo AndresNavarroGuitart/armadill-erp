@@ -13,14 +13,17 @@ export const ACCIONES = {
   acreditar: { origen: 'tercero', estado: 'depositado', texto: 'Acreditó' },
   rechazar: { origen: 'tercero', estado: 'depositado', texto: 'Rechazó' },
   debitar: { origen: 'propio', estado: 'emitido', texto: 'Registró el débito de' },
+  rebotar: { origen: 'tercero', estado: 'entregado', texto: 'Registró como rebotado' },                   // el proveedor al que se lo endosamos lo devolvió: su banco lo rechazó
   aceptar: { origen: 'tercero', estado: 'en_cartera', texto: 'Aceptó el ECHEQ', cuando: (ch) => ch.es_echeq && !ch.aceptado_en },       // un ECHEQ recibido se acepta antes de poder usarlo
 };
 const posibles = (ch) => Object.entries(ACCIONES).filter(([k, a]) => a.origen === ch.origen && a.estado === ch.estado && (!a.cuando || a.cuando(ch)) && !(['depositar'].includes(k) && ch.es_echeq && !ch.aceptado_en)).map(([k]) => k);
 
 const SELECT = `select ch.id, ch.origen, ch.numero, ch.banco, ch.cuit_librador, ch.importe::text as importe, ch.fecha_emision::text as fecha_emision, ch.fecha_pago::text as fecha_pago, ch.estado,
-    ch.es_echeq, ch.echeq_codigo, ch.caracter, ch.cruzado, ch.aceptado_en::text as aceptado_en,
+    ch.es_echeq, ch.echeq_codigo, ch.caracter, ch.cruzado, ch.aceptado_en::text as aceptado_en, ch.rebotado_proveedor_id, rp.razon_social as rebotado_proveedor,
+    (select pg.tercero_id from cheque_evento ev join pago pg on pg.id = ev.pago_id where ev.cheque_id = ch.id and ev.estado_nuevo = 'entregado' order by ev.id desc limit 1) as entregado_a_id,
+    (select te2.razon_social from cheque_evento ev join pago pg on pg.id = ev.pago_id join tercero te2 on te2.id = pg.tercero_id where ev.cheque_id = ch.id and ev.estado_nuevo = 'entregado' order by ev.id desc limit 1) as entregado_a,
     ch.tercero_id, te.razon_social as tercero, ch.cuenta_bancaria_id, cb.banco as cuenta_banco, cb.numero_cuenta as cuenta_numero
-  from cheque ch left join tercero te on te.id = ch.tercero_id left join cuenta_bancaria cb on cb.id = ch.cuenta_bancaria_id`;
+  from cheque ch left join tercero te on te.id = ch.tercero_id left join tercero rp on rp.id = ch.rebotado_proveedor_id left join cuenta_bancaria cb on cb.id = ch.cuenta_bancaria_id`;
 const completar = (f) => ({ ...f, acciones: posibles(f), diferido: !!f.fecha_pago && f.fecha_pago > hoyISO() });
 
 export async function listarCheques(c, { estado, origen, tercero_id, q, echeq, desde, hasta, limite = 50, desplazamiento = 0 } = {}) {
@@ -58,6 +61,7 @@ export async function pasarCheque(c, ctx, id, accion, cuerpo) {
   const { valor: d } = validar(ESQUEMA, cuerpo ?? {}), errores = {};
   if (accion === 'depositar' && !d.cuenta_bancaria_id) errores.cuenta_bancaria_id = 'elegí la cuenta bancaria donde se deposita';
   if (accion === 'rechazar' && !d.motivo) errores.motivo = 'indicá el motivo del rechazo';
+  if (accion === 'rebotar' && !d.motivo) errores.motivo = 'indicá el motivo del rebote';
   if (Object.keys(errores).length) throw invalido(errores);
   const antes = await c.uno('select id, numero, banco, importe::text importe, origen, estado, es_echeq, aceptado_en from cheque where id = $1 for update', [id]);
   if (!antes) throw noEncontrado('El cheque');
@@ -71,7 +75,8 @@ export async function pasarCheque(c, ctx, id, accion, cuerpo) {
     return { cheque: await detalleCheque(c, id), antes, texto: def.texto, motivo: null };
   }
   if (antes.es_echeq && !antes.aceptado_en && accion === 'depositar') throw new ErrorApi(422, 'echeq_sin_aceptar', `El ECHEQ ${antes.numero} todavía no fue aceptado: aceptalo antes de depositarlo.`);
-  await c.consultar('select fn_cheque_pasar($1, $2, $3::date, $4, $5)', [id, accion, d.fecha ?? hoyISO(), d.cuenta_bancaria_id ?? null, d.motivo ?? null]);   // la base valida estado, fechas y período, y genera el asiento y el movimiento
+  if (accion === 'rebotar') await c.consultar('select fn_cheque_rebotar($1, $2::date, $3)', [id, d.fecha ?? hoyISO(), d.motivo]);                  // la base repone la deuda del proveedor y del cliente, y asienta
+  else await c.consultar('select fn_cheque_pasar($1, $2, $3::date, $4, $5)', [id, accion, d.fecha ?? hoyISO(), d.cuenta_bancaria_id ?? null, d.motivo ?? null]);   // la base valida estado, fechas y período, y genera el asiento y el movimiento
   const cheque = await detalleCheque(c, id);
   return { cheque, antes, texto: def.texto, motivo: d.motivo ?? null };
 }
