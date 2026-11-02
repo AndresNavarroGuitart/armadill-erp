@@ -15,7 +15,7 @@ Sistema de gestión para **estudios contables**: ventas, compras, stock, tesorer
 - **Seguridad y trazabilidad:** aislamiento por empresa y por estudio a nivel de base (RLS), roles y permisos, libro de eventos encadenado por huellas.
 - **Asistente con Claude** (plan en `PLAN_ASISTENTE_CLAUDE.md`).
 
-> **Sobre el nombre:** ARMADILL-ERP es el nombre del producto. Los documentos de relevamiento (`MAPA_MENUS.md`, `PLAN_DE_REPLICA.md`, etc.) siguen diciendo "administraNET" porque ese es el nombre del ERP de escritorio original que se relevó; y el repositorio y esta carpeta conservan su nombre técnico `administranet-replica`.
+> **Sobre el nombre:** ARMADILL-ERP es el nombre del producto. Los documentos de relevamiento (`MAPA_MENUS.md`, `PLAN_DE_REPLICA.md`, etc.) siguen diciendo "administraNET" porque ese es el nombre del ERP de escritorio original que se relevó; y la carpeta de trabajo local conserva su nombre técnico `administranet-replica`.
 
 ## Cómo está armado
 
