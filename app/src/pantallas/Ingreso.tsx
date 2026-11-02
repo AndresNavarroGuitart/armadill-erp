@@ -1,5 +1,6 @@
 // Ingreso. Con Supabase Auth: email y contraseña, o un enlace por email. En desarrollo (sin Supabase configurado) ofrece las personas de
 // prueba que publica el servidor de desarrollo de la API. En un build de producción sin configurar no ofrece nada.
+import { Logo } from '../Logo';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSesion, type PersonaDev } from '../sesion';
 import { Alerta, Campo, Cargando, useAviso } from '../ui';
@@ -11,8 +12,8 @@ export function Ingreso({ mensaje }: { mensaje: string | null }) {
   return (
     <div className="ingreso">
       <div className="caja tarjeta">
-        <div className="logo" aria-hidden="true">a</div>
-        <h1>administraNET</h1>
+        <div className="logo" aria-hidden="true"><Logo /></div>
+        <h1>ARMADILL-ERP</h1>
         <p className="muted">Gestión contable para estudios.</p>
         {mensaje && <Alerta>{mensaje}</Alerta>}
         {identidad.tipo === 'supabase' && <IngresoReal />}
@@ -118,7 +119,7 @@ export function NuevaClave({ onListo }: { onListo: () => void }) {
   return (
     <div className="ingreso">
       <form className="caja tarjeta" onSubmit={guardar} noValidate>
-        <div className="logo" aria-hidden="true">a</div>
+        <div className="logo" aria-hidden="true"><Logo /></div>
         <h1>Elegí tu contraseña</h1>
         <p className="muted">Usá al menos 12 caracteres; una frase larga es mejor que algo complicado.</p>
         {error && <Alerta>{error}</Alerta>}

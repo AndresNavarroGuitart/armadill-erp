@@ -1,4 +1,5 @@
 // Estructura de la aplicación: ingreso → elección de empresa → menú con sus pantallas. Router mínimo por hash (#/clientes).
+import { Logo } from './Logo';
 import { useEffect, useState, type ReactElement } from 'react';
 import { useSesion } from './sesion';
 import { Cargando } from './ui';
@@ -55,12 +56,12 @@ export function App() {
   const disponibles = [...(activa ? RUTAS.filter((r) => puede(r.permiso)) : []), ...(yo.admin_estudio ? [RUTA_ESTUDIO, RUTA_TRAZABILIDAD] : [])];
   const actual = disponibles.find((r) => r.clave === clave) ?? disponibles[0];
   const iniciales = yo.usuario.nombre.split(/\s+/).map((p) => p[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
-  document.title = [actual?.titulo, activa?.razon_social, 'administraNET'].filter(Boolean).join(' · ');
+  document.title = [actual?.titulo, activa?.razon_social, 'ARMADILL-ERP'].filter(Boolean).join(' · ');
 
   return (
     <div className="app">
       <nav className="rail" aria-label="Menú principal">
-        <div className="logo" aria-hidden="true">a</div>
+        <div className="logo" aria-hidden="true"><Logo /></div>
         {disponibles.map((r) => (
           <a key={r.clave} href={`#/${r.clave}`} aria-current={actual?.clave === r.clave ? 'page' : undefined}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={r.icono} /></svg>{r.titulo}

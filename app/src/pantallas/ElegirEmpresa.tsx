@@ -1,3 +1,4 @@
+import { Logo } from '../Logo';
 import { useState } from 'react';
 import { useSesion } from '../sesion';
 import { cuitConGuiones, nombreCondicion } from '../formato';
@@ -10,7 +11,7 @@ export function ElegirEmpresa() {
   return (
     <div className="ingreso">
       <div className="caja tarjeta">
-        <div className="logo" aria-hidden="true">a</div>
+        <div className="logo" aria-hidden="true"><Logo /></div>
         <h1>Hola, {yo.usuario.nombre.split(' ')[0]}</h1>
         <p className="muted">¿Con qué empresa vas a trabajar?</p>
         {error && <Alerta>{error}</Alerta>}

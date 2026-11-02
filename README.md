@@ -1,4 +1,4 @@
-# administraNET (réplica)
+# ARMADILL-ERP
 
 Sistema de gestión para **estudios contables**: ventas, compras, stock, tesorería, contabilidad e impuestos, con varias empresas por estudio. Es una réplica reconstruida desde cero a partir del relevamiento de un ERP de escritorio, con base PostgreSQL, API en Node y front en React.
 
