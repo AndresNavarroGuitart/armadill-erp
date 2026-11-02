@@ -8,6 +8,7 @@ import { calcularVenta, CODIGO_ALICUOTA } from './calculo_venta.mjs';
 import { precioVigente } from './articulos.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
 import { chocaConReservas, textoReservado } from './reservas.mjs';
+import { contabilizarCosto } from './costo_ventas.mjs';
 
 const TIPO_COMPROBANTE = { A: 1, B: 6, C: 11 };
 const RECEPTOR_CON_FACTURA_A = new Set([1, 6, 13, 16]);        // responsable inscripto y monotributistas: ARCA les emite A
@@ -208,9 +209,11 @@ export async function emitirFactura(c, ctx, cuerpo, { claveIdempotencia } = {}) 
 
   const numero = (await c.uno('select fn_siguiente($1, $2) n', [ctx.empresaId, `cbte-${p.tipoCodigo}-${p.pv.numero}`])).n;
   await c.consultar(`update comprobante set numero = $2, estado = 'confirmado' where id = $1`, [cab.id, numero]);          // acá la base verifica el comprobante y genera el asiento
+  const movs = [];
   for (const [i, it] of p.items.entries()) if (it.controlaStock) {
-    await c.consultar(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, comprobante_item_id) values ($1,$2,$3,$4,$5,'venta',$6)`, [ctx.empresaId, p.fecha, it.articuloId, it.depositoId, '-' + it.cantidad, idsItems[i]]);
+    movs.push((await c.uno(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, comprobante_item_id) values ($1,$2,$3,$4,$5,'venta',$6) returning id`, [ctx.empresaId, p.fecha, it.articuloId, it.depositoId, '-' + it.cantidad, idsItems[i]])).id);
   }
+  await contabilizarCosto(c, movs, { origenTipo: 'costo_comprobante', origenId: cab.id, descripcion: `Costo de ventas · Factura ${p.letra} ${numeroFormateado(p.pv.numero, numero)}`, fecha: p.fecha });
   const cbte = await leerComprobante(c, cab.id);
   await c.consultar(`select fn_registrar_evento('comprobantes', $1, $2, 'ok', $3, 'comprobante', $4)`,
     [`Emitió Factura ${p.letra} ${cbte.numero_formateado}`, `${p.tercero.razon_social} · $ ${cbte.imp_total} · numeración interna (sin CAE)`, ctx.empresaId, cab.id]);

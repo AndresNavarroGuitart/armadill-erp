@@ -95,7 +95,7 @@ function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: num
   useEffect(() => {
     if (id === null) return;
     obtener<Detalle>(`/api/articulos/${id}`).then((a) => {
-      setOriginal(a); setV((x) => ({ ...x, codigo: a.codigo, nombre: a.nombre, tipo: a.tipo, tratamiento: a.tratamiento_iva_venta, alicuota: a.alicuota_venta ?? '21', controla_stock: a.controla_stock, stock_minimo: a.stock_minimo && Number(a.stock_minimo) > 0 ? a.stock_minimo.replace(/\.?0+$/, '') : '', activo: a.activo }));
+      setOriginal(a); setV((x) => ({ ...x, codigo: a.codigo, nombre: a.nombre, tipo: a.tipo, tratamiento: a.tratamiento_iva_venta, alicuota: a.alicuota_venta ?? '21', controla_stock: a.controla_stock, stock_minimo: a.stock_minimo && Number(a.stock_minimo) > 0 ? a.stock_minimo.replace(/\.?0+$/, '') : '', activo: a.activo, costo: a.costo != null ? a.costo.replace(/.?0+$/, '') : '' }));
     }).catch((e) => setError(e)).finally(() => setCargando(false));
   }, [id]);
 
@@ -105,7 +105,8 @@ function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: num
     try {
       if (original) {
         const antes: Record<string, unknown> = { nombre: original.nombre, tratamiento_iva_venta: original.tratamiento_iva_venta, alicuota_venta: original.alicuota_venta ?? undefined, controla_stock: original.controla_stock, stock_minimo: original.stock_minimo && Number(original.stock_minimo) > 0 ? original.stock_minimo.replace(/\.?0+$/, '') : null, activo: original.activo };
-        const cambios = Object.fromEntries(Object.entries({ ...base, activo: v.activo }).filter(([k, valor]) => antes[k] !== valor));
+        const cambios: Record<string, unknown> = Object.fromEntries(Object.entries({ ...base, activo: v.activo }).filter(([k, valor]) => antes[k] !== valor));
+        if (v.costo.trim() && Number(aDecimal(v.costo)) !== Number(original.costo ?? -1)) cambios.costo = aDecimal(v.costo);        // un costo nuevo se suma al historial
         if (Object.keys(cambios).length) { await enviar('PATCH', `/api/articulos/${original.id}`, cambios); avisar('Cambios guardados.'); }
         onGuardado(true);
       } else {
@@ -152,11 +153,10 @@ function Formulario({ id, listas, puedeEditar, onCerrar, onGuardado }: { id: num
                 <>
                   <Selector etiqueta="Lista del precio inicial" value={v.lista_id} error={campos.lista_id} onChange={(e) => set('lista_id', e.target.value)}>{listas.map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}</Selector>
                   <Campo etiqueta="Precio neto inicial" inputMode="decimal" value={v.precio_neto} error={campos.precio_neto} ayuda="Sin IVA. Opcional." onChange={(e) => set('precio_neto', e.target.value)} />
-                  <Campo etiqueta="Costo" inputMode="decimal" value={v.costo} error={campos.costo} ayuda="Opcional." onChange={(e) => set('costo', e.target.value)} />
                 </>
               )}
+              {!bloqueado && <Campo etiqueta="Costo" inputMode="decimal" value={v.costo} error={campos.costo} ayuda={original ? 'Si lo cambiás, queda en el historial.' : 'Opcional.'} onChange={(e) => set('costo', e.target.value)} />}
             </div>
-            {original?.costo != null && <p className="muted">Último costo: <strong className="num">{moneda(original.costo)}</strong></p>}
             <div className="pie-form">
               <button type="button" className="btn" onClick={onCerrar}>{bloqueado ? 'Cerrar' : 'Cancelar'}</button>
               {!bloqueado && <button type="submit" className="btn primario" disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>}

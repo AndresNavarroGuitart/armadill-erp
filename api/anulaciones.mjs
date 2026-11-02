@@ -9,6 +9,7 @@ import { validar } from './validar.mjs';
 import { ErrorApi, invalido, noEncontrado } from './errores.mjs';
 import { calcularVenta, CODIGO_ALICUOTA } from './calculo_venta.mjs';
 import { leerComprobante, numeroFormateado } from './ventas.mjs';
+import { contabilizarCosto } from './costo_ventas.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
@@ -74,7 +75,7 @@ export async function anularComprobante(c, ctx, id, cuerpo, { sentido = 'venta' 
   const etiqueta = `${f.tipo} ${numeroFormateado(f.punto_venta, f.numero)}`;
 
   // Stock: cada movimiento que hizo el comprobante se contrarresta (una venta vuelve como devolución; una devolución de nota, como venta).
-  const movs = await c.consultar(`select m.articulo_id, m.deposito_id, m.cantidad::text cantidad, m.tipo, a.nombre from movimiento_stock m join comprobante_item i on i.id = m.comprobante_item_id join articulo a on a.id = m.articulo_id
+  const movs = await c.consultar(`select m.articulo_id, m.deposito_id, m.cantidad::text cantidad, m.tipo, fn_costo_a_revertir(m.id)::text costo, a.nombre from movimiento_stock m join comprobante_item i on i.id = m.comprobante_item_id join articulo a on a.id = m.articulo_id
     where i.comprobante_id = $1 and m.tipo = any($2::text[]) order by m.id`, [id, Object.keys(INVERSO)]);
   const permite = (await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p;
   for (const m of movs.filter((x) => dec(x.cantidad) > 0n)) {              // lo que había entrado (devoluciones de una nota) tiene que seguir estando para poder sacarlo
@@ -84,10 +85,13 @@ export async function anularComprobante(c, ctx, id, cuerpo, { sentido = 'venta' 
   // La nota aplicada a una factura: se deshace la aplicación (la factura recupera su saldo).
   const desaplicadas = f.clase === 'nota_credito' ? await c.consultar('delete from comprobante_aplicacion where nota_id = $1 returning factura_id', [id]) : [];
   await c.consultar(`update comprobante set estado = 'anulado', motivo_anulacion = $2, anulado_en = now(), anulado_por = $3 where id = $1`, [id, d.motivo, ctx.usuarioId]);      // acá la base genera el contraasiento
-  for (const m of movs) {
-    await c.consultar(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, motivo) values ($1, $2, $3, $4, $5, $6, $7)`,
-      [ctx.empresaId, hoyISO(), m.articulo_id, m.deposito_id, texto(-dec(m.cantidad), 4), INVERSO[m.tipo], `Anulación de ${etiqueta}`.slice(0, 200)]);
+  const idsCosto = [];
+  for (const m of movs) {                                                                          // lo que salió al cliente (o volvió) se contrarresta al MISMO costo con el que se movió
+    const r = await c.uno(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, motivo, costo_unitario) values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+      [ctx.empresaId, hoyISO(), m.articulo_id, m.deposito_id, texto(-dec(m.cantidad), 4), INVERSO[m.tipo], `Anulación de ${etiqueta}`.slice(0, 200), f.sentido === 'venta' ? m.costo : null]);
+    idsCosto.push(r.id);
   }
+  if (f.sentido === 'venta') await contabilizarCosto(c, idsCosto, { origenTipo: 'costo_comprobante', origenId: id, descripcion: `Anulación del costo de ventas · ${etiqueta}`, fecha: hoyISO() });
   if (f.sentido === 'compra') await revertirCostos(c, ctx, id);
   return { comprobante: await detalleComprobante(c, id), etiqueta, cliente: f.cliente, total: f.total, motivo: d.motivo, stock: movs.length, desaplicadas: desaplicadas.length };
 }
@@ -199,10 +203,12 @@ export async function emitirNota(c, ctx, cuerpo, { claveIdempotencia } = {}) {
   const numero = (await c.uno('select fn_siguiente($1, $2) n', [ctx.empresaId, `cbte-${p.tipoCodigo}-${p.pv.numero}`])).n;
   await c.consultar(`update comprobante set numero = $2, estado = 'confirmado' where id = $1`, [cab.id, numero]);       // la base verifica la nota (letra, origen, cantidades) y genera el asiento invertido
   // Mercadería: vuelve al depósito de donde salió.
+  const idsCosto = [];
   for (const [i, l] of p.lineas.entries()) if (l.devuelve) {
-    await c.consultar(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, comprobante_item_id, motivo) values ($1,$2,$3,$4,$5,'devolucion_venta',$6,$7)`,
-      [ctx.empresaId, p.fecha, l.r.articulo_id, l.r.deposito_stock, l.cantidad, idsItems[i], `Devolución por nota de crédito sobre ${p.etiquetaOrigen}`.slice(0, 200)]);
+    idsCosto.push((await c.uno(`insert into movimiento_stock (empresa_id, fecha, articulo_id, deposito_id, cantidad, tipo, comprobante_item_id, motivo) values ($1,$2,$3,$4,$5,'devolucion_venta',$6,$7) returning id`,
+      [ctx.empresaId, p.fecha, l.r.articulo_id, l.r.deposito_stock, l.cantidad, idsItems[i], `Devolución por nota de crédito sobre ${p.etiquetaOrigen}`.slice(0, 200)])).id);
   }
+  await contabilizarCosto(c, idsCosto, { origenTipo: 'costo_comprobante', origenId: cab.id, descripcion: `Costo de ventas · devolución de mercadería (nota sobre ${p.etiquetaOrigen})`, fecha: p.fecha });
   // Se aplica a la factura hasta donde alcance su saldo; si sobra, queda como saldo a favor del cliente.
   const aplicar = dec(k.impTotal) < dec(p.saldo) ? k.impTotal : p.saldo;
   if (dec(aplicar) > 0n) await c.consultar('insert into comprobante_aplicacion (empresa_id, nota_id, factura_id, importe, fecha) values ($1,$2,$3,$4,$5)', [ctx.empresaId, cab.id, o.id, aplicar, p.fecha]);

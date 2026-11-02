@@ -100,6 +100,7 @@ export type ChequeDetalle = Cheque & { eventos: { id: number; fecha: string; est
 export type ResumenCheque = { origen: string; estado: string; cantidad: number; importe: string };
 
 /* ---------- ejercicios ---------- */
+export type EstadoCostoVentas = { activo: boolean; asientos_automaticos: boolean; cuenta_costo_ventas: { id: number; codigo: string; nombre: string } | null; cuenta_mercaderias: { id: number; codigo: string; nombre: string } | null; articulos_sin_costo: number; asientos_generados: number };
 export type Ejercicio = { id: number; desde: string; hasta: string; cerrado: boolean; cerrado_en: string | null; cerrado_por: string | null; asiento_cierre_id: number | null; periodos: number; periodos_abiertos: number; asientos: number; borradores: number; resultado: string };
 export type PreviaCierre = { ejercicio: Ejercicio; ingresos: string; egresos: string; resultado: string; cuentas_a_saldar: number; destino: string; bloqueos: string[]; avisos: string[]; puede_cerrar: boolean };
 
@@ -129,6 +130,7 @@ export type PreviaRemito = { proveedor: { id: number; razon_social: string }; fe
 /* ---------- remitos de salida ---------- */
 export type RemitoVenta = { id: number; numero_formateado: string; fecha: string; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; pedido: { id: number; numero_formateado: string } | null; total: string };
 export type RemitoVentaDetalle = RemitoVenta & {
+  asientos_costo: { id: number; numero: number; fecha: string; descripcion: string; importe: string }[];
   observaciones: string | null;
   items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; mueve_stock: boolean; facturado: string }[];
   facturas: { id: number; tipo: string; numero_formateado: string }[];

@@ -3,7 +3,7 @@
 -- "disponible" = existencia − reservado. La reserva se libera sola cuando el pedido se entrega, se factura directo o se anula (la vista solo mira pedidos confirmados con renglones pendientes).
 -- Quién respeta la reserva lo decide la aplicación: una entrega o una factura SIN pedido no puede tomar lo reservado para otros; una entrega contra el pedido usa su propia reserva.
 -- Parámetro de la empresa: con `pedido_reserva_estricta` un pedido no se confirma si no hay disponible para todo lo que pide; sin él se confirma igual (queda en espera de mercadería) y avisa.
--- Va DESPUÉS de 37 y ANTES de 39 (el endurecimiento de Supabase, que siempre es el último).
+-- Va DESPUÉS de 37 y ANTES de 40 (el endurecimiento de Supabase, que siempre es el último).
 
 alter table empresa_parametro add column pedido_reserva_estricta boolean not null default false;
 

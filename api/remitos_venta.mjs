@@ -7,6 +7,7 @@ import { numeroFormateado } from './ventas.mjs';
 import { precioVigente } from './articulos.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
 import { existenciaYReservado, textoReservado, chocaConReservas } from './reservas.mjs';
+import { avisoSinCosto } from './costo_ventas.mjs';
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const PUNTO = 1;
@@ -79,6 +80,8 @@ async function preparar(c, ctx, cuerpo) {
   if (!items.some((x) => x.controlaStock)) avisos.push('Ningún renglón lleva control de stock: el remito no mueve existencias.');
   if (pedido) { const faltan = origen.filter((x) => !usados.has(x.id) && dec(x.pendiente) > 0n).length; if (faltan) avisos.push(`Quedan ${faltan} renglón${faltan === 1 ? '' : 'es'} del pedido sin entregar en este remito.`); }
   if (items.some((x) => dec(x.precio) === 0n)) avisos.push('Hay renglones sin precio: la factura te va a pedir indicarlo.');
+  const sinCosto = await avisoSinCosto(c, ctx, items.filter((x) => x.controlaStock).map((x) => x.articuloId));
+  if (sinCosto) avisos.push(sinCosto);
   return { d, tercero, pedido, fecha, items, avisos, total: texto(items.reduce((s, x) => s + dec(x.importe), 0n)) };
 }
 
@@ -166,7 +169,8 @@ export async function detalleRemitoVenta(c, id) {
   const facturado = items.length ? await c.consultar(`select ci.documento_item_id as id, sum(ci.cantidad)::text as cantidad from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') where ci.documento_item_id = any($1::bigint[]) group by ci.documento_item_id`, [items.map((i) => i.id)]) : [];
   const facturas = items.length ? await c.consultar(`select distinct cb.id, t.descripcion as tipo, cb.punto_venta, cb.numero from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
     where ci.documento_item_id = any($1::bigint[]) order by cb.id`, [items.map((i) => i.id)]) : [];
-  return { ...f, items: items.map((i) => ({ ...i, facturado: facturado.find((x) => x.id === i.id)?.cantidad ?? '0' })), facturas: facturas.map(({ punto_venta, numero, ...x }) => ({ ...x, numero_formateado: numeroFormateado(punto_venta, numero) })), acciones: { modificar: f.estado === 'borrador', confirmar: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado' } };
+  const costo = await c.consultar(`select a.id, a.numero, a.fecha::text as fecha, a.descripcion, (select coalesce(sum(l.debe), 0)::text from asiento_linea l where l.asiento_id = a.id) as importe from asiento a where a.origen_tipo = 'costo_remito' and a.origen_id = $1 order by a.id`, [id]);
+  return { ...f, asientos_costo: costo.map((x) => ({ ...x, importe: texto(dec(x.importe)) })), items: items.map((i) => ({ ...i, facturado: facturado.find((x) => x.id === i.id)?.cantidad ?? '0' })), facturas: facturas.map(({ punto_venta, numero, ...x }) => ({ ...x, numero_formateado: numeroFormateado(punto_venta, numero) })), acciones: { modificar: f.estado === 'borrador', confirmar: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado' } };
 }
 
 export async function listarRemitosVenta(c, { estado, tercero_id, pedido_id, desde, hasta, limite = 50, desplazamiento = 0 } = {}) {

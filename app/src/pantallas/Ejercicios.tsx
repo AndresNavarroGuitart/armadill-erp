@@ -5,7 +5,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, llamar, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { fecha, fechaHora, moneda } from '../formato';
-import type { Ejercicio, PreviaCierre } from '../tipos';
+import type { Ejercicio, EstadoCostoVentas, PreviaCierre } from '../tipos';
 import { Alerta, Campo, Cargando, Etiqueta, Modal, resumenErrores, useAviso, Vacio } from '../ui';
 
 /** El día anterior y el mismo día un año antes de un ejercicio: lo que sugiere el alta de uno histórico. */
@@ -50,11 +50,39 @@ export function Ejercicios() {
             </tr>))}</tbody>
         </table></div>
       )}
+      <CostoVentas />
       {agregando && <Alta sugerido={datos && datos.length ? { desde: anioAntes(datos[datos.length - 1].desde), hasta: diaAntes(datos[datos.length - 1].desde) } : null} onCerrar={() => setAgregando(false)} onHecho={hecho} />}
       {borrando && <Baja ejercicio={borrando} onCerrar={() => setBorrando(null)} onHecho={hecho} />}
       {cerrando && <Cierre ejercicio={cerrando} onCerrar={() => setCerrando(null)} onHecho={hecho} />}
       {reabriendo && <Reapertura ejercicio={reabriendo} onCerrar={() => setReabriendo(null)} onHecho={hecho} />}
     </>
+  );
+}
+
+/** El costo de ventas automático: cada salida de mercadería asienta su costo (Costo de ventas contra Mercaderías). Lo decide cada empresa; lo asienta el servidor. */
+function CostoVentas() {
+  const { puede } = useSesion(), puedeConfigurar = puede('contabilidad.configurar');
+  const avisar = useAviso();
+  const [e, setE] = useState<EstadoCostoVentas | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [trabajando, setTrabajando] = useState(false);
+  useEffect(() => { obtener<EstadoCostoVentas>('/api/contabilidad/costo-ventas').then(setE).catch((x) => setError(x.message)); }, []);
+  async function cambiar(activo: boolean) {
+    setTrabajando(true); setError(null);
+    try { setE(await enviar<EstadoCostoVentas>('PUT', '/api/contabilidad/costo-ventas', { activo })); avisar(activo ? 'Costo de ventas automático activado.' : 'Costo de ventas automático desactivado.'); }
+    catch (x) { setError(x instanceof Error ? x.message : 'No se pudo cambiar.'); } finally { setTrabajando(false); }
+  }
+  if (!e) return error ? <Alerta>{error}</Alerta> : null;
+  return (
+    <div className="tarjeta" style={{ marginTop: 16 }}>
+      <h3 style={{ margin: 0 }}>Costo de ventas automático {e.activo ? <Etiqueta tono="ok">Activo</Etiqueta> : <Etiqueta tono="neutro">Apagado</Etiqueta>}</h3>
+      <p className="muted" style={{ margin: '6px 0 10px' }}>Cuando sale mercadería al cliente (remito de salida o factura sin remito) se asienta su costo: Costo de ventas contra Mercaderías. Si vuelve (anulación o nota de crédito con devolución) se asienta al revés, al mismo costo con el que salió. El costo es el último costo del artículo; las compras de bienes con stock pasan a Mercaderías. Lo anterior a activarlo no se reasienta.</p>
+      {error && <Alerta>{error}</Alerta>}
+      {e.activo && <p style={{ margin: '0 0 10px' }}>Cuentas: <strong>{e.cuenta_mercaderias?.codigo} {e.cuenta_mercaderias?.nombre}</strong> y <strong>{e.cuenta_costo_ventas?.codigo} {e.cuenta_costo_ventas?.nombre}</strong> · {e.asientos_generados} asiento{e.asientos_generados === 1 ? '' : 's'} generado{e.asientos_generados === 1 ? '' : 's'}.</p>}
+      {e.articulos_sin_costo > 0 && <Alerta tipo="aviso">{e.articulos_sin_costo} artículo{e.articulos_sin_costo === 1 ? '' : 's'} con stock no tiene{e.articulos_sin_costo === 1 ? '' : 'n'} costo cargado: su salida no genera costo de ventas hasta que lo cargues (Artículos → Costo).</Alerta>}
+      {!e.asientos_automaticos && <Alerta tipo="aviso">La empresa no tiene activados los asientos automáticos: sin ellos no se puede activar el costo de ventas.</Alerta>}
+      {puedeConfigurar && <div className="pie-form"><button className={e.activo ? 'btn' : 'btn primario'} disabled={trabajando || (!e.activo && !e.asientos_automaticos)} onClick={() => void cambiar(!e.activo)}>{e.activo ? 'Desactivar' : 'Activar costo de ventas automático'}</button></div>}
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@
 import { validar } from './validar.mjs';
 import { ErrorApi, invalido, noEncontrado } from './errores.mjs';
 import { CODIGO_ALICUOTA } from './calculo_venta.mjs';
+import { dec } from '../reglas/calculo.mjs';
 
 const ALICUOTAS = Object.keys(CODIGO_ALICUOTA);
 const TRATAMIENTOS = ['gravado', 'exento', 'no_gravado'];
@@ -83,18 +84,19 @@ export async function listarArticulos(c, { q, activo, tipo, lista_id, fecha, lim
 }
 
 export async function modificarArticulo(c, ctx, id, cuerpo) {
-  const esquema = { ...Object.fromEntries(Object.entries(CAMPOS).filter(([k]) => !['codigo', 'tipo'].includes(k))), activo: { tipo: 'booleano' } };   // el código y el tipo no cambian: hay historia detrás
+  const esquema = { ...Object.fromEntries(Object.entries(CAMPOS).filter(([k]) => !['codigo', 'tipo'].includes(k))), activo: { tipo: 'booleano' }, costo: { tipo: 'importe', min: 0, max: 999999999999 } };   // el código y el tipo no cambian: hay historia detrás
   const { valor: d } = validar(esquema, cuerpo, { parcial: true });
   if (!Object.keys(d).length) throw invalido({ _: 'No hay nada para modificar.' });
   const antes = await leerArticulo(c, id), { e, salida } = tratamientos(d, antes);
   if (Object.keys(e).length) throw invalido(e);
-  const cambios = { ...d }; delete cambios.alicuota_venta; delete cambios.alicuota_compra;
+  const cambios = { ...d }; delete cambios.alicuota_venta; delete cambios.alicuota_compra; delete cambios.costo;
   if (d.tratamiento_iva_venta !== undefined || d.alicuota_venta !== undefined) { cambios.tratamiento_iva_venta = salida.tratamiento_iva_venta; cambios.alicuota_venta_codigo = salida.alicuota_venta_codigo; }
   if (d.tratamiento_iva_compra !== undefined || d.alicuota_compra !== undefined) { cambios.tratamiento_iva_compra = salida.tratamiento_iva_compra; cambios.alicuota_compra_codigo = salida.alicuota_compra_codigo; }
   const claves = Object.keys(cambios);
-  await c.consultar(`update articulo set ${claves.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1`, [id, ...claves.map((k) => cambios[k])]);
+  if (claves.length) await c.consultar(`update articulo set ${claves.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1`, [id, ...claves.map((k) => cambios[k])]);
+  if (d.costo !== undefined && (antes.costo == null || dec(d.costo) !== dec(antes.costo))) await c.consultar(`insert into articulo_costo (empresa_id, articulo_id, fecha, costo, origen) values ($1,$2,current_date,$3,'manual')`, [ctx.empresaId, id, d.costo]);     // el historial no se edita: un costo nuevo es un registro nuevo
   const despues = await leerArticulo(c, id);
-  const nombres = ['nombre', 'rubro_id', 'unidad_id', 'tratamiento_iva_venta', 'alicuota_venta', 'tratamiento_iva_compra', 'alicuota_compra', 'controla_stock', 'stock_minimo', 'activo'];
+  const nombres = ['nombre', 'rubro_id', 'unidad_id', 'tratamiento_iva_venta', 'alicuota_venta', 'tratamiento_iva_compra', 'alicuota_compra', 'controla_stock', 'stock_minimo', 'activo', 'costo'];
   return { articulo: despues, cambios: nombres.filter((k) => String(antes[k] ?? '') !== String(despues[k] ?? '')).map((k) => [k, String(antes[k] ?? '—'), String(despues[k] ?? '—')]) };
 }
 

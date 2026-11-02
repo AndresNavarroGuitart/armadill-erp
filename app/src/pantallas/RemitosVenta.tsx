@@ -189,6 +189,7 @@ function Detalle({ id, onCerrar, onCambio, onModificar }: { id: number; onCerrar
             <tfoot><tr><td style={{ fontWeight: 600 }}>Valor (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(r.total)}</td><td />{r.estado === 'confirmado' && <td />}</tr></tfoot>
           </table></div>
           {r.facturas.length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Facturado en: {r.facturas.map((f) => `${f.tipo} ${f.numero_formateado}`).join(' · ')}</p>}
+          {r.asientos_costo.length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Costo de ventas asentado: {r.asientos_costo.map((a) => `${a.descripcion} (${moneda(a.importe)})`).join(' · ')}.</p>}
           {r.estado === 'confirmado' && r.facturas.length === 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Para facturarlo, entrá a Nueva factura, elegí al cliente y usá «Traer del remito».</p>}
           {anulando && (
             <form onSubmit={(e) => { e.preventDefault(); void accion(() => enviar<RemitoVentaDetalle>('POST', `/api/ventas/remitos/${id}/anular`, { motivo: motivo.trim() }), 'Remito anulado: la mercadería volvió al stock.'); }} noValidate style={{ marginTop: 12 }}>

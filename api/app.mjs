@@ -16,6 +16,7 @@ import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, apl
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCuentas as concListarCuentas, pendientes as concPendientes, historial as concHistorial, listarExtractos as concListarExtractos, importarExtracto as concImportarExtracto, detalleExtracto as concDetalleExtracto, cerrarExtracto as concCerrarExtracto, borrarExtracto as concBorrarExtracto, conciliar as concConciliar, aceptarSugerencias as concAceptarSugerencias, deshacerConciliacion as concDeshacer, registrarMovimiento as concRegistrarMovimiento } from './conciliacion.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
+import { estadoCostoVentas, configurarCostoVentas } from './costo_ventas.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { pendientesDeFacturarOrdenes, calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
 import { listarReservas } from './reservas.mjs';
@@ -433,6 +434,13 @@ const RUTAS = [
   ['POST', '/api/ventas/notas-credito', 'ventas.emitir', async ({ c, ctx, cuerpo, req }) => {
     const r = await emitirNota(c, ctx, cuerpo, { claveIdempotencia: req.headers['idempotency-key'] });
     return { estado: r.repetido ? 200 : 201, cuerpo: { ...r.comprobante, avisos: r.avisos, repetido: r.repetido } };
+  }],
+  // --- Costo de ventas automático (inventario permanente) ---
+  ['GET', '/api/contabilidad/costo-ventas', 'ejercicios.ver', ({ c, ctx }) => estadoCostoVentas(c, ctx)],
+  ['PUT', '/api/contabilidad/costo-ventas', 'contabilidad.configurar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await configurarCostoVentas(c, ctx, cuerpo);
+    if (r.cambio) await registrarEvento(c, ctx, { categoria: 'contabilidad', accion: r.activo ? 'Activó el costo de ventas automático' : 'Desactivó el costo de ventas automático', detalle: r.activo ? `Mercaderías ${r.cuenta_mercaderias?.codigo} · Costo de ventas ${r.cuenta_costo_ventas?.codigo}` : 'los movimientos de ahí en adelante no se asientan', origen });
+    return { estado: 200, cuerpo: r };
   }],
   // --- Ejercicios contables: previa, cierre (con su asiento) y reapertura ---
   ['GET', '/api/ejercicios', 'ejercicios.ver', ({ c }) => listarEjercicios(c)],
