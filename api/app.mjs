@@ -14,6 +14,7 @@ import { anularComprobante, calcularNota, emitirNota, detalleComprobante } from 
 import { listarRegimenes, crearRegimen, modificarRegimen, listarCajas, crearCaja, modificarCaja, listarBancos, crearBanco, modificarBanco, listarMovimientosTesoreria, calcularPago, registrarPago, detallePago, listarPagos, listarPendientes, anularPago, cuentaCorriente } from './tesoreria.mjs';
 import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, aplicarNotaCompra, listarCompras, listarCuentas, listarJurisdicciones } from './compras.mjs';
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
+import { listarCuentas as concListarCuentas, pendientes as concPendientes, historial as concHistorial, listarExtractos as concListarExtractos, importarExtracto as concImportarExtracto, detalleExtracto as concDetalleExtracto, cerrarExtracto as concCerrarExtracto, borrarExtracto as concBorrarExtracto, conciliar as concConciliar, aceptarSugerencias as concAceptarSugerencias, deshacerConciliacion as concDeshacer, registrarMovimiento as concRegistrarMovimiento } from './conciliacion.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { pendientesDeFacturarOrdenes, calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
@@ -269,6 +270,47 @@ const RUTAS = [
     await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `${r.texto} el cheque ${r.antes.numero}`, detalle: `${r.antes.banco ?? 'cheque propio'} · $ ${r.antes.importe}${r.motivo ? ` · ${r.motivo}` : ''}`, entidad: 'cheque', entidadId: p.id, origen });
     return r.cheque;
   }]),
+  // --- Conciliación bancaria (extracto del banco contra los movimientos de la cuenta; se carga a mano, sin conexión con el banco) ---
+  ['GET', '/api/conciliacion/cuentas', 'tesoreria.ver', ({ c }) => concListarCuentas(c)],
+  ['GET', '/api/conciliacion/cuentas/:id/pendientes', 'tesoreria.ver', ({ c, p, q }) => concPendientes(c, p.id, q)],
+  ['GET', '/api/conciliacion/cuentas/:id/historial', 'tesoreria.ver', ({ c, p }) => concHistorial(c, p.id)],
+  ['GET', '/api/conciliacion/extractos', 'tesoreria.ver', ({ c, q }) => concListarExtractos(c, q)],
+  ['POST', '/api/conciliacion/extractos', 'conciliacion.gestionar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await concImportarExtracto(c, ctx, cuerpo), e = r.extracto;
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Importó un extracto de ${r.banco.banco}`, detalle: `${e.desde} a ${e.hasta} · ${e.lineas} líneas`, entidad: 'extracto_bancario', entidadId: e.id, origen });
+    return { estado: 201, cuerpo: { ...e, avisos: r.avisos } };
+  }],
+  ['GET', '/api/conciliacion/extractos/:id', 'tesoreria.ver', ({ c, p }) => concDetalleExtracto(c, p.id)],
+  ['POST', '/api/conciliacion/extractos/:id/cerrar', 'conciliacion.gestionar', async ({ c, ctx, p, origen }) => {
+    const e = await concCerrarExtracto(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Cerró el extracto de ${e.banco}`, detalle: `${e.desde} a ${e.hasta} · saldo final $ ${e.saldo_final}`, entidad: 'extracto_bancario', entidadId: e.id, origen });
+    return e;
+  }],
+  ['DELETE', '/api/conciliacion/extractos/:id', 'conciliacion.gestionar', async ({ c, ctx, p, origen }) => {
+    const e = await concBorrarExtracto(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Borró el borrador de un extracto de ${e.banco}`, detalle: `${e.desde} a ${e.hasta}`, origen });
+    return { estado: 200, cuerpo: { borrado: true } };
+  }],
+  ['POST', '/api/conciliacion/conciliar', 'conciliacion.gestionar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await concConciliar(c, ctx, cuerpo);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: 'Concilió movimientos del banco', detalle: `${r.lineas} líneas del extracto contra ${r.movimientos} movimientos · $ ${r.importe}`, entidad: 'conciliacion', entidadId: r.id, origen });
+    return { estado: 201, cuerpo: r };
+  }],
+  ['POST', '/api/conciliacion/sugerencias/aceptar', 'conciliacion.gestionar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await concAceptarSugerencias(c, ctx, cuerpo);
+    if (r.conciliaciones) await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: 'Aceptó las coincidencias sugeridas del banco', detalle: `${r.conciliaciones} conciliaciones 1 a 1`, origen });
+    return r;
+  }],
+  ['POST', '/api/conciliacion/:id/deshacer', 'conciliacion.gestionar', async ({ c, ctx, p, origen }) => {
+    const r = await concDeshacer(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: 'Deshizo una conciliación del banco', detalle: `$ ${r.antes.importe} · ${r.antes.lineas} líneas y ${r.antes.movimientos} movimientos vuelven a estar pendientes`, entidad: 'conciliacion', entidadId: p.id, origen });
+    return r.conciliacion;
+  }],
+  ['POST', '/api/conciliacion/movimientos', 'conciliacion.gestionar', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await concRegistrarMovimiento(c, ctx, cuerpo), m = r.movimiento;
+    await registrarEvento(c, ctx, { categoria: 'tesoreria', accion: `Registró un movimiento del banco (${m.concepto})`, detalle: `$ ${m.importe}${r.conciliacion ? ' · conciliado con el extracto' : ''}`, entidad: 'movimiento_tesoreria', entidadId: m.id, origen });
+    return { estado: 201, cuerpo: r };
+  }],
   // --- Cobros ---
   ['GET', '/api/cobros', 'tesoreria.ver', ({ c, q }) => listarPagos(c, 'cobro', q)],
   ['GET', '/api/cobros/pendientes', 'tesoreria.ver', ({ c, q }) => listarPendientes(c, 'cobro', q)],

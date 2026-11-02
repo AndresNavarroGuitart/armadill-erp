@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (38 archivos SQL)
+## 2. Módulos (39 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -58,7 +58,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 34 factura contra orden de compra | espejo de 33 para compras: `fn_verificar_factura_remito` acepta renglones de una orden de compra emitida del mismo proveedor (factura sin remito: lo recibido por remitos + lo facturado directo no supera lo pedido) y `fn_verificar_documento` suma lo facturado directo al tope de los remitos de entrada |
 | 35 ECHEQ | `cheque.es_echeq`, `echeq_codigo` (obligatorio y único por empresa si es ECHEQ, ignora mayúsculas y los anulados), `caracter` (a la orden / no a la orden), `cruzado` y `aceptado_en`; restricción de coherencia (un cheque de papel no lleva código ni aceptación; la aceptación es solo de terceros) y un disparador: los datos del ECHEQ no se modifican, la aceptación no se deshace, y un ECHEQ de tercero sin aceptar no sale de la cartera (ni depositado ni entregado), ni se entrega uno no a la orden |
 | 36 rebote tras el endoso | `cheque.rebotado_proveedor_id` (a qué proveedor se le había endosado el cheque que rebotó; solo en rechazados de terceros), `fn_cheque_rebotar` (pasa un cheque *entregado* a *rechazado* y asienta Deudores / Proveedores), `v_saldo_tercero` suma lo que se vuelve a deber al proveedor y `fn_pago_cheques` impide anular la orden de pago de un cheque que ya no está entregado |
-| 37 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 37 conciliación desde la aplicación | permiso `conciliacion.gestionar` (administrador y contador), `movimiento_tesoreria.asiento_id` y `fn_movimiento_bancario`: registra un movimiento de la cuenta bancaria que no viene de un cobro ni de un pago (comisión, impuesto, interés) con su asiento contra la cuenta contable elegida; el extracto, su cierre, la conciliación n a n, las sugerencias y `v_conciliacion_estado` son los de 14 |
+| 38 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

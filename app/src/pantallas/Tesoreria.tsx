@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { enviar, ErrorApi, nuevaClave, obtener } from '../api';
 import { useSesion } from '../sesion';
 import { aDecimal, fecha, fechaHora, hoyISO, moneda } from '../formato';
+import { Conciliacion } from './Conciliacion';
 import type { Banco, Caja, Cheque, ChequeDetalle, Jurisdiccion, MovimientoTesoreria, Pagina, PagoDetalle, PagoResumen, Pendiente, PreviaPago, Regimen, ResumenCheque, Tercero } from '../tipos';
 import { Alerta, Buscador, Campo, Cargando, Etiqueta, Modal, resumenErrores, Selector, useAviso, useRetraso, Vacio } from '../ui';
 
-type Pestana = 'cobro' | 'pago' | 'cheques' | 'cajas';
+type Pestana = 'cobro' | 'pago' | 'cheques' | 'conciliacion' | 'cajas';
 const POR_PAGINA = 25;
 const TEXTO = { cobro: { uno: 'cobro', varios: 'Cobros', tercero: 'Cliente', terceros: 'clientes', ruta: '/api/cobros', accion: 'Registrar cobro', hecho: 'cobrado', permiso: 'cobros.registrar' }, pago: { uno: 'pago', varios: 'Pagos', tercero: 'Proveedor', terceros: 'proveedores', ruta: '/api/pagos', accion: 'Registrar pago', hecho: 'pagado', permiso: 'pagos.registrar' } } as const;
 const ESTADOS: Record<string, { texto: string; tono: 'ok' | 'malo' }> = { confirmado: { texto: 'Confirmado', tono: 'ok' }, anulado: { texto: 'Anulado', tono: 'malo' } };
@@ -24,10 +25,10 @@ export function Tesoreria() {
     <>
       <div className="cabecera"><div><h1>Tesorería</h1><p>Cobros a clientes, pagos a proveedores, y el dinero de cada caja y cuenta bancaria.</p></div></div>
       <div className="pestanas" role="tablist" aria-label="Tesorería">
-        {([['cobro', 'Cobros'], ['pago', 'Pagos'], ['cheques', 'Cheques'], ['cajas', 'Cajas y bancos']] as [Pestana, string][]).map(([k, n]) => <button key={k} role="tab" id={`tab-${k}`} aria-selected={pestana === k} aria-controls={`panel-${k}`} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
+        {([['cobro', 'Cobros'], ['pago', 'Pagos'], ['cheques', 'Cheques'], ['conciliacion', 'Conciliación'], ['cajas', 'Cajas y bancos']] as [Pestana, string][]).map(([k, n]) => <button key={k} role="tab" id={`tab-${k}`} aria-selected={pestana === k} aria-controls={`panel-${k}`} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
       </div>
       <div role="tabpanel" id={`panel-${pestana}`} aria-labelledby={`tab-${pestana}`}>
-        {pestana === 'cajas' ? <CajasYBancos puedeAdministrar={puede('tesoreria.administrar')} /> : pestana === 'cheques' ? <Cheques puedeGestionar={puede('cheques.gestionar')} /> : <Lista key={pestana} tipo={pestana} puedeRegistrar={puede(TEXTO[pestana].permiso)} />}
+        {pestana === 'cajas' ? <CajasYBancos puedeAdministrar={puede('tesoreria.administrar')} /> : pestana === 'cheques' ? <Cheques puedeGestionar={puede('cheques.gestionar')} /> : pestana === 'conciliacion' ? <Conciliacion puedeGestionar={puede('conciliacion.gestionar')} /> : <Lista key={pestana} tipo={pestana} puedeRegistrar={puede(TEXTO[pestana].permiso)} />}
       </div>
     </>
   );
