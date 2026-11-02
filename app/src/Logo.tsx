@@ -1,13 +1,18 @@
-// Marca de ARMADILL-ERP: un bicho bolita cerrado (placas que se enroscan hacia el centro).
-export function Logo({ tamano = 42 }: { tamano?: number }) {
+import { useId } from 'react';
+
+// Marca de ARMADILL-ERP en modo ícono: un bicho bolita cerrado, plano, en blanco. Va sobre el cuadrado con degradado de la marca (.logo): las placas son recortes que dejan ver ese fondo.
+export function Logo({ tamano = 26 }: { tamano?: number }) {
+  const id = useId();
   return (
-    <svg viewBox="0 0 64 64" width={tamano} height={tamano} role="img" aria-label="ARMADILL-ERP">
-      <defs><radialGradient id="armBola" cx="38%" cy="30%" r="80%"><stop offset="0" stopColor="#8fa3b5"/><stop offset=".55" stopColor="#4d6073"/><stop offset="1" stopColor="#27323d"/></radialGradient></defs>
-<circle cx="32" cy="32" r="29" fill="url(#armBola)"/>
-<g fill="none" stroke="#0e151c" strokeOpacity=".55" strokeWidth="1.6" strokeLinecap="round"><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(0 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(36 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(72 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(108 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(144 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(180 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(216 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(252 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(288 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(324 32 32)"/></g>
-<g fill="none" stroke="#dbe6ee" strokeOpacity=".35" strokeWidth="1" strokeLinecap="round" transform="translate(-1 -1)"><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(0 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(36 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(72 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(108 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(144 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(180 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(216 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(252 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(288 32 32)"/><path d="M32 32 C 37 24, 45 16, 55 15" transform="rotate(324 32 32)"/></g>
-<circle cx="32" cy="32" r="3.2" fill="#0e151c"/>
-<ellipse cx="23" cy="17" rx="9" ry="4.5" fill="#fff" fillOpacity=".18" transform="rotate(-30 23 17)"/>
+    <svg viewBox="0 0 24 24" width={tamano} height={tamano} role="img" aria-label="ARMADILL-ERP">
+      <mask id={id} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+        <rect width="24" height="24" fill="#fff" />
+        <path d="M7.3 5.2 Q10.6 12 7.3 18.8" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        <path d="M11 3.6 Q14.8 12 11 20.4" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        <path d="M14.9 4.2 Q18.2 12 14.9 19.8" stroke="#000" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+        <circle cx="4.3" cy="12" r="1.5" fill="#000" />
+      </mask>
+      <circle cx="12" cy="12" r="9.2" fill="#fff" mask={`url(#${id})`} />
     </svg>
   );
 }
