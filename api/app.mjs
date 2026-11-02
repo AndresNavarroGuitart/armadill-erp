@@ -16,7 +16,7 @@ import { calcularCompra, cargarCompra, calcularNotaCompra, cargarNotaCompra, apl
 import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './trazabilidad.mjs';
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
-import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
+import { pendientesDeFacturarOrdenes, calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
 import { calcularPresupuesto, crearPresupuesto, modificarPresupuesto, confirmarPresupuesto, anularPresupuesto, borrarPresupuesto, detallePresupuesto, listarPresupuestos } from './presupuestos_venta.mjs';
 import { pendientesDeFacturarPedidos, calcularPedido, crearPedido, modificarPedido, confirmarPedido, anularPedido, borrarPedido, detallePedido, listarPedidos } from './pedidos_venta.mjs';
 import { pendientesDeFacturarVenta, calcularRemitoVenta, crearRemitoVenta, modificarRemitoVenta, confirmarRemitoVenta, anularRemitoVenta, borrarRemitoVenta, detalleRemitoVenta, listarRemitosVenta } from './remitos_venta.mjs';
@@ -320,6 +320,7 @@ const RUTAS = [
     await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${o.estado === 'confirmado' ? 'Emitió' : 'Guardó como borrador'} la orden de compra ${o.numero_formateado}`, detalle: `${o.proveedor} · $ ${o.total}`, entidad: 'documento_comercial', entidadId: o.id, origen });
     return { estado: 201, cuerpo: { ...o, avisos: r.avisos } };
   }],
+  ['GET', '/api/compras/ordenes/pendientes-facturar', 'compras.ver', ({ c, q }) => pendientesDeFacturarOrdenes(c, q)],
   ['GET', '/api/compras/ordenes/:id', 'compras.ver', ({ c, p }) => detalleOrden(c, p.id)],
   ['PUT', '/api/compras/ordenes/:id', 'compras.cargar', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await modificarOrden(c, ctx, p.id, cuerpo), o = r.orden;

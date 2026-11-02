@@ -112,6 +112,7 @@ export type OrdenCompraDetalle = OrdenCompra & {
   items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; recibido: string; facturado: string; pendiente: string }[];
   acciones: { modificar: boolean; emitir: boolean; borrar: boolean; anular: boolean };
   remitos: { id: number; numero_formateado: string; numero_externo: string | null; fecha: string; estado: string }[];
+  facturas: { id: number; tipo: string; numero_formateado: string }[];
 };
 export type PreviaOrden = { proveedor: { id: number; razon_social: string }; fecha: string; entrega_prevista: string | null; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string }[]; total: string; avisos: string[] };
 
@@ -157,4 +158,5 @@ export type PreviaPedidoVenta = { cliente: { id: number; razon_social: string };
 export type PendientePedidoVenta = { pedido_id: number; pedido_numero: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; pedido: string; entregado: string; precio: string; facturable: string };
 export type PendienteRemitoVenta = { remito_id: number; remito: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; entregado: string; precio: string; facturado: string; facturable: string };
 
+export type PendienteOrdenCompra = { orden_id: number; orden_numero: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; pedido: string; recibido: string; precio: string; facturable: string };
 export type PendienteRemito = { remito_id: number; remito: string; numero_externo: string | null; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; llego: string; precio: string; facturado: string; facturable: string };

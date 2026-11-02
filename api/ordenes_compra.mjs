@@ -119,9 +119,11 @@ export async function detalleOrden(c, id) {
     from documento_item i left join deposito dp on dp.id = i.deposito_id left join v_documento_pendiente v on v.item_id = i.id where i.documento_id = $1 order by i.orden`, [id]);
   const remitos = (await c.consultar(`select d.id, d.punto_venta, d.numero, d.numero_externo, d.fecha::text as fecha, d.estado from documento_comercial d where d.documento_origen_id = $1 and d.tipo = 'remito_compra' order by d.id`, [id]))
     .map(({ punto_venta, numero, ...r }) => ({ ...r, numero_formateado: numeroFormateado(punto_venta, numero) }));
+  const facturas = (await c.consultar(`select distinct cb.id, t.descripcion as tipo, cb.punto_venta, cb.numero from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
+    where ci.documento_item_id in (select id from documento_item where documento_id = $1) order by cb.id`, [id])).map(({ punto_venta, numero, ...x }) => ({ ...x, numero_formateado: numeroFormateado(punto_venta, numero) }));
   const { punto_venta, numero, ...resto } = f;
   const pendiente = f.estado === 'confirmado' && items.some((i) => dec(i.pendiente) > 0n);
-  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), items, remitos, pendiente_de_recibir: pendiente, total: texto(dec(f.total)),
+  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), items, remitos, facturas, pendiente_de_recibir: pendiente, total: texto(dec(f.total)),
     acciones: { modificar: f.estado === 'borrador', emitir: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado' } };
 }
 
@@ -140,4 +142,14 @@ export async function listarOrdenes(c, { estado, tercero_id, desde, hasta, pendi
   const total = (await c.uno(`select count(*)::int n from documento_comercial d where d.tipo = 'orden_compra' and ${filtros}`, p)).n;
   const pend = filas.length ? await c.consultar(`select documento_id, sum(pendiente_remitir)::text as pendiente from v_documento_pendiente where documento_id = any($1::bigint[]) group by documento_id`, [filas.map((f) => f.id)]) : [];
   return { datos: filas.map(({ punto_venta, numero, ...f }) => ({ ...f, numero_formateado: numeroFormateado(punto_venta, numero), total: texto(dec(f.total)), pendiente_de_recibir: f.estado === 'confirmado' && dec(pend.find((x) => x.documento_id === f.id)?.pendiente ?? '0') > 0n })), total, limite: lim, desplazamiento: des };
+}
+
+/* Los renglones de órdenes de compra emitidas de un proveedor a los que todavía les falta recibir algo: se pueden facturar directo (sin remito), y esa factura es la recepción. */
+export async function pendientesDeFacturarOrdenes(c, { tercero_id } = {}) {
+  if (!tercero_id || !/^\d{1,15}$/.test(String(tercero_id))) throw invalido({ tercero_id: 'indicá el proveedor' });
+  const filas = await c.consultar(`select d.id as orden_id, d.punto_venta, d.numero, d.fecha::text as fecha, i.id as item_id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text as pedido, i.precio_unitario::text as precio,
+      v.remitado::text as recibido, v.pendiente_remitir::text as facturable
+    from v_documento_pendiente v join documento_item i on i.id = v.item_id join documento_comercial d on d.id = v.documento_id and d.tipo = 'orden_compra'
+   where v.tercero_id = $1 and v.pendiente_remitir > 0 order by d.fecha, d.id, i.orden`, [Number(tercero_id)]);
+  return { datos: filas.map(({ punto_venta, numero, ...f }) => ({ ...f, orden_numero: numeroFormateado(punto_venta, numero), facturable: texto(dec(f.facturable), 4) })) };
 }

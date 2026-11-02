@@ -87,22 +87,29 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
   const depositos = await c.consultar('select id from deposito where activo order by id');
   const items = [], remitosUsados = new Set();
   for (const [i, it] of d.items.entries()) {
-    // un renglón puede tomar mercadería de un remito de entrada: ya ingresó con el remito, así que la factura la valoriza pero no la vuelve a ingresar
+    // un renglón puede tomar mercadería de un remito de entrada (ya ingresó con el remito: la factura la valoriza pero no la vuelve a ingresar) o de una orden de compra sin remito (la factura es la recepción e ingresa el stock)
     let rem = null;
     if (it.documento_item_id) {
       const k = `items[${i}].`;
-      rem = await c.uno(`select di.id, di.articulo_id, di.descripcion, di.cantidad::text as llego, d.estado, d.tipo, d.tercero_id, d.punto_venta, d.numero,
+      rem = await c.uno(`select di.id, di.articulo_id, di.descripcion, di.deposito_id, di.cantidad::text as llego, d.estado, d.tipo, d.tercero_id, d.punto_venta, d.numero,
+          coalesce((select sum(i.cantidad) from documento_item i join documento_comercial r on r.id = i.documento_id and r.estado = 'confirmado' and r.tipo = 'remito_compra' where i.item_origen_id = di.id), 0)::text as remitado,
           coalesce((select sum(x.cantidad) from comprobante_item x join comprobante k on k.id = x.comprobante_id and k.estado in ('confirmado', 'autorizado') where x.documento_item_id = di.id), 0)::text as facturado
         from documento_item di join documento_comercial d on d.id = di.documento_id where di.id = $1`, [it.documento_item_id]);
-      if (!rem || rem.tipo !== 'remito_compra') { errores[k + 'documento_item_id'] = 'el renglón del remito no existe'; continue; }
-      if (rem.tercero_id !== tercero.id) { errores[k + 'documento_item_id'] = 'el remito es de otro proveedor'; continue; }
-      if (rem.estado !== 'confirmado') { errores[k + 'documento_item_id'] = rem.estado === 'anulado' ? 'el remito está anulado' : 'el remito no está confirmado'; continue; }
-      if (remitosUsados.has(rem.id)) { errores[k + 'documento_item_id'] = 'ese renglón del remito está repetido'; continue; }
+      if (!rem || !['remito_compra', 'orden_compra'].includes(rem.tipo)) { errores[k + 'documento_item_id'] = 'el renglón del remito no existe'; continue; }
+      const de = rem.tipo === 'orden_compra' ? 'orden' : 'remito';
+      if (rem.tercero_id !== tercero.id) { errores[k + 'documento_item_id'] = `${de === 'orden' ? 'la orden' : 'el remito'} es de otro proveedor`; continue; }
+      if (rem.estado !== 'confirmado') { errores[k + 'documento_item_id'] = rem.estado === 'anulado' ? `${de === 'orden' ? 'la orden está anulada' : 'el remito está anulado'}` : `${de === 'orden' ? 'la orden no está emitida' : 'el remito no está confirmado'}`; continue; }
+      if (remitosUsados.has(rem.id)) { errores[k + 'documento_item_id'] = `ese renglón ${de === 'orden' ? 'de la orden' : 'del remito'} está repetido`; continue; }
       remitosUsados.add(rem.id);
-      if (it.articulo_id && it.articulo_id !== rem.articulo_id) { errores[k + 'articulo_id'] = 'no es el artículo del remito'; continue; }
-      const facturable = dec(rem.llego) - dec(rem.facturado);
-      if (dec(it.cantidad) > facturable) errores[k + 'cantidad'] = facturable <= 0n ? 'ese renglón del remito ya está facturado por completo' : `del remito solo se pueden facturar ${cant(texto(facturable, 4))} (llegaron ${cant(rem.llego)}, ya se facturaron ${cant(rem.facturado)})`;
-      rem.etiqueta = `Remito ${numeroFormateado(rem.punto_venta, rem.numero)}`;
+      if (it.articulo_id && it.articulo_id !== rem.articulo_id) { errores[k + 'articulo_id'] = `no es el artículo ${de === 'orden' ? 'de la orden' : 'del remito'}`; continue; }
+      if (rem.tipo === 'remito_compra') {
+        const facturable = dec(rem.llego) - dec(rem.facturado);
+        if (dec(it.cantidad) > facturable) errores[k + 'cantidad'] = facturable <= 0n ? 'ese renglón del remito ya está facturado por completo' : `del remito solo se pueden facturar ${cant(texto(facturable, 4))} (llegaron ${cant(rem.llego)}, ya se facturaron ${cant(rem.facturado)})`;
+      } else {                                                                      // orden: lo pedido menos lo recibido con remitos y lo ya facturado directo
+        const facturable = dec(rem.llego) - dec(rem.remitado) - dec(rem.facturado);
+        if (dec(it.cantidad) > facturable) errores[k + 'cantidad'] = facturable <= 0n ? 'ese renglón de la orden ya se recibió o facturó por completo' : `de la orden solo se pueden facturar ${cant(texto(facturable, 4))} sin remito (se pidieron ${cant(rem.llego)}, ya se recibieron ${cant(rem.remitado)} con remitos y se facturaron ${cant(rem.facturado)})`;
+      }
+      rem.etiqueta = `${rem.tipo === 'orden_compra' ? 'Orden' : 'Remito'} ${numeroFormateado(rem.punto_venta, rem.numero)}`;
     }
     const artId = rem ? rem.articulo_id : it.articulo_id;
     const a = artId ? await c.uno('select id, codigo, nombre, tipo, activo, controla_stock, tratamiento_iva_compra, alicuota_compra_codigo from articulo where id = $1', [artId]) : null;
@@ -117,11 +124,11 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
       else if (it.alicuota) errores[`items[${i}].alicuota`] = `un renglón ${tratamiento === 'exento' ? 'exento' : 'no gravado'} no lleva alícuota`;
     }
     if (it.cuenta_id && !(await c.uno('select 1 x from plan_cuenta where id = $1 and imputable and activa', [it.cuenta_id]))) errores[`items[${i}].cuenta_id`] = 'la cuenta no existe o no es imputable';
-    const controla = !!a?.controla_stock, ingresaStock = clase === 'factura' && controla && !rem, devuelveStock = clase === 'nota_credito' && it.devuelve_stock === true && controla;
+    const controla = !!a?.controla_stock, ingresaStock = clase === 'factura' && controla && rem?.tipo !== 'remito_compra', devuelveStock = clase === 'nota_credito' && it.devuelve_stock === true && controla;
     if (it.devuelve_stock === true && !controla) errores[`items[${i}].devuelve_stock`] = 'solo se devuelve mercadería de un artículo con control de stock';
     let depositoId = null;
     if (ingresaStock || devuelveStock) {
-      depositoId = it.deposito_id ?? (depositos.length === 1 ? depositos[0].id : null);
+      depositoId = it.deposito_id ?? rem?.deposito_id ?? (depositos.length === 1 ? depositos[0].id : null);
       if (!depositoId) errores[`items[${i}].deposito_id`] = 'indicá en qué depósito entra la mercadería';
       else if (!depositos.some((x) => x.id === depositoId)) errores[`items[${i}].deposito_id`] = 'el depósito no existe o está dado de baja';
       else if (devuelveStock && !permiteNegativo) {
@@ -145,7 +152,8 @@ export async function prepararCompra(c, ctx, cuerpo, { exigirTotal, clase = 'fac
   const diferencia = informado - totalCalculado, coincide = (diferencia < 0n ? -diferencia : diferencia) <= TOLERANCIA;
   if (!coincide && exigirTotal) throw invalido({ total: `el total calculado es $ ${texto(totalCalculado)} y la factura dice $ ${d.total}: revisá los precios, cantidades, alícuotas o percepciones` });
   if (origen && saldoOrigen != null && informado > dec(saldoOrigen)) avisos.push(dec(saldoOrigen) <= 0n ? `${origen.etiqueta} no tiene saldo: la nota queda como saldo a favor con el proveedor.` : `La nota supera el saldo de ${origen.etiqueta} ($ ${saldoOrigen}): la diferencia queda a favor con el proveedor.`);
-  if (items.some((x) => x.remitoItemId && x.articulo?.controla_stock)) avisos.push('La mercadería tomada de un remito ya ingresó al stock con ese remito: la factura no la vuelve a ingresar.');
+  if (items.some((x) => x.remitoItemId && x.articulo?.controla_stock && !x.ingresaStock)) avisos.push('La mercadería tomada de un remito ya ingresó al stock con ese remito: la factura no la vuelve a ingresar.');
+  if (items.some((x) => x.remitoItemId && x.ingresaStock)) avisos.push('La mercadería tomada de una orden sin remito ingresa al stock con esta factura: la factura es la recepción.');
   if (!coincide) avisos.push(`El total calculado ($ ${texto(totalCalculado)}) no coincide con el de la factura ($ ${d.total}): diferencia de $ ${texto(diferencia)}.`);
 
   // Costo: se avisa si se aparta mucho del último costo conocido.

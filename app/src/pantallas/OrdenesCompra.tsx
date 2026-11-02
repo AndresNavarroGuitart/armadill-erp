@@ -173,6 +173,7 @@ function Detalle({ id, onCerrar, onCambio, onModificar, onRecibir }: { id: numbe
             <tfoot><tr><td style={{ fontWeight: 600 }}>Total (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(o.total)}</td>{o.estado === 'confirmado' && <td colSpan={3} />}</tr></tfoot>
           </table></div>
           {o.remitos.length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Remitos de entrada: {o.remitos.map((r) => `${r.numero_formateado}${r.numero_externo ? ` (${r.numero_externo})` : ''}${r.estado === 'anulado' ? ' anulado' : r.estado === 'borrador' ? ' borrador' : ''}`).join(' · ')}</p>}
+          {(o.facturas ?? []).length > 0 && <p className="muted" style={{ margin: '4px 0 0' }}>Facturado directo (sin remito): {(o.facturas ?? []).map((f) => `${f.tipo} ${f.numero_formateado}`).join(' · ')}</p>}
           {anulando && (
             <form onSubmit={(e) => { e.preventDefault(); void accion(async () => (await enviar<OrdenCompraDetalle>('POST', `/api/compras/ordenes/${id}/anular`, { motivo: motivo.trim() })), 'Orden anulada.'); }} noValidate style={{ marginTop: 12 }}>
               <Campo etiqueta="Motivo de la anulación" value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
