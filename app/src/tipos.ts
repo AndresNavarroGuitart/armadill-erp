@@ -19,7 +19,7 @@ export type ItemFactura = { articulo_id?: number; documento_item_id?: number; de
 export type PedidoFactura = { tercero_id: number; punto_venta?: number; fecha?: string; concepto?: number; fecha_servicio_desde?: string; fecha_servicio_hasta?: string; fecha_vto_pago?: string; desc_pie_pct?: string; observaciones?: string; items: ItemFactura[] };
 export type PreviaFactura = {
   letra: 'A' | 'B' | 'C'; tipo_comprobante_codigo: number; punto_venta: number; fecha: string; cliente: { id: number; razon_social: string; condicion_iva_codigo: number };
-  items: { articulo_id: number; descripcion: string; cantidad: string; precio_unitario: string; desc_pct: string; importe_renglon: string; del_remito?: boolean }[];
+  items: { articulo_id: number; descripcion: string; cantidad: string; precio_unitario: string; desc_pct: string; importe_renglon: string; del_remito?: boolean; del_pedido?: boolean }[];
   ivas: { alicuota: string; base_imponible: string; importe_iva: string }[];
   imp_neto: string; imp_iva: string; imp_tot_conc: string; imp_op_ex: string; imp_desc_pie: string; imp_total: string; avisos: string[];
 };
@@ -150,9 +150,11 @@ export type PedidoVentaDetalle = PedidoVenta & {
   observaciones: string | null;
   items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; remitado: string; facturado: string; pendiente: string }[];
   remitos: { id: number; numero_formateado: string; fecha: string; estado: string }[];
+  facturas: { id: number; tipo: string; numero_formateado: string }[];
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean; remitir: boolean };
 };
 export type PreviaPedidoVenta = { cliente: { id: number; razon_social: string }; fecha: string; entrega_prevista: string | null; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string }[]; total: string; avisos: string[] };
+export type PendientePedidoVenta = { pedido_id: number; pedido_numero: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; pedido: string; entregado: string; precio: string; facturable: string };
 export type PendienteRemitoVenta = { remito_id: number; remito: string; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; entregado: string; precio: string; facturado: string; facturable: string };
 
 export type PendienteRemito = { remito_id: number; remito: string; numero_externo: string | null; fecha: string; item_id: number; articulo_id: number | null; descripcion: string; llego: string; precio: string; facturado: string; facturable: string };

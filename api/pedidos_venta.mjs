@@ -121,6 +121,8 @@ export async function anularPedido(c, ctx, id, cuerpo) {
   if (antes.estado === 'borrador') throw new ErrorApi(422, 'no_se_puede_anular', 'Un borrador no se anula: se borra.');
   const hijos = await c.uno(`select count(*)::int n from documento_comercial where documento_origen_id = $1 and estado <> 'anulado'`, [id]);
   if (hijos.n > 0) throw new ErrorApi(422, 'no_se_puede_anular', 'El pedido ya tiene remitos de salida: anulá primero esos remitos.');
+  const facturas = await c.uno(`select count(*)::int n from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') where ci.documento_item_id in (select id from documento_item where documento_id = $1)`, [id]);
+  if (facturas.n > 0) throw new ErrorApi(422, 'no_se_puede_anular', 'El pedido ya tiene facturas hechas contra él: anulá primero esas facturas.');
   await c.consultar(`update documento_comercial set estado = 'anulado', observaciones = left(coalesce(observaciones || E'\\n', '') || 'Anulado: ' || $2, 500) where id = $1`, [id, d.motivo]);
   return { pedido: await detallePedido(c, id), motivo: d.motivo };
 }
@@ -145,9 +147,11 @@ export async function detallePedido(c, id) {
     from documento_item i left join deposito dp on dp.id = i.deposito_id left join v_documento_pendiente v on v.item_id = i.id where i.documento_id = $1 order by i.orden`, [id]);
   const remitos = (await c.consultar(`select d.id, d.punto_venta, d.numero, d.fecha::text as fecha, d.estado from documento_comercial d where d.documento_origen_id = $1 and d.tipo = 'remito_venta' order by d.id`, [id]))
     .map(({ punto_venta, numero, ...r }) => ({ ...r, numero_formateado: numeroFormateado(punto_venta, numero) }));
+  const facturas = (await c.consultar(`select distinct cb.id, t.descripcion as tipo, cb.punto_venta, cb.numero from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
+    where ci.documento_item_id in (select id from documento_item where documento_id = $1) order by cb.id`, [id])).map(({ punto_venta, numero, ...x }) => ({ ...x, numero_formateado: numeroFormateado(punto_venta, numero) }));
   const { punto_venta, numero, pr_pv, pr_numero, ...resto } = f;
   const pendiente = f.estado === 'confirmado' && items.some((i) => dec(i.pendiente) > 0n);
-  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), presupuesto: f.presupuesto_id ? { id: f.presupuesto_id, numero_formateado: numeroFormateado(pr_pv, pr_numero) } : null, items, remitos, pendiente_de_remitir: pendiente, total: texto(dec(f.total)),
+  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), presupuesto: f.presupuesto_id ? { id: f.presupuesto_id, numero_formateado: numeroFormateado(pr_pv, pr_numero) } : null, items, remitos, facturas, pendiente_de_remitir: pendiente, total: texto(dec(f.total)),
     acciones: { modificar: f.estado === 'borrador', confirmar: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado', remitir: pendiente } };
 }
 
@@ -166,4 +170,14 @@ export async function listarPedidos(c, { estado, tercero_id, desde, hasta, pendi
   const total = (await c.uno(`select count(*)::int n from documento_comercial d where d.tipo = 'pedido_venta' and ${filtros}`, p)).n;
   const pend = filas.length ? await c.consultar(`select documento_id, sum(pendiente_remitir)::text as pendiente from v_documento_pendiente where documento_id = any($1::bigint[]) group by documento_id`, [filas.map((f) => f.id)]) : [];
   return { datos: filas.map(({ punto_venta, numero, pr_pv, pr_numero, ...f }) => ({ ...f, numero_formateado: numeroFormateado(punto_venta, numero), presupuesto: f.presupuesto_id ? { id: f.presupuesto_id, numero_formateado: numeroFormateado(pr_pv, pr_numero) } : null, total: texto(dec(f.total)), pendiente_de_remitir: f.estado === 'confirmado' && dec(pend.find((x) => x.documento_id === f.id)?.pendiente ?? '0') > 0n })), total, limite: lim, desplazamiento: des };
+}
+
+/* Los renglones de pedidos confirmados de un cliente a los que todavía les falta entregar algo: se pueden facturar directo (sin remito), y esa factura entrega la mercadería. */
+export async function pendientesDeFacturarPedidos(c, { tercero_id } = {}) {
+  if (!tercero_id || !/^\d{1,15}$/.test(String(tercero_id))) throw invalido({ tercero_id: 'indicá el cliente' });
+  const filas = await c.consultar(`select d.id as pedido_id, d.punto_venta, d.numero, d.fecha::text as fecha, i.id as item_id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text as pedido, i.precio_unitario::text as precio,
+      v.remitado::text as entregado, v.pendiente_remitir::text as facturable
+    from v_documento_pendiente v join documento_item i on i.id = v.item_id join documento_comercial d on d.id = v.documento_id and d.tipo = 'pedido_venta'
+   where v.tercero_id = $1 and v.pendiente_remitir > 0 order by d.fecha, d.id, i.orden`, [Number(tercero_id)]);
+  return { datos: filas.map(({ punto_venta, numero, ...f }) => ({ ...f, pedido_numero: numeroFormateado(punto_venta, numero), facturable: texto(dec(f.facturable), 4) })) };
 }

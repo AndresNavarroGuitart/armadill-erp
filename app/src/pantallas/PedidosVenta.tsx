@@ -195,9 +195,10 @@ function Detalle({ id, onCerrar, onCambio, onModificar, onRemitir }: { id: numbe
             <tfoot><tr><td style={{ fontWeight: 600 }}>Total (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(p.total)}</td>{conCumplimiento && <><td /><td /><td /></>}</tr></tfoot>
           </table></div>
           {p.remitos.length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Remitos: {p.remitos.map((r) => `${r.numero_formateado}${r.estado === 'anulado' ? ' (anulado)' : ''}`).join(' · ')}</p>}
+          {(p.facturas ?? []).length > 0 && <p className="muted" style={{ margin: '4px 0 0' }}>Facturado directo (sin remito): {(p.facturas ?? []).map((f) => `${f.tipo} ${f.numero_formateado}`).join(' · ')}</p>}
           {anulando && (
             <form onSubmit={(e) => { e.preventDefault(); void accion(() => enviar<PedidoVentaDetalle>('POST', `/api/ventas/pedidos/${id}/anular`, { motivo: motivo.trim() }), 'Pedido anulado.'); }} noValidate style={{ marginTop: 12 }}>
-              <Alerta tipo="aviso">Un pedido con remitos no se puede anular: anulá primero esos remitos.</Alerta>
+              <Alerta tipo="aviso">Un pedido con remitos o facturas no se puede anular: anulá primero esos remitos y facturas.</Alerta>
               <Campo etiqueta="Motivo de la anulación" value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
               <div className="pie-form"><button type="button" className="btn" onClick={() => setAnulando(false)}>No anular</button><button type="submit" className="btn peligro" disabled={trabajando || motivo.trim().length < 3}>Anular pedido</button></div>
             </form>

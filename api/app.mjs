@@ -18,7 +18,7 @@ import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.m
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
 import { calcularPresupuesto, crearPresupuesto, modificarPresupuesto, confirmarPresupuesto, anularPresupuesto, borrarPresupuesto, detallePresupuesto, listarPresupuestos } from './presupuestos_venta.mjs';
-import { calcularPedido, crearPedido, modificarPedido, confirmarPedido, anularPedido, borrarPedido, detallePedido, listarPedidos } from './pedidos_venta.mjs';
+import { pendientesDeFacturarPedidos, calcularPedido, crearPedido, modificarPedido, confirmarPedido, anularPedido, borrarPedido, detallePedido, listarPedidos } from './pedidos_venta.mjs';
 import { pendientesDeFacturarVenta, calcularRemitoVenta, crearRemitoVenta, modificarRemitoVenta, confirmarRemitoVenta, anularRemitoVenta, borrarRemitoVenta, detalleRemitoVenta, listarRemitosVenta } from './remitos_venta.mjs';
 import { pendientesDeFacturar, calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
 import { INFORMES, aCsv, generarInforme } from './informes.mjs';
@@ -174,6 +174,7 @@ const RUTAS = [
     await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Confirmó el pedido de venta' : 'Guardó como borrador el pedido de venta'} ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
     return { estado: 201, cuerpo: { ...x, avisos: r.avisos } };
   }],
+  ['GET', '/api/ventas/pedidos/pendientes-facturar', 'ventas.ver', ({ c, q }) => pendientesDeFacturarPedidos(c, q)],
   ['GET', '/api/ventas/pedidos/:id', 'ventas.ver', ({ c, p }) => detallePedido(c, p.id)],
   ['PUT', '/api/ventas/pedidos/:id', 'ventas.emitir', async ({ c, ctx, p, cuerpo, origen }) => {
     const r = await modificarPedido(c, ctx, p.id, cuerpo), x = r.pedido;
