@@ -125,6 +125,11 @@ await prueba('La base impide entregar de más aunque se salteen las validaciones
   const m2 = await msg(`do $$ begin perform set_config('app.migracion', 'on', true); update comprobante_item set cantidad = 9 where comprobante_id = ${ids.F5}; perform fn_verificar_factura_remito(${ids.F5}); end $$`); verdad(/se entrega 13(.0+)? \(remitos y facturas\) de un renglón de pedido donde se pidió 10/.test(m2), 'la factura que ya no cabe: ' + m2);
   const m3 = await msg(`do $$ begin perform set_config('app.migracion', 'on', true); update comprobante set tercero_id = ${C2.id} where id = ${ids.F5}; perform fn_verificar_factura_remito(${ids.F5}); end $$`); verdad(/no es un remito de salida confirmado del mismo cliente/.test(m3), 'otro cliente: ' + m3);
 });
+await prueba('Nota de crédito sobre una factura directa contra el pedido: devuelve la mercadería que la propia factura entregó', async () => {
+  const P4 = (await pedido({ tercero_id: C1.id, items: [{ articulo_id: PAN.id, cantidad: '5' }], confirmar: true })).cuerpo; const stock = await stockDe(PAN.id);
+  const f = await factura({ items: [{ documento_item_id: P4.items[0].id, cantidad: '5' }] }); igual(f.estado, 201, JSON.stringify(f.cuerpo)); igual(await stockDe(PAN.id), stock - 5, 'la factura entrega');
+  const n = await api('admin', 'POST', '/api/ventas/notas-credito', { cuerpo: { comprobante_origen_id: f.cuerpo.id, motivo: 'Devolución del cliente' } }); igual(n.estado, 201, JSON.stringify(n.cuerpo)); igual(await stockDe(PAN.id), stock, 'vuelven los 5 al depósito');
+});
 await prueba('Trazabilidad: la cadena sigue íntegra', async () => {
   for (const e of [S.estudios.e1, S.estudios.e2]) igual((await uno('select fn_verificar_trazabilidad($1) v', [e])).v, null, `cadena ${e}`);
 });

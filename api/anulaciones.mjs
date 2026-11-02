@@ -126,7 +126,9 @@ async function prepararNota(c, ctx, cuerpo) {
 
   const renglones = await c.consultar(`select i.id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text cantidad, i.precio_unitario::text precio, i.desc_pct::text desc_pct, i.tratamiento_iva, i.alicuota_codigo, i.deposito_id, i.cuenta_id,
       (select coalesce(sum(n.cantidad), 0)::text from comprobante_item n join comprobante nc on nc.id = n.comprobante_id and nc.estado in ('confirmado','autorizado') where n.item_origen_id = i.id) as acreditado,
-      (select m.deposito_id from movimiento_stock m where m.comprobante_item_id = i.id and m.tipo = 'venta' order by m.id limit 1) as deposito_stock
+      coalesce((select m.deposito_id from movimiento_stock m where m.comprobante_item_id = i.id and m.tipo = 'venta' order by m.id limit 1),
+        (select di.deposito_id from documento_item di join documento_comercial dd on dd.id = di.documento_id and dd.tipo = 'remito_venta' and dd.estado = 'confirmado' join articulo a on a.id = di.articulo_id and a.controla_stock
+          where di.id = i.documento_item_id)) as deposito_stock          -- de donde salió la mercadería: por la propia factura o, si venía de un remito, por el remito
     from comprobante_item i where i.comprobante_id = $1 order by i.orden`, [o.id]);
   const pendiente = (r) => dec(r.cantidad) - dec(r.acreditado);
   let elegidos;

@@ -178,6 +178,18 @@ await prueba('Sin vínculo todo sigue igual y la base impide facturar de más au
   verdad(/no es el mismo artículo/.test(await mensaje(`do $$ begin perform set_config('app.migracion', 'on', true); update comprobante_item set articulo_id = ${LECHE.id} where comprobante_id = ${ids.F3}; perform fn_verificar_factura_remito(${ids.F3}); end $$`)), 'otro artículo');
   verdad(/no es un remito de salida confirmado del mismo cliente/.test(await mensaje(`do $$ begin perform set_config('app.migracion', 'on', true); update comprobante set tercero_id = ${C2.id} where id = ${ids.F3}; perform fn_verificar_factura_remito(${ids.F3}); end $$`)), 'otro cliente');
 });
+await prueba('Nota de crédito sobre una factura de remito: la mercadería vuelve al depósito del que salió con el remito', async () => {
+  const Rm = (await remito({ tercero_id: C1.id, items: [{ articulo_id: PAN.id, cantidad: '8' }], confirmar: true })).cuerpo; const stock = await stockDe(PAN.id);
+  const f = await factura({ items: [{ documento_item_id: Rm.items[0].id, cantidad: '8' }] }); igual(f.estado, 201, JSON.stringify(f.cuerpo)); igual(await stockDe(PAN.id), stock, 'facturar el remito no mueve stock'); const item = f.cuerpo.items[0].id;
+  const nota = (cuerpo) => api('admin', 'POST', '/api/ventas/notas-credito', { cuerpo: { comprobante_origen_id: f.cuerpo.id, motivo: 'Devolución del cliente', ...cuerpo } });
+  const previa = await api('admin', 'POST', '/api/ventas/notas-credito/calcular', { cuerpo: { comprobante_origen_id: f.cuerpo.id, motivo: 'Devolución del cliente', items: [{ item_id: item, cantidad: '3' }] } }); igual([previa.estado, previa.cuerpo.items[0].devuelve_stock], [200, true], 'la previa avisa que devuelve: ' + JSON.stringify(previa.cuerpo));
+  const n1 = await nota({ items: [{ item_id: item, cantidad: '3' }] }); igual(n1.estado, 201, JSON.stringify(n1.cuerpo)); igual(await stockDe(PAN.id), stock + 3, 'vuelven 3 al depósito');
+  const mov = (await api('admin', 'GET', `/api/stock/movimientos?articulo_id=${PAN.id}&limite=1`)).cuerpo.datos[0]; igual([mov.tipo, Number(mov.cantidad), mov.deposito_id], ['devolucion_venta', 3, DEP], JSON.stringify(mov));
+  const sin = await nota({ devolver_stock: false, items: [{ item_id: item, cantidad: '2' }] }); igual(sin.estado, 201, JSON.stringify(sin.cuerpo)); igual(await stockDe(PAN.id), stock + 3, 'con devolver_stock en falso (la merca no vuelve) no cambia');
+  const resto = await nota({}); igual(resto.estado, 201, JSON.stringify(resto.cuerpo)); igual(await stockDe(PAN.id), stock + 3 + 3, 'lo que faltaba acreditar (3) también vuelve');
+  igual((await anularF(n1.cuerpo.id)).estado, 200, 'anular la nota'); igual(await stockDe(PAN.id), stock + 3, 'la mercadería de esa nota vuelve a salir');
+  const bloqueada = await anularF(f.cuerpo.id); igual(bloqueada.estado, 422, 'una factura con notas aplicadas no se anula: el remito tampoco'); igual((await anularR(Rm.id)).estado, 422, 'el remito facturado no se anula');
+});
 await prueba('Trazabilidad: la cadena sigue íntegra', async () => {
   for (const e of [S.estudios.e1, S.estudios.e2]) igual((await uno('select fn_verificar_trazabilidad($1) v', [e])).v, null, `cadena ${e}`);
 });
