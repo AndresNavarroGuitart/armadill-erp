@@ -1,4 +1,4 @@
-# API de administraNET (primer tramo)
+# API de ARMADILL-ERP (primer tramo)
 
 Backend real sobre el modelo de datos (`modelo/`): sesión y empresa activa, permisos por rol, clientes, proveedores, artículos con listas y precios, y **factura de venta sin ARCA** (comprobante, asiento automático, stock y trazabilidad en una sola transacción). Es un manejador Node `(req, res)` sin framework, para poder montarlo en Netlify Functions, un servidor propio o el de pruebas.
 

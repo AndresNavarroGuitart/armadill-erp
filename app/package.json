@@ -1,8 +1,8 @@
 {
-  "name": "administranet-app",
+  "name": "armadill-erp-app",
   "private": true,
   "type": "module",
-  "description": "Front real de administraNET sobre la API (primer tramo): sesion, clientes, proveedores, articulos y factura de venta",
+  "description": "Front real de ARMADILL-ERP sobre la API (primer tramo): sesion, clientes, proveedores, articulos y factura de venta",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

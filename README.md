@@ -1,5 +1,7 @@
 # ARMADILL-ERP
 
+<p><img src="app/public/logo.svg" alt="Logo de ARMADILL-ERP: un bicho bolita cerrado" width="96"></p>
+
 Sistema de gestión para **estudios contables**: ventas, compras, stock, tesorería, contabilidad e impuestos, con varias empresas por estudio. Es una réplica reconstruida desde cero a partir del relevamiento de un ERP de escritorio, con base PostgreSQL, API en Node y front en React.
 
 > **Estado:** proyecto en desarrollo con **datos de ejemplo**. No está conectado a ARCA (la facturación usa numeración interna, sin CAE) ni a ningún banco. Los archivos oficiales de ARCA (Libro IVA Digital, SICORE, SIFERE) no se generan porque esperan sus diseños oficiales verificados.
@@ -12,6 +14,8 @@ Sistema de gestión para **estudios contables**: ventas, compras, stock, tesorer
 - **Contabilidad:** asientos automáticos, libros y balances, cierre de ejercicio, libros de IVA y planillas de trabajo.
 - **Seguridad y trazabilidad:** aislamiento por empresa y por estudio a nivel de base (RLS), roles y permisos, libro de eventos encadenado por huellas.
 - **Asistente con Claude** (plan en `PLAN_ASISTENTE_CLAUDE.md`).
+
+> **Sobre el nombre:** ARMADILL-ERP es el nombre del producto. Los documentos de relevamiento (`MAPA_MENUS.md`, `PLAN_DE_REPLICA.md`, etc.) siguen diciendo "administraNET" porque ese es el nombre del ERP de escritorio original que se relevó; y el repositorio y esta carpeta conservan su nombre técnico `administranet-replica`.
 
 ## Cómo está armado
 

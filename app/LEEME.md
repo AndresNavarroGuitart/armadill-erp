@@ -1,4 +1,4 @@
-# Front real de administraNET (primer tramo)
+# Front real de ARMADILL-ERP (primer tramo)
 
 React + TypeScript + Vite sobre la API de `../api` (ver [api/LEEME.md](../api/LEEME.md)). Es independiente del prototipo de `../front` (que sigue siendo la referencia visual y de flujos): comparte el sistema de diseño (tokens en `src/estilos.css`) pero ya no usa datos de ejemplo en el navegador.
 

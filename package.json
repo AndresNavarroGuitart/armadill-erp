@@ -1,5 +1,5 @@
 {
-  "name": "administranet-replica-reglas-y-modelo",
+  "name": "armadill-erp",
   "private": true,
   "type": "module",
   "description": "Motor de reglas de calculo y modelo de datos de la replica; ambos verificados con pruebas automaticas",
