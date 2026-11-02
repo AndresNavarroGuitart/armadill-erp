@@ -74,10 +74,10 @@ await prueba('Permisos y aislamiento: la consulta ve los pedidos pero no los car
   igual((await api('admin', 'GET', '/api/ventas/pedidos', { empresa: MT })).cuerpo.total, 0, 'otra empresa: lista vacía');
   igual((await api('admin', 'GET', '/api/ventas/pedidos/999999')).estado, 404, 'inexistente');
 });
-await prueba('Calcular y guardar un borrador: precio de la lista, aviso si no hay stock, no mueve ni reserva stock; se modifica y se borra', async () => {
+await prueba('Calcular y guardar un borrador: precio de la lista, aviso si no hay stock, un borrador no mueve ni reserva stock; se modifica y se borra', async () => {
   const cuerpo = { tercero_id: C1.id, entrega_prevista: hoy, items: [{ articulo_id: PAN.id, cantidad: '10' }, { articulo_id: LECHE.id, cantidad: '4' }, { articulo_id: SERV.id, cantidad: '1', precio_unitario: '1200' }] };
   const previa = await api('admin', 'POST', '/api/ventas/pedidos/calcular', { cuerpo }); igual(previa.estado, 200, JSON.stringify(previa.cuerpo));
-  igual([previa.cuerpo.items.map((x) => Number(x.precio_unitario)), Number(previa.cuerpo.total)], [[100, 50, 1200], 2400], JSON.stringify(previa.cuerpo)); verdad(previa.cuerpo.avisos.some((a) => /no hay stock suficiente de Leche x litro \(hay 3\)/.test(a)), 'avisa que falta stock: ' + previa.cuerpo.avisos);
+  igual([previa.cuerpo.items.map((x) => Number(x.precio_unitario)), Number(previa.cuerpo.total)], [[100, 50, 1200], 2400], JSON.stringify(previa.cuerpo)); verdad(previa.cuerpo.avisos.some((a) => /no alcanza el stock de Leche x litro: hoy hay 3 disponibles/.test(a)), 'avisa que falta stock: ' + previa.cuerpo.avisos);
   const antes = await movs(); const r = await pedido(cuerpo); igual(r.estado, 201, JSON.stringify(r.cuerpo)); ids.b = r.cuerpo.id;
   igual([r.cuerpo.estado, r.cuerpo.numero_formateado, r.cuerpo.cliente, Number(r.cuerpo.total), r.cuerpo.acciones.anular, r.cuerpo.acciones.confirmar, r.cuerpo.acciones.remitir], ['borrador', '0001-00000001', 'Distribuidora Sur SRL', 2400, false, true, false], JSON.stringify(r.cuerpo));
   igual([await movs(), await stockDe(PAN.id)], [antes, 100], 'un borrador no mueve stock');

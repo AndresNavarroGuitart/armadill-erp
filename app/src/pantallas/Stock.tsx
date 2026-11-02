@@ -75,14 +75,14 @@ function Existencias({ depositos, puedeAjustar, onCambio }: { depositos: Deposit
       {datos && datos.datos.length > 0 && (
         <div className="tabla-caja">
           <table>
-            <thead><tr><th>Artículo</th>{activos.map((d) => <th key={d.id} className="num">{d.nombre}</th>)}<th className="num">Total</th><th className="num">Mínimo</th><th /></tr></thead>
+            <thead><tr><th>Artículo</th>{activos.map((d) => <th key={d.id} className="num">{d.nombre}</th>)}<th className="num">Total</th><th className="num" title="Apartado por pedidos de clientes que todavía no se entregaron">Reservado</th><th className="num">Disponible</th><th className="num">Mínimo</th><th /></tr></thead>
             <tbody>
               {datos.datos.map((e) => (
                 <tr key={e.articulo_id} className={puedeAjustar ? 'clic' : undefined} onClick={puedeAjustar ? () => setModal({ tipo: 'ajuste', articulo: e }) : undefined}>
                   <td><strong>{e.nombre}</strong><div className="muted">{e.codigo}</div></td>
                   {activos.map((d) => <td key={d.id} className="num">{fmtCantidad(saldoEn(e, d.id))}</td>)}
-                  <td className="num"><strong>{fmtCantidad(e.total)}</strong></td><td className="num">{e.stock_minimo ? fmtCantidad(e.stock_minimo) : <span className="muted">—</span>}</td>
-                  <td>{e.bajo_minimo && <Etiqueta tono="aviso">Reponer</Etiqueta>} {Number(e.total) < 0 && <Etiqueta tono="malo">Negativo</Etiqueta>}</td>
+                  <td className="num"><strong>{fmtCantidad(e.total)}</strong></td><td className="num">{Number(e.reservado) > 0 ? fmtCantidad(e.reservado) : <span className="muted">—</span>}</td><td className="num">{fmtCantidad(e.disponible)}</td><td className="num">{e.stock_minimo ? fmtCantidad(e.stock_minimo) : <span className="muted">—</span>}</td>
+                  <td>{e.bajo_minimo && <Etiqueta tono="aviso">Reponer</Etiqueta>} {Number(e.total) < 0 && <Etiqueta tono="malo">Negativo</Etiqueta>} {Number(e.disponible) < 0 && <Etiqueta tono="aviso">Pedidos en espera</Etiqueta>}</td>
                 </tr>
               ))}
             </tbody>

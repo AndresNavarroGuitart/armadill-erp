@@ -34,7 +34,7 @@ export function Comprobantes() {
   const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   return (
     <>
-      <div className="cabecera"><div><h1>Comprobantes</h1><p>{pestana === 'presupuestos' ? 'Cotizaciones a los clientes: valen hasta una fecha y, cuando se aceptan, pasan a pedido.' : pestana === 'pedidos' ? 'Lo que piden los clientes: no reserva stock, se entrega con un remito.' : pestana === 'remitos' ? 'Mercadería entregada a los clientes: sale del stock y se factura después.' : datos ? `${total} ${total === 1 ? 'comprobante' : 'comprobantes'}` : 'Buscando…'}</p></div></div>
+      <div className="cabecera"><div><h1>Comprobantes</h1><p>{pestana === 'presupuestos' ? 'Cotizaciones a los clientes: valen hasta una fecha y, cuando se aceptan, pasan a pedido.' : pestana === 'pedidos' ? 'Lo que piden los clientes: al confirmarse reserva el stock y se entrega con un remito.' : pestana === 'remitos' ? 'Mercadería entregada a los clientes: sale del stock y se factura después.' : datos ? `${total} ${total === 1 ? 'comprobante' : 'comprobantes'}` : 'Buscando…'}</p></div></div>
       <div className="pestanas" role="tablist" aria-label="Comprobantes">
         {([['facturas', 'Facturas y notas'], ['presupuestos', 'Presupuestos'], ['pedidos', 'Pedidos'], ['remitos', 'Remitos de salida']] as ['facturas' | 'presupuestos' | 'pedidos' | 'remitos', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
       </div>

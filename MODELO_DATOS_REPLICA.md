@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (39 archivos SQL)
+## 2. Módulos (40 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -59,7 +59,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 35 ECHEQ | `cheque.es_echeq`, `echeq_codigo` (obligatorio y único por empresa si es ECHEQ, ignora mayúsculas y los anulados), `caracter` (a la orden / no a la orden), `cruzado` y `aceptado_en`; restricción de coherencia (un cheque de papel no lleva código ni aceptación; la aceptación es solo de terceros) y un disparador: los datos del ECHEQ no se modifican, la aceptación no se deshace, y un ECHEQ de tercero sin aceptar no sale de la cartera (ni depositado ni entregado), ni se entrega uno no a la orden |
 | 36 rebote tras el endoso | `cheque.rebotado_proveedor_id` (a qué proveedor se le había endosado el cheque que rebotó; solo en rechazados de terceros), `fn_cheque_rebotar` (pasa un cheque *entregado* a *rechazado* y asienta Deudores / Proveedores), `v_saldo_tercero` suma lo que se vuelve a deber al proveedor y `fn_pago_cheques` impide anular la orden de pago de un cheque que ya no está entregado |
 | 37 conciliación desde la aplicación | permiso `conciliacion.gestionar` (administrador y contador), `movimiento_tesoreria.asiento_id` y `fn_movimiento_bancario`: registra un movimiento de la cuenta bancaria que no viene de un cobro ni de un pago (comisión, impuesto, interés) con su asiento contra la cuenta contable elegida; el extracto, su cierre, la conciliación n a n, las sugerencias y `v_conciliacion_estado` son los de 14 |
-| 38 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 38 reserva de stock por pedido | `empresa_parametro.pedido_reserva_estricta` (por defecto falso: un pedido sin disponible se confirma igual y avisa; verdadero: se rechaza) y `v_stock_reservado` (por artículo con control de stock: lo pendiente de remitir de los pedidos confirmados, que sale de `v_documento_pendiente`). La reserva es una cuenta aparte: no mueve el stock físico, y se libera sola al entregar, facturar directo o anular el pedido |
+| 39 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 
@@ -80,5 +81,5 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 
 - **Contador:** significado del `ImporteImp` original (¿no imponible, base mínima o retención mínima?); método de costeo; si el bloqueo por vencimiento debe estar activo.
 - **Catálogos ARCA:** cargarlos desde `FEParamGet*` y confirmar RG 5616, 5707, 5782 (ver [REFERENCIA_ODOO_ARGENTINA.md](REFERENCIA_ODOO_ARGENTINA.md)).
-- **Falta modelar:** precios, descuentos e IVA en presupuesto y pedido (hoy solo cantidad y precio unitario); reserva de stock por pedido; importadores de extractos por banco (el modelo recibe líneas ya normalizadas) y conciliación de cheques por número; asientos de remitos, de movimientos de stock (costo de ventas) y de movimientos bancarios sueltos; ajuste por diferencia de cambio; presentaciones SICORE/SIRE; módulos con licencia del original (percepciones de venta, contabilidad) a partir de normativa; migración desde MySQL (`app.migracion = 'on'` permite carga histórica controlada).
+- **Falta modelar:** precios, descuentos e IVA en presupuesto y pedido (hoy solo cantidad y precio unitario); reserva por depósito (hoy es por artículo); importadores de extractos por banco (el modelo recibe líneas ya normalizadas) y conciliación de cheques por número; asientos de remitos, de movimientos de stock (costo de ventas) y de movimientos bancarios sueltos; ajuste por diferencia de cambio; presentaciones SICORE/SIRE; módulos con licencia del original (percepciones de venta, contabilidad) a partir de normativa; migración desde MySQL (`app.migracion = 'on'` permite carga histórica controlada).
 - La verificación de renglones contra la cabecera en ventas con **descuento al pie** no se hace (la base sale del desglose).

@@ -6,6 +6,7 @@ import { ErrorApi, invalido, noEncontrado } from './errores.mjs';
 import { numeroFormateado } from './ventas.mjs';
 import { precioVigente } from './articulos.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
+import { existenciaYReservado, textoReservado, chocaConReservas } from './reservas.mjs';
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const PUNTO = 1;
@@ -40,7 +41,7 @@ async function preparar(c, ctx, cuerpo) {
   const permiteNegativo = (await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p;
   const origen = pedido ? await c.consultar(`select di.id, di.articulo_id, di.descripcion, di.precio_unitario::text as precio, di.deposito_id, coalesce(v.pendiente_remitir, di.cantidad) as pendiente
       from documento_item di left join v_documento_pendiente v on v.item_id = di.id where di.documento_id = $1`, [pedido.id]) : [];
-  const items = [], pedidoStock = new Map(), usados = new Set();
+  const items = [], pedidoStock = new Map(), usados = new Set(), totalArt = new Map();
   for (const [i, it] of d.items.entries()) {
     const k = `items[${i}].`;
     let o = null;
@@ -65,6 +66,11 @@ async function preparar(c, ctx, cuerpo) {
       const clave = `${a.id}/${depositoId}`, antes = pedidoStock.get(clave) ?? 0n, hay = (await c.uno('select coalesce(sum(cantidad), 0)::text s from movimiento_stock where articulo_id = $1 and deposito_id = $2', [a.id, depositoId])).s;
       pedidoStock.set(clave, antes + dec(it.cantidad));
       if (dec(hay) < antes + dec(it.cantidad)) { errores[k + 'cantidad'] = `no hay tanta mercadería en el depósito (hay ${cant(hay)} de ${a.nombre})`; continue; }
+      if (!o) {                                                                          // una entrega sin pedido no puede tomar lo que otros pedidos tienen reservado
+        const acum = (totalArt.get(a.id) ?? 0n) + dec(it.cantidad); totalArt.set(a.id, acum);
+        const est = await existenciaYReservado(c, a.id);
+        if (est.reservado > 0n && est.existencia - est.reservado < acum) { errores[k + 'cantidad'] = textoReservado(a.nombre, est); continue; }
+      }
     }
     const precio = it.precio_unitario ?? (o && dec(o.precio) > 0n ? o.precio : null) ?? (listaId ? await precioVigente(c, a.id, listaId, fecha) : null) ?? '0';
     items.push({ origenId: o?.id ?? null, articuloId: a.id, descripcion: o ? o.descripcion : it.descripcion ?? a.nombre, cantidad: it.cantidad, precio: texto(dec(precio), 4), depositoId, controlaStock: !!a.controla_stock, importe: texto(mul(dec(it.cantidad), dec(precio))) });
@@ -114,6 +120,13 @@ export async function confirmarRemitoVenta(c, ctx, id) {
       from documento_item i join articulo a on a.id = i.articulo_id and a.controla_stock where i.documento_id = $1 group by a.nombre, i.articulo_id, i.deposito_id`, [id]);
     const f = filas.find((x) => dec(x.hay) < dec(x.pide));
     if (f) throw new ErrorApi(422, 'stock_insuficiente', `Stock insuficiente de ${f.nombre}: hay ${cant(f.hay)} y se entregan ${cant(f.pide)}.`);
+  }
+  const sinPedido = !(await c.uno('select documento_origen_id from documento_comercial where id = $1', [id])).documento_origen_id;
+  if (!permite && sinPedido) {                                                          // un borrador sin pedido tampoco puede dejar sin mercadería a los pedidos que la tienen reservada
+    const pedidas = new Map();
+    for (const r of await c.consultar(`select i.articulo_id, a.nombre, sum(i.cantidad)::text as cant from documento_item i join articulo a on a.id = i.articulo_id and a.controla_stock where i.documento_id = $1 group by i.articulo_id, a.nombre`, [id])) pedidas.set(r.articulo_id, { cantidad: dec(r.cant), nombre: r.nombre });
+    const choque = await chocaConReservas(c, pedidas);
+    if (choque) throw new ErrorApi(422, 'stock_reservado', `No se puede entregar: ${textoReservado(choque.nombre, choque.estado)}.`);
   }
   await c.consultar(`update documento_comercial set estado = 'confirmado' where id = $1`, [id]);
   return detalleRemitoVenta(c, id);

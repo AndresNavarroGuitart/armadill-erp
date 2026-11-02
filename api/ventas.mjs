@@ -7,6 +7,7 @@ import { ErrorApi, invalido, noEncontrado } from './errores.mjs';
 import { calcularVenta, CODIGO_ALICUOTA } from './calculo_venta.mjs';
 import { precioVigente } from './articulos.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
+import { chocaConReservas, textoReservado } from './reservas.mjs';
 
 const TIPO_COMPROBANTE = { A: 1, B: 6, C: 11 };
 const RECEPTOR_CON_FACTURA_A = new Set([1, 6, 13, 16]);        // responsable inscripto y monotributistas: ARCA les emite A
@@ -182,6 +183,13 @@ export async function emitirFactura(c, ctx, cuerpo, { claveIdempotencia } = {}) 
     const s = await c.uno('select coalesce(sum(cantidad), 0)::text s from movimiento_stock where articulo_id = $1 and deposito_id = $2', [it.articuloId, it.depositoId]);
     const permite = (await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p;
     if (!permite && Number(s.s) < Number(it.cantidad)) throw new ErrorApi(422, 'stock_insuficiente', `Stock insuficiente de ${it.nombre}: hay ${Number(s.s)} y se piden ${Number(it.cantidad)}.`);
+  }
+
+  if (!(await c.uno('select permite_stock_negativo p from empresa_parametro where empresa_id = $1', [ctx.empresaId]))?.p) {          // lo reservado para pedidos de otros no se factura: lo que viene de un pedido usa su propia reserva
+    const pedidas = new Map();
+    for (const it of p.items.filter((x) => x.controlaStock && !x.dePedido)) pedidas.set(it.articuloId, { cantidad: (pedidas.get(it.articuloId)?.cantidad ?? 0n) + dec(it.cantidad), nombre: it.nombre });
+    const choque = await chocaConReservas(c, pedidas);
+    if (choque) throw new ErrorApi(422, 'stock_reservado', `No se puede facturar: ${textoReservado(choque.nombre, choque.estado)}.`);
   }
 
   const cab = await c.uno(`insert into comprobante (empresa_id, sentido, tipo_comprobante_codigo, punto_venta, fecha, tercero_id, condicion_iva_receptor_codigo, concepto_codigo, fecha_servicio_desde, fecha_servicio_hasta,

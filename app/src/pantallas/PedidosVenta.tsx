@@ -1,4 +1,4 @@
-// Pedidos de venta: lo que pide un cliente antes de que se entregue. No mueven ni reservan stock y no generan cobro: dejan asentado qué se pidió, a qué precio y para cuándo, y de ahí
+// Pedidos de venta: lo que pide un cliente antes de que se entregue. No mueven stock ni generan cobro, pero un pedido confirmado RESERVA lo que todavía no entregó (el disponible baja): dejan asentado qué se pidió, a qué precio y para cuándo, y de ahí
 // se hacen los remitos de salida. Un borrador se puede modificar y borrar; uno confirmado solo se anula. El total y el cumplimiento (remitido, facturado, pendiente) los calcula el servidor.
 import { useEffect, useMemo, useState } from 'react';
 import { enviar, ErrorApi, llamar, obtener } from '../api';
@@ -194,6 +194,7 @@ function Detalle({ id, onCerrar, onCambio, onModificar, onRemitir }: { id: numbe
             <tbody>{p.items.map((i) => <tr key={i.id}><td>{i.descripcion}</td><td className="num">{fmtCantidad(i.cantidad)}</td><td className="num">{moneda(i.precio_unitario)}</td><td className="num">{moneda(i.importe)}</td>{conCumplimiento && <><td className="num">{fmtCantidad(i.remitado)}</td><td className="num">{fmtCantidad(i.facturado)}</td><td className="num">{fmtCantidad(i.pendiente)}</td></>}</tr>)}</tbody>
             <tfoot><tr><td style={{ fontWeight: 600 }}>Total (sin IVA)</td><td /><td /><td className="num" style={{ fontWeight: 600 }}>{moneda(p.total)}</td>{conCumplimiento && <><td /><td /><td /></>}</tr></tfoot>
           </table></div>
+          {p.items.some((i) => Number(i.reservado) > 0) && <p className="muted" style={{ margin: '10px 0 0' }}>Reserva stock: {p.items.filter((i) => Number(i.reservado) > 0).map((i) => `${fmtCantidad(i.reservado)} de ${i.descripcion}`).join(' · ')}. Se libera al entregarlo, facturarlo o anular el pedido.</p>}
           {p.remitos.length > 0 && <p className="muted" style={{ margin: '10px 0 0' }}>Remitos: {p.remitos.map((r) => `${r.numero_formateado}${r.estado === 'anulado' ? ' (anulado)' : ''}`).join(' · ')}</p>}
           {(p.facturas ?? []).length > 0 && <p className="muted" style={{ margin: '4px 0 0' }}>Facturado directo (sin remito): {(p.facturas ?? []).map((f) => `${f.tipo} ${f.numero_formateado}`).join(' · ')}</p>}
           {anulando && (

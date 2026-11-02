@@ -18,6 +18,7 @@ import { listarCuentas as concListarCuentas, pendientes as concPendientes, histo
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { pendientesDeFacturarOrdenes, calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
+import { listarReservas } from './reservas.mjs';
 import { calcularPresupuesto, crearPresupuesto, modificarPresupuesto, confirmarPresupuesto, anularPresupuesto, borrarPresupuesto, detallePresupuesto, listarPresupuestos } from './presupuestos_venta.mjs';
 import { pendientesDeFacturarPedidos, calcularPedido, crearPedido, modificarPedido, confirmarPedido, anularPedido, borrarPedido, detallePedido, listarPedidos } from './pedidos_venta.mjs';
 import { pendientesDeFacturarVenta, calcularRemitoVenta, crearRemitoVenta, modificarRemitoVenta, confirmarRemitoVenta, anularRemitoVenta, borrarRemitoVenta, detalleRemitoVenta, listarRemitosVenta } from './remitos_venta.mjs';
@@ -119,6 +120,7 @@ const RUTAS = [
     return r.deposito;
   }],
   ['GET', '/api/stock', 'stock.ver', ({ c, q }) => listarExistencias(c, q)],
+  ['GET', '/api/stock/reservas', 'stock.ver', ({ c, q }) => listarReservas(c, q)],
   ['GET', '/api/stock/movimientos', 'stock.ver', ({ c, q }) => listarMovimientos(c, q)],
   ['POST', '/api/stock/ajustes', 'stock.ajustar', async ({ c, ctx, cuerpo, origen }) => {
     const r = await ajustarStock(c, ctx, cuerpo);

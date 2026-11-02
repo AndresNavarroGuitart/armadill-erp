@@ -42,7 +42,8 @@ export async function listarExistencias(c, { q, bajo_minimo, limite = 50, despla
       (a.stock_minimo is not null and coalesce(s.total, 0) < a.stock_minimo) as bajo_minimo ${desde} order by a.nombre limit ${lim} offset ${des}`, [patron, bajo]);
   const total = (await c.uno(`select count(*)::int n ${desde}`, [patron, bajo])).n;
   const saldos = filas.length ? await c.consultar(`select articulo_id, deposito_id, saldo::text as saldo from v_stock_saldo where articulo_id = any($1::bigint[]) and saldo <> 0`, [filas.map((f) => f.articulo_id)]) : [];
-  return { datos: filas.map((f) => ({ ...f, por_deposito: saldos.filter((s) => s.articulo_id === f.articulo_id).map((s) => ({ deposito_id: s.deposito_id, saldo: s.saldo })) })), total, limite: lim, desplazamiento: des };
+  const reservas = filas.length ? await c.consultar('select articulo_id, reservado::text as reservado from v_stock_reservado where articulo_id = any($1::bigint[])', [filas.map((f) => f.articulo_id)]) : [];
+  return { datos: filas.map((f) => { const reservado = reservas.find((r) => r.articulo_id === f.articulo_id)?.reservado ?? '0'; return { ...f, reservado: texto(dec(reservado), 4), disponible: texto(dec(f.total) - dec(reservado), 4), por_deposito: saldos.filter((s) => s.articulo_id === f.articulo_id).map((s) => ({ deposito_id: s.deposito_id, saldo: s.saldo })) }; }), total, limite: lim, desplazamiento: des };
 }
 
 const TIPOS = ['compra', 'venta', 'devolucion_venta', 'devolucion_compra', 'ajuste', 'inventario', 'transferencia_entrada', 'transferencia_salida'];

@@ -41,7 +41,7 @@ export type EstudioDatos = { id: number; nombre: string; cuit: string | null; pe
 
 /* ---------- stock y listas ---------- */
 export type Deposito = { id: number; nombre: string; activo: boolean; articulos_con_stock: number };
-export type Existencia = { articulo_id: number; codigo: string; nombre: string; stock_minimo: string | null; total: string; bajo_minimo: boolean; por_deposito: { deposito_id: number; saldo: string }[] };
+export type Existencia = { articulo_id: number; codigo: string; nombre: string; stock_minimo: string | null; total: string; reservado: string; disponible: string; bajo_minimo: boolean; por_deposito: { deposito_id: number; saldo: string }[] };
 export type Movimiento = { id: number; fecha: string; articulo_id: number; codigo: string; articulo: string; deposito_id: number; deposito: string; cantidad: string; tipo: string; motivo: string | null; costo_unitario: string | null; comprobante: string | null };
 export type ListaPrecio = { id: number; nombre: string; orden: number; articulos: number; clientes: number };
 export type FilaAjuste = { articulo_id: number; codigo: string; nombre: string; base: string; actual: string | null; nuevo: string; bajo_costo: boolean; costo: string | null };
@@ -149,7 +149,7 @@ export type PreviaPresupuestoVenta = { cliente: { id: number; razon_social: stri
 export type PedidoVenta = { id: number; numero_formateado: string; fecha: string; entrega_prevista: string | null; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; presupuesto: { id: number; numero_formateado: string } | null; total: string; pendiente_de_remitir: boolean };
 export type PedidoVentaDetalle = PedidoVenta & {
   observaciones: string | null;
-  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; remitado: string; facturado: string; pendiente: string }[];
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; remitado: string; facturado: string; pendiente: string; reservado: string }[];
   remitos: { id: number; numero_formateado: string; fecha: string; estado: string }[];
   facturas: { id: number; tipo: string; numero_formateado: string }[];
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean; remitir: boolean };

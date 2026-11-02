@@ -7,6 +7,7 @@ import { ErrorApi, invalido, noEncontrado } from './errores.mjs';
 import { numeroFormateado } from './ventas.mjs';
 import { precioVigente } from './articulos.mjs';
 import { dec, mul, texto } from '../reglas/calculo.mjs';
+import { existenciaYReservado, reservaEstricta, cantTexto } from './reservas.mjs';
 
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 const PUNTO = 1;
@@ -68,10 +69,16 @@ async function preparar(c, cuerpo) {
   }
   if (Object.keys(errores).length) throw invalido(errores);
   if (items.some((x) => dec(x.precio) === 0n)) avisos.push('Hay renglones sin precio: el pedido queda sin valorizar en esos renglones.');
-  // el pedido no reserva stock, pero avisa si hoy no alcanza para cumplirlo
-  for (const x of items.filter((y) => y.controlaStock && y.depositoId)) {
-    const hay = (await c.uno('select coalesce(sum(cantidad), 0)::text s from movimiento_stock where articulo_id = $1 and deposito_id = $2', [x.articuloId, x.depositoId])).s;
-    if (dec(hay) < dec(x.cantidad)) avisos.push(`Hoy no hay stock suficiente de ${x.descripcion} (hay ${texto(dec(hay), 4).replace(/\.?0+$/, '')}): el pedido no reserva mercadería.`);
+  // reserva: un pedido confirmado aparta lo que pide; si hoy no alcanza el disponible se avisa (o se rechaza, si la empresa lo exige) y el pedido queda en espera de mercadería
+  const pedidas = new Map();
+  for (const [i, x] of items.entries()) if (x.controlaStock) { const e = pedidas.get(x.articuloId) ?? { cantidad: 0n, nombre: x.descripcion, primero: i }; e.cantidad += dec(x.cantidad); pedidas.set(x.articuloId, e); }
+  const estricta = d.confirmar ? await reservaEstricta(c) : false;
+  for (const [articuloId, e] of pedidas) {
+    const est = await existenciaYReservado(c, articuloId), disp = est.existencia > est.reservado ? est.existencia - est.reservado : 0n;
+    if (disp >= e.cantidad) continue;
+    const resumen = `hoy hay ${cantTexto(texto(disp, 4))} disponibles de ${e.nombre} (${cantTexto(texto(est.existencia, 4))} en los depósitos y ${cantTexto(texto(est.reservado, 4))} reservados para otros pedidos)`;
+    if (estricta) throw invalido({ [`items[${e.primero}].cantidad`]: `no hay disponible para reservar: ${resumen}` });
+    avisos.push(`Hoy no alcanza el stock de ${e.nombre}: ${resumen}. El pedido reserva igual todo lo que pide y queda en espera de mercadería.`);
   }
   if (presupuesto) { const faltan = origen.filter((x) => !usados.has(x.id) && dec(x.pendiente) > 0n).length; if (faltan) avisos.push(`Quedan ${faltan} renglón${faltan === 1 ? '' : 'es'} del presupuesto sin pedir en este pedido.`); }
   return { d, tercero, presupuesto, fecha, items, total: texto(items.reduce((s, x) => s + dec(x.importe), 0n)), avisos, entrega: d.entrega_prevista ?? null };
@@ -110,6 +117,12 @@ export async function modificarPedido(c, ctx, id, cuerpo) {
 export async function confirmarPedido(c, ctx, id) {
   const antes = await leer(c, id);
   if (antes.estado !== 'borrador') throw new ErrorApi(422, 'no_se_puede_confirmar', antes.estado === 'confirmado' ? 'El pedido ya está confirmado.' : `Un pedido ${antes.estado} no se confirma.`);
+  if (await reservaEstricta(c)) {                                                       // con reserva estricta, un borrador solo se confirma si hay disponible para todo lo que pide
+    for (const r of await c.consultar(`select i.articulo_id, a.nombre, sum(i.cantidad)::text as cant from documento_item i join articulo a on a.id = i.articulo_id and a.controla_stock where i.documento_id = $1 group by i.articulo_id, a.nombre`, [id])) {
+      const est = await existenciaYReservado(c, r.articulo_id), disp = est.existencia > est.reservado ? est.existencia - est.reservado : 0n;
+      if (disp < dec(r.cant)) throw new ErrorApi(422, 'sin_disponible', `No hay disponible para reservar ${cantTexto(r.cant)} de ${r.nombre}: hoy hay ${cantTexto(texto(disp, 4))} disponibles.`);
+    }
+  }
   await c.consultar(`update documento_comercial set estado = 'confirmado' where id = $1`, [id]);
   return detallePedido(c, id);
 }
@@ -143,15 +156,15 @@ async function leer(c, id) { const f = await c.uno(`${CAB} and d.id = $1`, [id])
 export async function detallePedido(c, id) {
   const f = await leer(c, id);
   const items = await c.consultar(`select i.id, i.orden, i.articulo_id, i.descripcion, i.cantidad::text as cantidad, i.precio_unitario::text as precio_unitario, round(i.cantidad * i.precio_unitario, 2)::text as importe, i.deposito_id, dp.nombre as deposito, i.item_origen_id,
-      coalesce(v.remitado, 0)::text as remitado, coalesce(v.facturado, 0)::text as facturado, coalesce(v.pendiente_remitir, i.cantidad)::text as pendiente
-    from documento_item i left join deposito dp on dp.id = i.deposito_id left join v_documento_pendiente v on v.item_id = i.id where i.documento_id = $1 order by i.orden`, [id]);
+      coalesce(v.remitado, 0)::text as remitado, coalesce(v.facturado, 0)::text as facturado, coalesce(v.pendiente_remitir, i.cantidad)::text as pendiente, (ar.controla_stock is true) as controla_stock
+    from documento_item i left join deposito dp on dp.id = i.deposito_id left join v_documento_pendiente v on v.item_id = i.id left join articulo ar on ar.id = i.articulo_id where i.documento_id = $1 order by i.orden`, [id]);
   const remitos = (await c.consultar(`select d.id, d.punto_venta, d.numero, d.fecha::text as fecha, d.estado from documento_comercial d where d.documento_origen_id = $1 and d.tipo = 'remito_venta' order by d.id`, [id]))
     .map(({ punto_venta, numero, ...r }) => ({ ...r, numero_formateado: numeroFormateado(punto_venta, numero) }));
   const facturas = (await c.consultar(`select distinct cb.id, t.descripcion as tipo, cb.punto_venta, cb.numero from comprobante_item ci join comprobante cb on cb.id = ci.comprobante_id and cb.estado in ('confirmado', 'autorizado') join arca_tipo_comprobante t on t.codigo = cb.tipo_comprobante_codigo
     where ci.documento_item_id in (select id from documento_item where documento_id = $1) order by cb.id`, [id])).map(({ punto_venta, numero, ...x }) => ({ ...x, numero_formateado: numeroFormateado(punto_venta, numero) }));
   const { punto_venta, numero, pr_pv, pr_numero, ...resto } = f;
   const pendiente = f.estado === 'confirmado' && items.some((i) => dec(i.pendiente) > 0n);
-  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), presupuesto: f.presupuesto_id ? { id: f.presupuesto_id, numero_formateado: numeroFormateado(pr_pv, pr_numero) } : null, items, remitos, facturas, pendiente_de_remitir: pendiente, total: texto(dec(f.total)),
+  return { ...resto, numero_formateado: numeroFormateado(punto_venta, numero), presupuesto: f.presupuesto_id ? { id: f.presupuesto_id, numero_formateado: numeroFormateado(pr_pv, pr_numero) } : null, items: items.map(({ controla_stock, ...i }) => ({ ...i, reservado: f.estado === 'confirmado' && controla_stock ? i.pendiente : '0' })), remitos, facturas, pendiente_de_remitir: pendiente, total: texto(dec(f.total)),
     acciones: { modificar: f.estado === 'borrador', confirmar: f.estado === 'borrador', borrar: f.estado === 'borrador', anular: f.estado === 'confirmado', remitir: pendiente } };
 }
 
