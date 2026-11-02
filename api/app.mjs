@@ -17,6 +17,7 @@ import { listarEventos, leerEvento, exportarEventos, verificarCadena } from './t
 import { listarCheques, detalleCheque, pasarCheque, ACCIONES } from './cheques.mjs';
 import { listarEjercicios, previaCierre, cerrarEjercicio, reabrirEjercicio, crearEjercicio, eliminarEjercicio } from './ejercicios.mjs';
 import { calcularOrden, crearOrden, modificarOrden, confirmarOrden, anularOrden, borrarOrden, detalleOrden, listarOrdenes } from './ordenes_compra.mjs';
+import { calcularPresupuesto, crearPresupuesto, modificarPresupuesto, confirmarPresupuesto, anularPresupuesto, borrarPresupuesto, detallePresupuesto, listarPresupuestos } from './presupuestos_venta.mjs';
 import { calcularPedido, crearPedido, modificarPedido, confirmarPedido, anularPedido, borrarPedido, detallePedido, listarPedidos } from './pedidos_venta.mjs';
 import { pendientesDeFacturarVenta, calcularRemitoVenta, crearRemitoVenta, modificarRemitoVenta, confirmarRemitoVenta, anularRemitoVenta, borrarRemitoVenta, detalleRemitoVenta, listarRemitosVenta } from './remitos_venta.mjs';
 import { pendientesDeFacturar, calcularRemito, crearRemito, modificarRemito, confirmarRemito, anularRemito, borrarRemito, detalleRemito, listarRemitos } from './remitos_compra.mjs';
@@ -136,6 +137,35 @@ const RUTAS = [
   }],
   ['GET', '/api/comprobantes', 'ventas.ver', ({ c, q }) => listarComprobantes(c, { ...q, sentido: 'venta' })],      // las compras tienen su propio permiso y su propia ruta
   ['GET', '/api/comprobantes/:id', 'ventas.ver', ({ c, p }) => detalleComprobante(c, p.id, { sentido: 'venta' })],
+  // --- Presupuestos de venta (la cotización al cliente: no mueven stock ni reservan, no generan cobro ni asiento) ---
+  ['GET', '/api/ventas/presupuestos', 'ventas.ver', ({ c, q }) => listarPresupuestos(c, q)],
+  ['POST', '/api/ventas/presupuestos/calcular', 'ventas.emitir', ({ c, cuerpo }) => calcularPresupuesto(c, cuerpo)],
+  ['POST', '/api/ventas/presupuestos', 'ventas.emitir', async ({ c, ctx, cuerpo, origen }) => {
+    const r = await crearPresupuesto(c, ctx, cuerpo), x = r.presupuesto;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Emitió el presupuesto' : 'Guardó como borrador el presupuesto'} ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { estado: 201, cuerpo: { ...x, avisos: r.avisos } };
+  }],
+  ['GET', '/api/ventas/presupuestos/:id', 'ventas.ver', ({ c, p }) => detallePresupuesto(c, p.id)],
+  ['PUT', '/api/ventas/presupuestos/:id', 'ventas.emitir', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await modificarPresupuesto(c, ctx, p.id, cuerpo), x = r.presupuesto;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `${x.estado === 'confirmado' ? 'Emitió el presupuesto' : 'Modificó el presupuesto'} ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return { ...x, avisos: r.avisos };
+  }],
+  ['POST', '/api/ventas/presupuestos/:id/emitir', 'ventas.emitir', async ({ c, ctx, p, origen }) => {
+    const x = await confirmarPresupuesto(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Emitió el presupuesto ${x.numero_formateado}`, detalle: `${x.cliente} · $ ${x.total}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['POST', '/api/ventas/presupuestos/:id/anular', 'ventas.anular', async ({ c, ctx, p, cuerpo, origen }) => {
+    const r = await anularPresupuesto(c, ctx, p.id, cuerpo), x = r.presupuesto;
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Anuló el presupuesto ${x.numero_formateado}`, detalle: `${x.cliente} · motivo: ${r.motivo}`, entidad: 'documento_comercial', entidadId: x.id, origen });
+    return x;
+  }],
+  ['DELETE', '/api/ventas/presupuestos/:id', 'ventas.emitir', async ({ c, ctx, p, origen }) => {
+    const x = await borrarPresupuesto(c, ctx, p.id);
+    await registrarEvento(c, ctx, { categoria: 'comprobantes', accion: `Borró el borrador del presupuesto ${x.numero_formateado}`, detalle: x.cliente, origen });
+    return { estado: 200, cuerpo: { borrado: true } };
+  }],
   // --- Pedidos de venta (lo que pide el cliente: no mueven stock ni reservan, no generan cobro ni asiento) ---
   ['GET', '/api/ventas/pedidos', 'ventas.ver', ({ c, q }) => listarPedidos(c, q)],
   ['POST', '/api/ventas/pedidos/calcular', 'ventas.emitir', ({ c, cuerpo }) => calcularPedido(c, cuerpo)],

@@ -5,6 +5,7 @@ import type { ComprobanteResumen, Pagina } from '../tipos';
 import { Alerta, Campo, Cargando, Etiqueta, Selector, Vacio } from '../ui';
 import { ComprobanteDetalle, ESTADOS } from './ComprobanteDetalle';
 import { PedidosVenta } from './PedidosVenta';
+import { PresupuestosVenta } from './PresupuestosVenta';
 import { RemitosVenta } from './RemitosVenta';
 
 const POR_PAGINA = 25;
@@ -18,7 +19,8 @@ export function Comprobantes() {
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<number | null>(null);
   const [recarga, setRecarga] = useState(0);
-  const [pestana, setPestana] = useState<'facturas' | 'pedidos' | 'remitos'>('facturas');
+  const [pestana, setPestana] = useState<'facturas' | 'presupuestos' | 'pedidos' | 'remitos'>('facturas');
+  const [presupuestoAPedir, setPresupuestoAPedir] = useState<number | null>(null);
   const [pedidoARemitir, setPedidoARemitir] = useState<number | null>(null);
 
   useEffect(() => { setPagina(0); }, [desde, hasta, estado]);
@@ -32,11 +34,11 @@ export function Comprobantes() {
   const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   return (
     <>
-      <div className="cabecera"><div><h1>Comprobantes</h1><p>{pestana === 'pedidos' ? 'Lo que piden los clientes: no reserva stock, se entrega con un remito.' : pestana === 'remitos' ? 'Mercadería entregada a los clientes: sale del stock y se factura después.' : datos ? `${total} ${total === 1 ? 'comprobante' : 'comprobantes'}` : 'Buscando…'}</p></div></div>
+      <div className="cabecera"><div><h1>Comprobantes</h1><p>{pestana === 'presupuestos' ? 'Cotizaciones a los clientes: valen hasta una fecha y, cuando se aceptan, pasan a pedido.' : pestana === 'pedidos' ? 'Lo que piden los clientes: no reserva stock, se entrega con un remito.' : pestana === 'remitos' ? 'Mercadería entregada a los clientes: sale del stock y se factura después.' : datos ? `${total} ${total === 1 ? 'comprobante' : 'comprobantes'}` : 'Buscando…'}</p></div></div>
       <div className="pestanas" role="tablist" aria-label="Comprobantes">
-        {([['facturas', 'Facturas y notas'], ['pedidos', 'Pedidos'], ['remitos', 'Remitos de salida']] as ['facturas' | 'pedidos' | 'remitos', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
+        {([['facturas', 'Facturas y notas'], ['presupuestos', 'Presupuestos'], ['pedidos', 'Pedidos'], ['remitos', 'Remitos de salida']] as ['facturas' | 'presupuestos' | 'pedidos' | 'remitos', string][]).map(([k, n]) => <button key={k} role="tab" aria-selected={pestana === k} className="pestana" onClick={() => setPestana(k)}>{n}</button>)}
       </div>
-      {pestana === 'pedidos' ? <PedidosVenta onRemitir={(id) => { setPedidoARemitir(id); setPestana('remitos'); }} /> : pestana === 'remitos' ? <RemitosVenta pedidoInicial={pedidoARemitir} onConsumido={() => setPedidoARemitir(null)} /> : <>
+      {pestana === 'presupuestos' ? <PresupuestosVenta onPedir={(id) => { setPresupuestoAPedir(id); setPestana('pedidos'); }} /> : pestana === 'pedidos' ? <PedidosVenta presupuestoInicial={presupuestoAPedir} onConsumido={() => setPresupuestoAPedir(null)} onRemitir={(id) => { setPedidoARemitir(id); setPestana('remitos'); }} /> : pestana === 'remitos' ? <RemitosVenta pedidoInicial={pedidoARemitir} onConsumido={() => setPedidoARemitir(null)} /> : <>
       <div className="herramientas">
         <Campo etiqueta="Desde" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
         <Campo etiqueta="Hasta" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />

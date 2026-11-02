@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (33 archivos SQL)
+## 2. Módulos (34 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -53,7 +53,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 29 remito: número del proveedor | `documento_comercial.numero_externo` (el número del remito del papel del proveedor) con un índice único por proveedor y tipo que ignora mayúsculas y los anulados; entra en la guardia (`fn_documento_guardia`): confirmado el documento, no se cambia |
 | 30 factura contra remito | `fn_verificar_factura_remito` y su disparador al confirmar una factura de compra: un renglón con `documento_item_id` tiene que ser de un remito de entrada confirmado del mismo proveedor y empresa, del mismo artículo, y lo facturado (sumando todas las facturas vigentes del renglón) no supera lo que llegó |
 | 31 factura contra remito de venta (el circuito pedido → remito de salida no necesitó cambios del modelo: ya lo cubrían 13 y `v_documento_pendiente`) | `fn_verificar_factura_remito` y su disparador pasan a valer también para ventas: un renglón con `documento_item_id` tiene que ser de un remito de **salida** confirmado del mismo cliente y empresa, del mismo artículo, y lo facturado no supera lo entregado |
-| 32 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 32 pedido contra presupuesto | `fn_verificar_documento` (reemplaza la de 13) aplica también a `pedido_venta` el tope por renglón de origen que ya valía para los remitos: sumando los pedidos confirmados de un renglón del presupuesto no se pide más de lo presupuestado |
+| 33 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

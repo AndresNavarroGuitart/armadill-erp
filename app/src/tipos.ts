@@ -134,11 +134,21 @@ export type RemitoVentaDetalle = RemitoVenta & {
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean };
 };
 export type PreviaRemitoVenta = { cliente: { id: number; razon_social: string }; fecha: string; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string; mueve_stock: boolean }[]; total: string; avisos: string[] };
+/* ---------- presupuestos de venta ---------- */
+export type PresupuestoVenta = { id: number; numero_formateado: string; fecha: string; valido_hasta: string | null; estado: 'borrador' | 'confirmado' | 'anulado'; situacion: string; tercero_id: number; cliente: string; total: string };
+export type PresupuestoVentaDetalle = PresupuestoVenta & {
+  observaciones: string | null;
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; pedido: string; pendiente: string }[];
+  pedidos: { id: number; numero_formateado: string; fecha: string; estado: string }[];
+  acciones: { modificar: boolean; emitir: boolean; borrar: boolean; anular: boolean; pedir: boolean };
+};
+export type PreviaPresupuestoVenta = { cliente: { id: number; razon_social: string }; fecha: string; valido_hasta: string | null; items: { descripcion: string; cantidad: string; precio_unitario: string; importe: string }[]; total: string; avisos: string[] };
+
 /* ---------- pedidos de venta ---------- */
-export type PedidoVenta = { id: number; numero_formateado: string; fecha: string; entrega_prevista: string | null; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; total: string; pendiente_de_remitir: boolean };
+export type PedidoVenta = { id: number; numero_formateado: string; fecha: string; entrega_prevista: string | null; estado: 'borrador' | 'confirmado' | 'anulado'; tercero_id: number; cliente: string; presupuesto: { id: number; numero_formateado: string } | null; total: string; pendiente_de_remitir: boolean };
 export type PedidoVentaDetalle = PedidoVenta & {
   observaciones: string | null;
-  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; remitado: string; facturado: string; pendiente: string }[];
+  items: { id: number; orden: number; articulo_id: number | null; descripcion: string; cantidad: string; precio_unitario: string; importe: string; deposito_id: number | null; deposito: string | null; item_origen_id: number | null; remitado: string; facturado: string; pendiente: string }[];
   remitos: { id: number; numero_formateado: string; fecha: string; estado: string }[];
   acciones: { modificar: boolean; confirmar: boolean; borrar: boolean; anular: boolean; remitir: boolean };
 };

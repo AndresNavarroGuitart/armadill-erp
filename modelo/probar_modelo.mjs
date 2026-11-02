@@ -53,6 +53,9 @@ const usuario = await uno(`insert into usuario (estudio_id, email, nombre) value
 await q(`insert into periodo (empresa_id, desde, hasta, vencimiento_fiscal) values
   ($1,'2024-10-01','2024-10-31','2024-11-15'), ($1,'2026-10-01','2026-10-31','2026-11-15')`, [E]);
 await q(`insert into ejercicio (empresa_id, desde, hasta) values ($1,'2026-01-01','2026-12-31')`, [E]);
+// los contraasientos y otros asientos automáticos se fechan HOY: si el mes actual no está entre los períodos de ejemplo, se agrega (la prueba no puede depender de qué día se corre)
+await q(`insert into periodo (empresa_id, desde, hasta, vencimiento_fiscal) select $1, date_trunc('month', current_date)::date, (date_trunc('month', current_date) + interval '1 month - 1 day')::date, (date_trunc('month', current_date) + interval '1 month 14 days')::date
+  where not exists (select 1 from periodo where empresa_id = $1 and current_date between desde and hasta)`, [E]);
 const ejercicio = await uno(`select id from ejercicio where empresa_id = $1`, [E]);
 
 const cuentas = {};
