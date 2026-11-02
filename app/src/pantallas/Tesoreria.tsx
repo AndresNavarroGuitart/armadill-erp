@@ -81,8 +81,8 @@ function Lista({ tipo, puedeRegistrar }: { tipo: 'cobro' | 'pago'; puedeRegistra
   );
 }
 
-type Medio = { uid: number; medio: keyof typeof MEDIOS; destino: string; importe: string; numero: string; banco: string; cuit: string; emision: string; pago: string; cartera: boolean; chequeId: string };
-const CHEQUE_VACIO = { numero: '', banco: '', cuit: '', emision: '', pago: '', cartera: false, chequeId: '' };
+type Medio = { uid: number; medio: keyof typeof MEDIOS; destino: string; importe: string; numero: string; banco: string; cuit: string; emision: string; pago: string; cartera: boolean; chequeId: string; echeq: boolean; echeqCodigo: string; noALaOrden: boolean; cruzado: boolean; aceptado: boolean };
+const CHEQUE_VACIO = { numero: '', banco: '', cuit: '', emision: '', pago: '', cartera: false, chequeId: '', echeq: false, echeqCodigo: '', noALaOrden: false, cruzado: false, aceptado: false };
 type Ret = { uid: number; tipo: keyof typeof RETENCIONES; jurisdiccion: string; importe: string; numero: string; fecha: string; regimen: string; base: string };
 let contador = 0;
 
@@ -131,7 +131,8 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
           if (m.cartera) return m.chequeId ? [{ medio: 'cheque', cheque_id: Number(m.chequeId) }] : [];                  // el servidor toma el importe del cheque
           if (!m.importe.trim() && !m.numero.trim()) return [];
           return [{ medio: 'cheque', ...(m.importe.trim() ? { importe: aDecimal(m.importe) } : {}), ...(tipo === 'pago' ? { cuenta_bancaria_id: Number(m.destino) || undefined } : {}),
-            cheque: { numero: m.numero.trim(), ...(tipo === 'cobro' ? { banco: m.banco.trim() } : {}), ...(m.cuit.trim() ? { cuit_librador: m.cuit.replace(/\D/g, '') } : {}), ...(m.emision ? { fecha_emision: m.emision } : {}), ...(m.pago ? { fecha_pago: m.pago } : {}) } }];
+            cheque: { numero: m.numero.trim(), ...(tipo === 'cobro' ? { banco: m.banco.trim() } : {}), ...(m.cuit.trim() ? { cuit_librador: m.cuit.replace(/\D/g, '') } : {}), ...(m.emision ? { fecha_emision: m.emision } : {}), ...(m.pago ? { fecha_pago: m.pago } : {}),
+              ...(m.echeq ? { es_echeq: true, echeq_codigo: m.echeqCodigo.trim(), ...(m.noALaOrden ? { caracter: 'no_a_la_orden' } : {}), ...(m.cruzado ? { cruzado: true } : {}), ...(tipo === 'cobro' && m.aceptado ? { aceptado: true } : {}) } : {}) } }];
         }
         return m.importe.trim() ? [{ medio: m.medio, ...(m.medio === 'transferencia' ? { cuenta_bancaria_id: Number(m.destino) || undefined } : { caja_id: Number(m.destino) || undefined }), importe: aDecimal(m.importe) }] : [];
       }),
@@ -218,7 +219,7 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
               {cheque && m.cartera && (
                 <div style={{ gridColumn: '1 / -1' }}>
                   <Selector etiqueta="Cheque de la cartera" value={m.chequeId} error={campos[k + 'cheque_id'] ?? campos[k + 'cheque']} onChange={(e) => cambiarMedio(m.uid, { chequeId: e.target.value, importe: carteraLista.find((c) => String(c.id) === e.target.value)?.importe ?? '' })}>
-                    <option value="">Elegí…</option>{carteraLista.map((c) => <option key={c.id} value={c.id} disabled={usados.has(String(c.id))}>{c.numero} · {c.banco ?? ''} · {moneda(c.importe)}{c.tercero ? ` · de ${c.tercero}` : ''}{c.diferido ? ` · diferido al ${fecha(c.fecha_pago)}` : ''}</option>)}
+                    <option value="">Elegí…</option>{carteraLista.map((c) => <option key={c.id} value={c.id} disabled={usados.has(String(c.id)) || (c.es_echeq && (!c.aceptado_en || c.caracter === 'no_a_la_orden'))}>{c.es_echeq ? 'ECHEQ ' : ''}{c.numero} · {c.banco ?? ''} · {moneda(c.importe)}{c.tercero ? ` · de ${c.tercero}` : ''}{c.diferido ? ` · diferido al ${fecha(c.fecha_pago)}` : ''}{c.es_echeq && !c.aceptado_en ? ' · sin aceptar' : ''}{c.es_echeq && c.caracter === 'no_a_la_orden' ? ' · no a la orden' : ''}</option>)}
                   </Selector>
                 </div>
               )}
@@ -229,6 +230,14 @@ function FormPago({ tipo, onCerrar, onHecho }: { tipo: 'cobro' | 'pago'; onCerra
                   {tipo === 'cobro' && <Campo etiqueta="CUIT del librador" inputMode="numeric" value={m.cuit} error={campos[k + 'cheque.cuit_librador']} onChange={(e) => cambiarMedio(m.uid, { cuit: e.target.value })} />}
                   <Campo etiqueta="Fecha de emisión" type="date" value={m.emision} error={campos[k + 'cheque.fecha_emision']} onChange={(e) => cambiarMedio(m.uid, { emision: e.target.value })} />
                   <Campo etiqueta="Fecha de pago (si es diferido)" type="date" value={m.pago} error={campos[k + 'cheque.fecha_pago']} onChange={(e) => cambiarMedio(m.uid, { pago: e.target.value })} />
+                  <label className="btn" style={{ alignSelf: 'end' }}><input type="checkbox" checked={m.echeq} onChange={(e) => cambiarMedio(m.uid, { echeq: e.target.checked })} /> Es un ECHEQ</label>
+                  {m.echeq && <>
+                    <Campo etiqueta="Código del ECHEQ" value={m.echeqCodigo} error={campos[k + 'cheque.echeq_codigo'] ?? campos[k + 'cheque.es_echeq']} onChange={(e) => cambiarMedio(m.uid, { echeqCodigo: e.target.value })} />
+                    <Selector etiqueta="Carácter" value={m.noALaOrden ? 'no' : 'si'} onChange={(e) => cambiarMedio(m.uid, { noALaOrden: e.target.value === 'no' })}><option value="si">A la orden</option><option value="no">No a la orden</option></Selector>
+                    <label className="btn" style={{ alignSelf: 'end' }}><input type="checkbox" checked={m.cruzado} onChange={(e) => cambiarMedio(m.uid, { cruzado: e.target.checked })} /> Cruzado</label>
+                    {tipo === 'cobro' && <label className="btn" style={{ alignSelf: 'end' }}><input type="checkbox" checked={m.aceptado} onChange={(e) => cambiarMedio(m.uid, { aceptado: e.target.checked })} /> Ya lo acepté</label>}
+                    <p className="muted" style={{ gridColumn: '1 / -1', margin: 0 }}>Los datos del ECHEQ se cargan a mano: el sistema no está conectado al banco. {tipo === 'cobro' ? 'Un ECHEQ recibido no se puede depositar ni entregar hasta aceptarlo.' : ''}</p>
+                  </>}
                 </div>
               )}
             </div>);
@@ -463,12 +472,14 @@ const ACCION_CHEQUE: Record<string, { boton: string; titulo: string; ayuda: stri
   acreditar: { boton: 'Acreditar', titulo: 'Acreditar el cheque', ayuda: 'Confirmá que el banco ya lo acreditó: la plata entra en la cuenta bancaria.' },
   rechazar: { boton: 'Rechazar', titulo: 'Registrar el rechazo', ayuda: 'El cheque rebotó: el cliente vuelve a deber ese importe.' },
   debitar: { boton: 'Registrar débito', titulo: 'Registrar el débito', ayuda: 'El banco debitó el cheque de la cuenta: la plata sale de la cuenta bancaria.' },
+  aceptar: { boton: 'Aceptar ECHEQ', titulo: 'Aceptar el ECHEQ', ayuda: 'Registrá que ya lo aceptaste en el banco: recién ahí se puede depositar o entregar. El sistema no se conecta al banco, la aceptación se anota a mano.' },
 };
 const cobrableDesde = (c: Cheque) => c.fecha_pago ?? c.fecha_emision;
 
 function Cheques({ puedeGestionar }: { puedeGestionar: boolean }) {
   const [estado, setEstado] = useState('');
   const [origen, setOrigen] = useState('');
+  const [tipoCheque, setTipoCheque] = useState('');
   const [texto, setTexto] = useState('');
   const q = useRetraso(texto, 300);
   const [pagina, setPagina] = useState(0);
@@ -476,20 +487,21 @@ function Cheques({ puedeGestionar }: { puedeGestionar: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [recarga, setRecarga] = useState(0);
   const [abierto, setAbierto] = useState<number | null>(null);
-  useEffect(() => { setPagina(0); }, [estado, origen, q]);
+  useEffect(() => { setPagina(0); }, [estado, origen, tipoCheque, q]);
   useEffect(() => {
     const ctl = new AbortController();
-    obtener<Pagina<Cheque> & { resumen: ResumenCheque[] }>('/api/cheques', { estado, origen, q: q.trim(), limite: POR_PAGINA, desplazamiento: pagina * POR_PAGINA }, ctl.signal).then((r) => { setDatos(r); setError(null); }).catch((e) => { if ((e as Error).name !== 'AbortError') setError(e.message); });
+    obtener<Pagina<Cheque> & { resumen: ResumenCheque[] }>('/api/cheques', { estado, origen, echeq: tipoCheque, q: q.trim(), limite: POR_PAGINA, desplazamiento: pagina * POR_PAGINA }, ctl.signal).then((r) => { setDatos(r); setError(null); }).catch((e) => { if ((e as Error).name !== 'AbortError') setError(e.message); });
     return () => ctl.abort();
-  }, [estado, origen, q, pagina, recarga]);
+  }, [estado, origen, tipoCheque, q, pagina, recarga]);
   const total = datos?.total ?? 0, paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   const pendientes = (datos?.resumen ?? []).filter((r) => ['en_cartera', 'depositado', 'emitido'].includes(r.estado) && r.cantidad > 0);
   return (
     <>
       <div className="herramientas">
-        <Campo etiqueta="Buscar" type="search" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Número, banco o persona" />
+        <Campo etiqueta="Buscar" type="search" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Número, código de ECHEQ, banco o persona" />
         <Selector etiqueta="Estado" value={estado} onChange={(e) => setEstado(e.target.value)}><option value="">Todos</option>{Object.entries(ESTADO_CHEQUE).map(([k, v]) => <option key={k} value={k}>{k === 'cobrado' ? 'Debitado' : v.texto}</option>)}</Selector>
         <Selector etiqueta="De quién" value={origen} onChange={(e) => setOrigen(e.target.value)}><option value="">Todos</option><option value="tercero">De terceros (recibidos)</option><option value="propio">Propios (emitidos)</option></Selector>
+        <Selector etiqueta="Tipo" value={tipoCheque} onChange={(e) => setTipoCheque(e.target.value)}><option value="">Todos</option><option value="true">ECHEQ</option><option value="false">De papel</option></Selector>
       </div>
       {pendientes.length > 0 && <p className="muted" style={{ margin: '0 0 10px' }}>{pendientes.map((r) => `${r.origen === 'propio' ? 'Propios' : 'De terceros'} ${ESTADO_CHEQUE[r.estado].texto.toLowerCase()}: ${r.cantidad} por ${moneda(r.importe)}`).join(' · ')}</p>}
       {error && <Alerta>{error}</Alerta>}
@@ -500,11 +512,11 @@ function Cheques({ puedeGestionar }: { puedeGestionar: boolean }) {
           <thead><tr><th>Cheque</th><th>Persona</th><th>Se puede cobrar</th><th className="num">Importe</th><th>Estado</th></tr></thead>
           <tbody>{datos.datos.map((c) => (
             <tr key={c.id} className="clic" onClick={() => setAbierto(c.id)}>
-              <td><strong>{c.numero}</strong><div className="muted">{c.origen === 'propio' ? `Propio · ${c.cuenta_banco ?? ''}` : c.banco}</div></td>
+              <td><strong>{c.numero}</strong> {c.es_echeq && <Etiqueta tono="info">ECHEQ</Etiqueta>}<div className="muted">{c.origen === 'propio' ? `Propio · ${c.cuenta_banco ?? ''}` : c.banco}{c.echeq_codigo ? ` · ${c.echeq_codigo}` : ''}</div></td>
               <td>{c.tercero ?? '—'}</td>
               <td>{cobrableDesde(c) ? fecha(cobrableDesde(c)) : '—'} {c.diferido && <Etiqueta tono="aviso">Diferido</Etiqueta>}</td>
               <td className="num">{moneda(c.importe)}</td>
-              <td><Etiqueta tono={ESTADO_CHEQUE[c.estado]?.tono ?? 'neutro'}>{ESTADO_CHEQUE[c.estado]?.texto ?? c.estado}</Etiqueta></td>
+              <td><Etiqueta tono={ESTADO_CHEQUE[c.estado]?.tono ?? 'neutro'}>{ESTADO_CHEQUE[c.estado]?.texto ?? c.estado}</Etiqueta>{c.es_echeq && c.origen === 'tercero' && c.estado === 'en_cartera' && !c.aceptado_en && <> <Etiqueta tono="aviso">Sin aceptar</Etiqueta></>}</td>
             </tr>))}</tbody>
         </table></div>
       )}
@@ -532,7 +544,9 @@ function DetalleCheque({ id, puedeGestionar, onCerrar, onCambio }: { id: number;
             {c.origen === 'tercero' && c.cuenta_banco && <><dt>Depositado en</dt><dd>{c.cuenta_banco}{c.cuenta_numero ? ` ${c.cuenta_numero}` : ''}</dd></>}
             {c.origen === 'propio' && c.tercero && <><dt>Entregado a</dt><dd>{c.tercero}</dd></>}
             <dt>Emisión</dt><dd>{fecha(c.fecha_emision)}</dd><dt>Fecha de pago</dt><dd>{fecha(c.fecha_pago)}</dd>
+            {c.es_echeq && <><dt>ECHEQ</dt><dd>{c.echeq_codigo} · {c.caracter === 'no_a_la_orden' ? 'no a la orden' : 'a la orden'}{c.cruzado ? ' · cruzado' : ''}</dd>{c.origen === 'tercero' && <><dt>Aceptación</dt><dd>{c.aceptado_en ? `Aceptado el ${fecha(c.aceptado_en)}` : 'Pendiente de aceptar'}</dd></>}</>}
           </dl>
+          {c.es_echeq && <p className="muted" style={{ margin: '8px 0 0' }}>Datos cargados a mano: el sistema no está conectado al banco ni a la Cámara.</p>}
           <h3 style={{ margin: '16px 0 6px' }}>Historial</h3>
           <ul style={{ margin: 0, paddingLeft: 18 }}>{c.eventos.map((e) => <li key={e.id}>{fecha(e.fecha)} · <strong>{ESTADO_CHEQUE[e.estado_nuevo]?.texto ?? e.estado_nuevo}</strong>{e.nota ? ` — ${e.nota}` : ''}</li>)}</ul>
           {puedeGestionar && c.acciones.length > 0 && <div className="pie-form">{c.acciones.map((a) => <button key={a} className={a === 'rechazar' ? 'btn peligro' : 'btn primario'} onClick={() => setAccion(a)}>{ACCION_CHEQUE[a].boton}</button>)}</div>}

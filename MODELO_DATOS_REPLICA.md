@@ -17,7 +17,7 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | Stock | libro de movimientos de solo agregar; política de stock negativo por empresa | el original permite −2 sin avisar |
 | Catálogos ARCA | tablas globales marcadas `verificado = false` hasta cargarlas desde `FEParamGet*` | hardcodear en el código |
 
-## 2. Módulos (36 archivos SQL)
+## 2. Módulos (37 archivos SQL)
 
 | Archivo | Contenido |
 |---|---|
@@ -56,7 +56,8 @@ Modelo **nuevo y limpio** para un producto destinado a estudios contables (multi
 | 32 pedido contra presupuesto | `fn_verificar_documento` (reemplaza la de 13) aplica también a `pedido_venta` el tope por renglón de origen que ya valía para los remitos: sumando los pedidos confirmados de un renglón del presupuesto no se pide más de lo presupuestado |
 | 33 factura contra pedido | `fn_verificar_factura_remito` acepta también renglones de un pedido de venta confirmado del mismo cliente y artículo (factura sin remito: lo entregado por remitos + lo facturado directo no supera lo pedido); `fn_verificar_documento` suma lo facturado directo al tope de los remitos; `v_documento_pendiente` cuenta lo facturado directo como entregado (`remitado`) y lo descuenta de `pendiente_remitir` |
 | 34 factura contra orden de compra | espejo de 33 para compras: `fn_verificar_factura_remito` acepta renglones de una orden de compra emitida del mismo proveedor (factura sin remito: lo recibido por remitos + lo facturado directo no supera lo pedido) y `fn_verificar_documento` suma lo facturado directo al tope de los remitos de entrada |
-| 35 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
+| 35 ECHEQ | `cheque.es_echeq`, `echeq_codigo` (obligatorio y único por empresa si es ECHEQ, ignora mayúsculas y los anulados), `caracter` (a la orden / no a la orden), `cruzado` y `aceptado_en`; restricción de coherencia (un cheque de papel no lleva código ni aceptación; la aceptación es solo de terceros) y un disparador: los datos del ECHEQ no se modifican, la aceptación no se deshace, y un ECHEQ de tercero sin aceptar no sale de la cartera (ni depositado ni entregado), ni se entrega uno no a la orden |
+| 36 endurecimiento Supabase | se carga **último**: les quita a `anon` y `authenticated` todo acceso (incluidas las funciones de identidad), deja las funciones del modelo ejecutables **solo** por `app_usuario` (y únicamente las que ya podía ejecutar) y hace que lo que se cree después nazca cerrado. Sin esos roles solo aplica lo de las funciones. Ver [api/LEEME.md](api/LEEME.md) |
 
 ## 3. Invariantes que impone la base (y el original no)
 

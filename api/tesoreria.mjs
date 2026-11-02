@@ -85,7 +85,8 @@ const ESQUEMA = {
   tercero_id: { tipo: 'entero', min: 1, requerido: true }, fecha: { tipo: 'fecha' }, observaciones: { tipo: 'texto', max: 500 }, descuento: { tipo: 'importe', min: 0, max: 999999999999 },
   imputaciones: { tipo: 'lista', max: 100, elemento: { comprobante_id: { tipo: 'entero', min: 1, requerido: true }, importe: { tipo: 'importe', min: 0.01, max: 999999999999, requerido: true } } },
   medios: { tipo: 'lista', max: 20, elemento: { medio: { tipo: 'enum', valores: ['efectivo', 'tarjeta', 'transferencia', 'cheque'], requerido: true }, caja_id: { tipo: 'entero', min: 1 }, cuenta_bancaria_id: { tipo: 'entero', min: 1 }, cheque_id: { tipo: 'entero', min: 1 },
-    cheque: { tipo: 'objeto', campos: { numero: { tipo: 'texto', min: 1, max: 20, requerido: true }, banco: { tipo: 'texto', min: 2, max: 60 }, cuit_librador: { tipo: 'texto', max: 11 }, fecha_emision: { tipo: 'fecha' }, fecha_pago: { tipo: 'fecha' } } },
+    cheque: { tipo: 'objeto', campos: { numero: { tipo: 'texto', min: 1, max: 20, requerido: true }, banco: { tipo: 'texto', min: 2, max: 60 }, cuit_librador: { tipo: 'texto', max: 11 }, fecha_emision: { tipo: 'fecha' }, fecha_pago: { tipo: 'fecha' },
+      es_echeq: { tipo: 'booleano' }, echeq_codigo: { tipo: 'texto', min: 4, max: 40 }, caracter: { tipo: 'enum', valores: ['a_la_orden', 'no_a_la_orden'] }, cruzado: { tipo: 'booleano' }, aceptado: { tipo: 'booleano' } } },
     importe: { tipo: 'importe', min: 0.01, max: 999999999999 } } },
   retenciones: { tipo: 'lista', max: 20, elemento: {
     tipo: { tipo: 'enum', valores: ['iva', 'ganancias', 'iibb', 'suss'], requerido: true }, regimen_id: { tipo: 'entero', min: 1 }, jurisdiccion_codigo: { tipo: 'entero', min: 1, max: 32767 }, base_imponible: { tipo: 'importe', min: 0, max: 999999999999 },
@@ -129,9 +130,11 @@ async function prepararPago(c, ctx, tipoPago, cuerpo) {
       else if (m.cheque_id) {
         if (tipoPago === 'cobro') errores[k + 'cheque_id'] = 'en un cobro se recibe un cheque nuevo: ingresá sus datos';
         else {
-          const ch = await c.uno('select id, numero, banco, importe::text importe, origen, estado from cheque where id = $1', [m.cheque_id]);
+          const ch = await c.uno('select id, numero, banco, importe::text importe, origen, estado, es_echeq, caracter, aceptado_en from cheque where id = $1', [m.cheque_id]);
           if (!ch) errores[k + 'cheque_id'] = 'el cheque no existe';
           else if (ch.origen !== 'tercero' || ch.estado !== 'en_cartera') errores[k + 'cheque_id'] = `el cheque ${ch.numero} no está en la cartera (está ${ch.estado.replace('_', ' ')})`;
+          else if (ch.es_echeq && !ch.aceptado_en) errores[k + 'cheque_id'] = `el ECHEQ ${ch.numero} todavía no fue aceptado: aceptalo antes de entregarlo`;
+          else if (ch.es_echeq && ch.caracter === 'no_a_la_orden') errores[k + 'cheque_id'] = `el ECHEQ ${ch.numero} es no a la orden: no se endosa a un tercero (se transmite por cesión)`;
           else if (idsCheque.has(ch.id)) errores[k + 'cheque_id'] = 'ese cheque está repetido';
           else {
             idsCheque.add(ch.id);
@@ -142,6 +145,15 @@ async function prepararPago(c, ctx, tipoPago, cuerpo) {
       } else if (m.cheque) {
         const x = m.cheque;
         if (!m.importe) errores[k + 'importe'] = 'es obligatorio';
+        if (x.es_echeq) {
+          if (!x.echeq_codigo) errores[k + 'cheque.echeq_codigo'] = 'es obligatorio: es el código que da el banco';
+          else {
+            const claveE = `e|${x.echeq_codigo.toLowerCase()}`;
+            if (nuevos.has(claveE) || await c.uno("select 1 x from cheque where es_echeq and lower(echeq_codigo) = lower($1) and estado <> 'anulado'", [x.echeq_codigo])) errores[k + 'cheque.echeq_codigo'] = 'ya hay un ECHEQ con ese código';
+            nuevos.add(claveE);
+          }
+          if (x.aceptado && tipoPago !== 'cobro') errores[k + 'cheque.aceptado'] = 'solo un ECHEQ que se recibe se acepta';
+        } else if (x.echeq_codigo || x.aceptado || x.cruzado || x.caracter) errores[k + 'cheque.es_echeq'] = 'marcá que es un ECHEQ para cargar su código, carácter o aceptación';
         if (x.cuit_librador && !cuitValido(x.cuit_librador)) errores[k + 'cheque.cuit_librador'] = 'el CUIT no es válido';
         if (x.fecha_emision && x.fecha_emision > hoy) errores[k + 'cheque.fecha_emision'] = 'la fecha de emisión no puede ser futura';
         if (x.fecha_pago && x.fecha_emision && x.fecha_pago < x.fecha_emision) errores[k + 'cheque.fecha_pago'] = 'no puede ser anterior a la fecha de emisión';
@@ -154,6 +166,7 @@ async function prepararPago(c, ctx, tipoPago, cuerpo) {
             nuevos.add(clave);
           }
           if (x.fecha_pago && x.fecha_pago < hace30) avisos.push(`El cheque ${x.numero} tiene más de 30 días desde su fecha de pago: puede estar vencido para presentarlo al banco.`);
+          if (x.es_echeq && !x.aceptado) avisos.push(`El ECHEQ ${x.numero} queda pendiente de aceptación: no se puede depositar ni entregar hasta aceptarlo.`);
           medios.push({ ...m, importe: m.importe ?? '0', destino: `Cheque ${x.numero} · ${x.banco ?? ''}`, clave: `ch${i}`, saldoSql: null, nuevo: { origen: 'tercero', ...x } });
         } else {
           const b = bancos.find((y) => y.id === m.cuenta_bancaria_id);
@@ -247,8 +260,9 @@ export async function registrarPago(c, ctx, tipoPago, cuerpo, { claveIdempotenci
     let chequeId = m.cheque_id ?? null;
     if (m.nuevo) {                                                                   // el cheque nace con el cobro (de un tercero) o con el pago (propio); la base lo pasa de estado al confirmar
       const x = m.nuevo;
-      chequeId = (await c.uno('insert into cheque (empresa_id, origen, numero, banco, cuit_librador, importe, fecha_emision, fecha_pago, tercero_id, cuenta_bancaria_id, estado) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id',
-        [ctx.empresaId, x.origen, x.numero, x.banco ?? null, x.cuit_librador ?? null, m.importe, x.fecha_emision ?? null, x.fecha_pago ?? null, p.tercero.id, x.cuenta_bancaria_id ?? null, x.origen === 'tercero' ? 'en_cartera' : 'emitido'])).id;
+      chequeId = (await c.uno('insert into cheque (empresa_id, origen, numero, banco, cuit_librador, importe, fecha_emision, fecha_pago, tercero_id, cuenta_bancaria_id, estado, es_echeq, echeq_codigo, caracter, cruzado, aceptado_en) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning id',
+        [ctx.empresaId, x.origen, x.numero, x.banco ?? null, x.cuit_librador ?? null, m.importe, x.fecha_emision ?? null, x.fecha_pago ?? null, p.tercero.id, x.cuenta_bancaria_id ?? null, x.origen === 'tercero' ? 'en_cartera' : 'emitido',
+         !!x.es_echeq, x.es_echeq ? x.echeq_codigo : null, x.caracter ?? 'a_la_orden', !!x.cruzado, x.es_echeq && x.origen === 'tercero' && x.aceptado ? p.fecha : null])).id;
     }
     const esCheque = m.medio === 'cheque';
     await c.consultar('insert into pago_medio (empresa_id, pago_id, medio, caja_id, cuenta_bancaria_id, cheque_id, importe) values ($1,$2,$3,$4,$5,$6,$7)', [ctx.empresaId, cab.id, m.medio, esCheque ? null : m.caja_id ?? null, esCheque ? null : m.cuenta_bancaria_id ?? null, chequeId, m.importe]);
